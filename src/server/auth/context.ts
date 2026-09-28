@@ -133,10 +133,12 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
 
   const ownedBranchIds = [...new Set(memberships.map((membership) => membership.branchId))];
 
+  // Escopo de rede enxerga TODAS as unidades, inclusive as inativas: sem isso
+  // não seria possível reativar uma unidade desativada. A listagem continua
+  // filtrando por situação.
   const branchIds = isNetworkScope
     ? (
         await prisma.branch.findMany({
-          where: { active: true },
           select: { id: true },
           orderBy: { code: "asc" },
         })

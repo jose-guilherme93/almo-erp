@@ -33,10 +33,10 @@ Não pule fase e não "adiante" parte de fase futura.
 
 ## Progresso
 
-- [ ] FASE 00 — Fundamentos
-- [ ] FASE 01 — Schema
-- [ ] FASE 02 — Autenticação
-- [ ] FASE 03 — RBAC
+- [x] FASE 00 — Fundamentos
+- [x] FASE 01 — Schema
+- [x] FASE 02 — Autenticação
+- [x] FASE 03 — RBAC
 - [ ] FASE 04 — Filiais
 - [ ] FASE 05 — Catálogo
 - [ ] FASE 06 — Estoque

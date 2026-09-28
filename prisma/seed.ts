@@ -260,7 +260,7 @@ const BRANCHES = [
     code: "MATRIZ",
     name: "Matriz",
     type: "MATRIX" as const,
-    cnpj: "12345678000199",
+    cnpj: "12345678000195",
     city: "São Paulo",
     state: "SP",
     district: "Centro",
@@ -272,7 +272,7 @@ const BRANCHES = [
     code: "FIL-SP",
     name: "Unidade São Paulo — Zona Sul",
     type: "BRANCH" as const,
-    cnpj: "12345678000280",
+    cnpj: "12345678000276",
     city: "São Paulo",
     state: "SP",
     district: "Santo Amaro",
@@ -284,7 +284,7 @@ const BRANCHES = [
     code: "FIL-RJ",
     name: "Unidade Rio de Janeiro",
     type: "BRANCH" as const,
-    cnpj: "12345678000360",
+    cnpj: "12345678000357",
     city: "Rio de Janeiro",
     state: "RJ",
     district: "Botafogo",
@@ -385,19 +385,19 @@ async function seedPermissionsAndRoles(): Promise<void> {
 
 async function seedCompany(): Promise<void> {
   await prisma.company.upsert({
-    where: { cnpj: "12345678000199" },
+    where: { cnpj: "12345678000195" },
     update: { legalName: "Almo ERP Demonstração LTDA", tradeName: "Almo ERP" },
     create: {
       legalName: "Almo ERP Demonstração LTDA",
       tradeName: "Almo ERP",
-      cnpj: "12345678000199",
+      cnpj: "12345678000195",
     },
   });
 }
 
 async function seedBranches(): Promise<Record<string, string>> {
   const company = await prisma.company.findUniqueOrThrow({
-    where: { cnpj: "12345678000199" },
+    where: { cnpj: "12345678000195" },
   });
 
   const ids: Record<string, string> = {};

@@ -114,7 +114,6 @@ const ALMOXARIFE: readonly PermissionKey[] = [
 ];
 
 const SOLICITANTE: readonly PermissionKey[] = [
-  "filial:read",
   "categoria:read",
   "unidade-medida:read",
   "item:read",
