@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Env — nunca versionar
+.env
+.env.*
+!.env.example
+
+# Testes
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# Editor / SO
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Dados sensíveis de desenvolvimento
+/tmp/
+*.sqlite
+*.sqlite3
