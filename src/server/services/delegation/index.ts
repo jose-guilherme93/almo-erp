@@ -86,7 +86,13 @@ function visibilityFilter(context: AuthContext): Prisma.DelegationWhereInput {
   }
 
   return {
-    OR: [{ fromSectorId: { in: context.sectorIds } }, { toSectorId: { in: context.sectorIds } }],
+    OR: [
+      { fromSectorId: { in: context.sectorIds } },
+      { toSectorId: { in: context.sectorIds } },
+      // Quem abriu a demanda acompanha as etapas dela, mesmo sem ser do setor.
+      { request: { requesterId: context.user.id } },
+      { maintenanceRequest: { requesterId: context.user.id } },
+    ],
   };
 }
 

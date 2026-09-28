@@ -44,6 +44,7 @@ export default async function ReparosPage({
   const params = await searchParams;
   const context = await requirePagePermission("manutencao:read");
 
+  const canOverview = context.hasPermission("manutencao:overview");
   const mineOnly = firstParam(params, "meus") === "1";
 
   const result = await listMaintenanceRequests(context, {
@@ -117,8 +118,12 @@ export default async function ReparosPage({
   return (
     <PageBody>
       <PageHeader
-        title="Chamados de reparo"
-        description="Manutenção predial e de equipamentos das unidades."
+        title={canOverview ? "Chamados" : "Meus chamados"}
+        description={
+          canOverview
+            ? "Manutenção, TI e demais setores de atendimento."
+            : "Reparos e chamados que você abriu."
+        }
         action={
           context.hasPermission("manutencao:create") ? (
             <Button asChild>
@@ -166,17 +171,19 @@ export default async function ReparosPage({
 
         <ClearFilters paramKeys={["busca", "tipo", "situacao", "prioridade", "meus"]} />
 
-        <Link
-          href={mineOnly ? "/reparos" : "/reparos?meus=1"}
-          aria-pressed={mineOnly}
-          className={
-            mineOnly
-              ? "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-md px-3 text-sm"
-              : "border-input hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm"
-          }
-        >
-          Só os meus
-        </Link>
+        {canOverview ? (
+          <Link
+            href={mineOnly ? "/reparos" : "/reparos?meus=1"}
+            aria-pressed={mineOnly}
+            className={
+              mineOnly
+                ? "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-md px-3 text-sm"
+                : "border-input hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm"
+            }
+          >
+            Só os meus
+          </Link>
+        ) : null}
       </div>
 
       <DataTable

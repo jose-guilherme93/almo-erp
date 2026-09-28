@@ -110,6 +110,7 @@ async function newRepair() {
 beforeAll(async () => {
   try {
     await prisma.$queryRaw`SELECT 1`;
+    databaseAvailable = true;
   } catch {
     databaseAvailable = false;
     return;
@@ -305,9 +306,33 @@ describe.runIf(process.env["DATABASE_URL"])("encaminhamento de etapa", () => {
 
     expect(inbox.items.length).toBeGreaterThan(0);
 
-    // Quem não é do setor e não tem visão geral não abre a etapa.
-    await expect(getDelegation(autorContext(), inbox.items[0]?.id ?? "")).rejects.toMatchObject({
+    // Quem não é do setor, não abriu a demanda e não tem visão geral não abre a etapa.
+    const outsider = makeAuthContext({
+      userId: "outsider-sem-setor",
+      memberships: [{ branchId, roleSlug: "CONSULTA" }],
+      permissions: ["manutencao:read"],
+      activeBranchId: branchId,
+      sectorIds: ["setor-que-nao-participa"],
+    });
+
+    await expect(getDelegation(outsider, inbox.items[0]?.id ?? "")).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+
+  it("quem abriu a demanda acompanha as etapas dela", async () => {
+    const request = await newRepair();
+
+    const { delegationId } = await createDelegation(almoxContext(), {
+      entityType: "MAINTENANCE",
+      entityId: request.id,
+      toSectorId: tiSectorId,
+      reason: "Análise técnica.",
+    });
+
+    const detail = await getDelegation(autorContext(), delegationId);
+
+    expect(detail.status).toBe("PENDING");
+    expect(detail.toSector.name).toBeTruthy();
   });
 });
