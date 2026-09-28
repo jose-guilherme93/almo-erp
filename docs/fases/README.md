@@ -46,7 +46,7 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 10 — Dashboards
 - [x] FASE 11 — Inventário
 - [x] FASE 12 — Relatórios
-- [ ] FASE 13 — Hardening
+- [x] FASE 13 — Hardening
 
 ## Dependências entre fases
 

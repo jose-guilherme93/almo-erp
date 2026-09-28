@@ -3,59 +3,116 @@
 Mini ERP de almoxarifado: **estoque**, **solicitação de materiais** e **entrega de materiais**,
 organizados em uma **matriz** e **unidades (filiais)** espalhadas por bairros e cidades.
 
-> **Status: projeto documentado, nada implementado ainda.**
-> Toda a especificação está em [`AGENTS.md`](./AGENTS.md) e [`docs/`](./docs).
+## Estado do projeto
+
+Todas as 14 fases do plano estão implementadas:
+
+| Fase | Entrega |
+|---|---|
+| 00 | Fundamentos: Next.js 16, Postgres 17, Prisma 7, Tailwind 4 + shadcn, Vitest, Playwright, CI |
+| 01 | Modelo de dados completo (15 enums, 28 tabelas) + seed idempotente |
+| 02 | Login Google restrito a e-mail corporativo aprovado |
+| 03 | RBAC por filial, usuários, papéis e políticas de e-mail |
+| 04 | Cadastro completo de unidades e locais de estoque |
+| 05 | Catálogo de materiais com leitura de código de barras |
+| 06 | Estoque: ledger transacional, saldos, entradas, ajustes e reservas |
+| 07 | Transferências entre unidades com recebimento parcial |
+| 08 | Solicitações: pedido → aprovação → entrega, com comprovante |
+| 09 | Notificações: alerta no dashboard de quem responde |
+| 10 | Dashboards por perfil: matriz, unidade e solicitante |
+| 11 | Inventário: contagem, divergência e ajuste |
+| 12 | Relatórios com exportação CSV |
+| 13 | Hardening: auditoria, configurações, cabeçalhos de segurança e manual |
 
 ## Documentação
 
 | Arquivo | Conteúdo |
 |---|---|
-| [`AGENTS.md`](./AGENTS.md) | **Comece aqui.** Convenções obrigatórias, regras de ouro, stack, Definition of Done e anti-patterns. É o contrato de trabalho para agentes de IA e humanos. |
-| [`docs/ARQUITETURA.md`](./docs/ARQUITETURA.md) | Domínio, cadastro de filial, RBAC, autenticação, estoque, transferências, solicitações, notificações, dashboards e mapa de rotas. |
-| [`docs/fases/README.md`](./docs/fases/README.md) | Ordem de execução das 14 fases, dependências e progresso. |
-
-## As 14 fases
-
-| # | Fase | Entrega |
-|---|---|---|
-| 00 | [Fundamentos](docs/fases/FASE-00-fundamentos.md) | projeto, Docker/Postgres, Prisma, lint, testes, CI |
-| 01 | [Schema](docs/fases/FASE-01-schema.md) | Prisma completo + migrations + seed |
-| 02 | [Autenticação](docs/fases/FASE-02-autenticacao.md) | Google OAuth restrito a e-mail corporativo aprovado |
-| 03 | [RBAC](docs/fases/FASE-03-rbac-usuarios.md) | papéis, permissões, escopo por filial, usuários e papéis editáveis |
-| 04 | [Filiais](docs/fases/FASE-04-filiais.md) | cadastro completo de matriz/unidades + locais de almoxarifado |
-| 05 | [Catálogo](docs/fases/FASE-05-catalogo.md) | categorias, unidades de medida, materiais, código de barras |
-| 06 | [Estoque](docs/fases/FASE-06-estoque.md) | ledger transacional, saldos, entradas, saídas, ajustes, reservas |
-| 07 | [Transferências](docs/fases/FASE-07-transferencias.md) | matriz ↔ filiais, recebimento parcial, devolução |
-| 08 | [Solicitações](docs/fases/FASE-08-solicitacoes.md) | pedir → aprovar → preparar → entregar, com comprovante |
-| 09 | [Notificações](docs/fases/FASE-09-notificacoes.md) | alerta no dashboard de quem responde + caixa de entrada |
-| 10 | [Dashboards](docs/fases/FASE-10-dashboards.md) | dashboard da matriz, dashboard da unidade, home do solicitante |
-| 11 | [Inventário](docs/fases/FASE-11-inventario.md) | contagem, divergência, ajuste |
-| 12 | [Relatórios](docs/fases/FASE-12-relatorios.md) | consumo, reposição, valor de estoque, auditoria |
-| 13 | [Hardening](docs/fases/FASE-13-hardening.md) | segurança, performance, e2e, deploy, manual |
+| [`AGENTS.md`](./AGENTS.md) | **Comece aqui.** Convenções obrigatórias, regras de ouro, stack e anti-patterns. É o contrato de trabalho do código. |
+| [`docs/ARQUITETURA.md`](./docs/ARQUITETURA.md) | Domínio: filial, RBAC, estoque, transferências, solicitações, notificações e rotas. |
+| [`docs/MANUAL.md`](./docs/MANUAL.md) | Manual do usuário final, por perfil. |
+| [`docs/DECISOES.md`](./docs/DECISOES.md) | Por que cada decisão técnica foi tomada. |
+| [`docs/fases/`](./docs/fases/README.md) | O plano de execução, fase por fase. |
 
 ## Stack
 
-Next.js 16 (App Router) · TypeScript · Auth.js v5 (Google) · PostgreSQL 17 · Prisma 6 ·
-Zod 4 · Tailwind 4 + shadcn/ui · Recharts · Vitest + Playwright.
-Detalhes e versões fixadas em [`AGENTS.md` §2](./AGENTS.md).
+Next.js 16 (App Router, Turbopack) · TypeScript strict · Auth.js v5 (Google) ·
+PostgreSQL 17 · Prisma 7 (driver adapter) · Zod 4 · Tailwind 4 + shadcn/ui ·
+Recharts · Vitest + Playwright.
 
-## As três telas principais
+## Como rodar
 
-- **`/dashboard`** — só admin da matriz: consolidado de todas as unidades.
-- **`/dashboard/unidade/[id]`** — só admin da unidade: fila de chamados, entregas pendentes,
-  transferências a receber, itens abaixo do mínimo, e o alerta de novas solicitações.
-- **`/solicitacoes/nova`** — qualquer usuário logado pede material;
-  **`/meu`** acompanha o próprio pedido.
+```bash
+# 1. Requisitos
+node -v     # v22 LTS
+docker -v   # para o Postgres local
 
-## Requisitos locais
+# 2. Dependências
+pnpm install
 
-- Node 22 LTS (ainda não instalado nesta máquina)
-- pnpm
-- Docker (apenas para o Postgres local)
+# 3. Ambiente
+cp .env.example .env
+# preencha AUTH_SECRET (openssl rand -base64 32), credenciais do Google e
+# AUTH_ALLOWED_DOMAINS com o domínio corporativo
 
-## Como executar depois
+# 4. Banco
+docker compose up -d
+pnpm db:migrate      # aplica as migrations
+pnpm db:seed         # dados de demonstração
 
-1. Ler `AGENTS.md` integralmente.
-2. Abrir `docs/fases/README.md` e começar pela **FASE 00**.
-3. Uma fase por branch, respeitando a ordem. Detalhes, tarefas, testes e critérios
-   de aceite de cada fase estão no arquivo da fase.
+# 5. Aplicação
+pnpm dev             # http://localhost:3000
+```
+
+Com `SEED_ADMIN_EMAIL` preenchido no `.env`, o seed cria o super administrador.
+
+### Usuários de demonstração
+
+Criados pelo seed fora de produção (senha não existe: o login é pelo Google ou,
+em testes, pelo provider de credenciais):
+
+| E-mail | Papel | Unidade |
+|---|---|---|
+| `admin@exemplo.com.br` | SUPER_ADMIN | Matriz |
+| `admin.filial@exemplo.com.br` | ADMIN_FILIAL | São Paulo |
+| `gestor@exemplo.com.br` | GESTOR | São Paulo |
+| `almoxarife@exemplo.com.br` | ALMOXARIFE | São Paulo |
+| `solicitante@exemplo.com.br` | SOLICITANTE | São Paulo |
+| `consulta@exemplo.com.br` | CONSULTA | Rio de Janeiro |
+
+## Scripts
+
+```bash
+pnpm dev            # servidor de desenvolvimento
+pnpm build          # build de produção
+pnpm lint           # ESLint
+pnpm typecheck      # tsc --noEmit
+pnpm test           # Vitest (unitários + integração com banco)
+pnpm e2e            # Playwright
+pnpm db:migrate     # migrations (dev)
+pnpm db:deploy      # migrations (produção)
+pnpm db:seed        # seed idempotente
+pnpm db:reset       # recria o banco e roda o seed
+```
+
+## Autenticação no Google
+
+1. Google Cloud Console → **APIs & Services → Credentials** → OAuth 2.0 Client ID (Web).
+2. **Authorized redirect URI**: `http://localhost:3000/api/auth/callback/google`
+   (e a URI de produção).
+3. **Authorized JavaScript origins**: `http://localhost:3000`.
+4. Preencha `AUTH_GOOGLE_ID` e `AUTH_GOOGLE_SECRET` no `.env`.
+
+O acesso só é liberado para e-mail de domínio corporativo **e** cadastrado no sistema.
+A regra de domínio pode ser ampliada pela tela **Administração → Políticas de e-mail**.
+
+## Segurança
+
+- Autorização no servidor, nunca só no `proxy.ts` (o antigo `middleware.ts`).
+- Permissões resolvidas **por filial**: um admin de São Paulo não aprova no Rio.
+- Sessão revalidada contra o banco a cada requisição: suspender um usuário vale
+  imediatamente.
+- Cabeçalhos de segurança (CSP, HSTS, `X-Frame-Options`) em `next.config.ts`.
+- Trilha de auditoria append-only em `/admin/auditoria`.
+- `E2E_AUTH_BYPASS` (provider de credenciais para testes) é **recusado em produção**
+  pelo `src/lib/env.ts`.
