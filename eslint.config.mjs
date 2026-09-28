@@ -81,7 +81,7 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["prisma/seed.ts", "prisma/**/*.ts"],
+    files: ["prisma/**/*.ts"],
     rules: {
       // Script de CLI: a saída no terminal é a interface com o operador.
       "no-console": "off",

@@ -93,7 +93,15 @@ pnpm db:migrate     # migrations (dev)
 pnpm db:deploy      # migrations (produção)
 pnpm db:seed        # seed idempotente
 pnpm db:reset       # recria o banco e roda o seed
+pnpm db:seed:demo   # dados operacionais de demonstração (estoque, pedidos, transferência)
 ```
+
+### Explorando sem configurar o Google
+
+Para conhecer o sistema antes de criar as credenciais do Google, ligue
+`E2E_AUTH_BYPASS="true"` no `.env` e rode `pnpm db:seed:demo`. A tela de login
+passa a mostrar um campo de e-mail: entre com qualquer usuário da tabela abaixo.
+Em produção essa opção é recusada na inicialização.
 
 ## Autenticação no Google
 
