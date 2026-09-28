@@ -38,7 +38,9 @@ export function computeAverageCost(input: AverageCostInput): Prisma.Decimal {
 
   const newQuantity = currentQuantity.plus(incomingQuantity);
 
-  if (!newQuantity.isPositive()) {
+  // Atenção: `Decimal.isPositive()` devolve `true` para zero (o zero tem
+  // sinal positivo). Comparar com zero explicitamente evita divisão por zero.
+  if (!newQuantity.greaterThan(0)) {
     return new Prisma.Decimal(0);
   }
 

@@ -40,7 +40,7 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 04 — Filiais
 - [x] FASE 05 — Catálogo
 - [x] FASE 06 — Estoque
-- [ ] FASE 07 — Transferências
+- [x] FASE 07 — Transferências
 - [ ] FASE 08 — Solicitações
 - [ ] FASE 09 — Notificações
 - [ ] FASE 10 — Dashboards

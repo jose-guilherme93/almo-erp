@@ -85,7 +85,8 @@ export async function reserveStock(
   }> = [];
 
   for (const line of input.lines) {
-    if (!line.quantity.isPositive()) continue;
+    // Só reserva quantidade positiva: zero não reserva nada.
+    if (!line.quantity.greaterThan(0)) continue;
 
     const { stockLevelId, available } = await pickLocationForItem(tx, input.branchId, line.itemId);
 
