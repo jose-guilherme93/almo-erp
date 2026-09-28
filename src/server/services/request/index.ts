@@ -362,19 +362,39 @@ export async function listApprovalQueue(
   return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
 }
 
-/** Solicitações aprovadas aguardando entrega. */
+/**
+ * Solicitações aprovadas aguardando entrega.
+ *
+ * Sem `branchId`, quem tem escopo de rede vê as entregas de todas as unidades;
+ * os demais caem na filial ativa (mesma regra de `listApprovalQueue`).
+ */
 export async function listPendingDeliveries(
   context: AuthContext,
-  branchId: string,
+  branchId: string | null,
   options: { page?: number; pageSize?: number } = {},
 ) {
-  assertBranchAccess(context, branchId);
-
   const page = Math.max(1, options.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));
 
+  let branchScope: Prisma.RequestWhereInput;
+
+  if (branchId) {
+    assertBranchAccess(context, branchId);
+    branchScope = { branchId };
+  } else if (context.isNetworkScope) {
+    branchScope = { branchId: { in: visibleBranchIds(context) } };
+  } else {
+    const active = context.activeBranchId;
+
+    if (!active) {
+      throw new BusinessRuleError("Nenhuma unidade ativa. Selecione uma unidade para continuar.");
+    }
+
+    branchScope = { branchId: active };
+  }
+
   const where: Prisma.RequestWhereInput = {
-    branchId,
+    ...branchScope,
     status: { in: [...AWAITING_DELIVERY_STATUSES] },
   };
 
@@ -390,6 +410,7 @@ export async function listPendingDeliveries(
         status: true,
         priority: true,
         decidedAt: true,
+        branch: { select: { id: true, code: true, name: true } },
         requester: { select: { name: true } },
         _count: { select: { lines: true } },
       },

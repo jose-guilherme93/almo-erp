@@ -25,9 +25,11 @@ import {
   type RawSearchParams,
 } from "@/lib/pagination";
 import { requirePagePermission } from "@/server/auth/guards";
+import { readRequestedBranchId } from "@/server/auth/scope";
 import {
   MAINTENANCE_CATEGORY_LABELS,
   listMaintenanceRequests,
+  listRequestableBranchesForMaintenance,
 } from "@/server/services/maintenance";
 
 export const metadata: Metadata = {
@@ -47,15 +49,22 @@ export default async function ReparosPage({
   const canOverview = context.hasPermission("manutencao:overview");
   const mineOnly = firstParam(params, "meus") === "1";
 
-  const result = await listMaintenanceRequests(context, {
-    search: readSearch(params),
-    status: firstParam(params, "situacao") ?? null,
-    category: firstParam(params, "tipo") ?? null,
-    priority: firstParam(params, "prioridade") ?? null,
-    mineOnly,
-    page: readPage(params),
-    pageSize: readPageSize(params),
-  });
+  const showBranchFilter = context.isNetworkScope;
+  const branchId = readRequestedBranchId(context, firstParam(params, "filial"));
+
+  const [result, branches] = await Promise.all([
+    listMaintenanceRequests(context, {
+      search: readSearch(params),
+      status: firstParam(params, "situacao") ?? null,
+      category: firstParam(params, "tipo") ?? null,
+      priority: firstParam(params, "prioridade") ?? null,
+      branchId,
+      mineOnly,
+      page: readPage(params),
+      pageSize: readPageSize(params),
+    }),
+    showBranchFilter ? listRequestableBranchesForMaintenance(context) : Promise.resolve([]),
+  ]);
 
   const columns: Array<Column<Row>> = [
     {
@@ -66,6 +75,7 @@ export default async function ReparosPage({
           <p className="truncate font-medium">{row.title}</p>
           <p className="text-muted-foreground truncate font-mono text-xs">
             {row.number} · {row.location}
+            {showBranchFilter ? ` · ${row.branch.code}` : ""}
           </p>
         </div>
       ),
@@ -169,7 +179,16 @@ export default async function ReparosPage({
           }))}
         />
 
-        <ClearFilters paramKeys={["busca", "tipo", "situacao", "prioridade", "meus"]} />
+        {showBranchFilter ? (
+          <TableFilterSelect
+            paramKey="filial"
+            placeholder="Unidade"
+            allLabel="Todas as unidades"
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+          />
+        ) : null}
+
+        <ClearFilters paramKeys={["busca", "tipo", "situacao", "prioridade", "meus", "filial"]} />
 
         {canOverview ? (
           <Link

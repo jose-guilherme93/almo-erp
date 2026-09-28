@@ -389,6 +389,13 @@ Cada agregação declara `scope: "ALL_BRANCHES" | "OWN_BRANCHES"` e é implement
 `src/server/services/dashboard/`. Duas telas nunca recalculam o mesmo número por caminhos
 diferentes.
 
+**Todo número do dashboard abre a lista que o originou.** Os indicadores que apontam para
+uma listagem passam o filtro correspondente na URL (`?filial=<id>`, `?emTransito=1`,
+`?relatorio=…`). Sem filial, quem tem escopo de rede vê todas as unidades nas listas
+(`listApprovalQueue`, `listPendingDeliveries`, `listTransfers`) e os demais caem na filial
+ativa — o mesmo critério da contagem. Indicador que não tem lista equivalente não recebe
+link.
+
 ---
 
 ## 9. Mapa de rotas

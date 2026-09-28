@@ -18,6 +18,7 @@ import {
   deliverRequest,
   getRequestDetail,
   listApprovalQueue,
+  listPendingDeliveries,
   listRequests,
   rejectRequest,
 } from "@/server/services/request";
@@ -717,6 +718,22 @@ describe.runIf(process.env["DATABASE_URL"])("escopo", () => {
 
     expect(queue.items.map((item) => item.id)).toContain(minha.id);
     expect(queue.items.map((item) => item.id)).not.toContain(outra.id);
+  });
+
+  it("a fila de entregas sem filial mostra todas as unidades para escopo de rede", async () => {
+    const request = await newRequest(5);
+    await approveFully(request.id, 5);
+
+    const redeContext = makeAuthContext({
+      userId: aprovadorId,
+      networkPermissions: ["solicitacao:entregar", "solicitacao:overview"],
+      networkBranchIds: [branchId, otherBranchId],
+      activeBranchId: otherBranchId,
+    });
+
+    const list = await listPendingDeliveries(redeContext, null);
+
+    expect(list.items.map((item) => item.id)).toContain(request.id);
   });
 
   it("com visão geral do almoxarifado, enxerga as solicitações da filial", async () => {

@@ -89,6 +89,7 @@ const GESTOR: readonly PermissionKey[] = [
   "item:read",
   "estoque:read",
   "solicitacao:read",
+  "solicitacao:overview",
   "solicitacao:create",
   "solicitacao:approve",
   "transferencia:read",

@@ -56,6 +56,8 @@ function visibilityFilter(context: AuthContext, options?: { branchId?: string | 
 export type TransferListFilters = {
   search?: string;
   status?: string | null;
+  /** Vários status ao mesmo tempo (ex.: "em trânsito" = SENT + IN_TRANSIT). */
+  statuses?: readonly string[] | null;
   branchId?: string | null;
   direction?: "incoming" | "outgoing" | "all";
   page?: number;
@@ -66,7 +68,9 @@ export async function listTransfers(context: AuthContext, filters: TransferListF
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
 
-  const branchId = filters.branchId ?? context.activeBranchId;
+  // Sem filial pedida, o escopo de rede vê todas as unidades; os demais ficam
+  // na filial ativa.
+  const branchId = filters.branchId ?? (context.isNetworkScope ? null : context.activeBranchId);
 
   const directionFilter: Prisma.TransferWhereInput =
     filters.direction === "incoming" && branchId
@@ -75,8 +79,14 @@ export async function listTransfers(context: AuthContext, filters: TransferListF
         ? { originBranchId: branchId }
         : {};
 
+  const statusFilter: Prisma.TransferWhereInput = filters.statuses?.length
+    ? { status: { in: filters.statuses as TransferStatus[] } }
+    : filters.status
+      ? { status: filters.status as TransferStatus }
+      : {};
+
   const where: Prisma.TransferWhereInput = {
-    ...(filters.status ? { status: filters.status as TransferStatus } : {}),
+    ...statusFilter,
     ...(filters.search ? { number: { contains: filters.search, mode: "insensitive" } } : {}),
     ...directionFilter,
     ...(Object.keys(directionFilter).length === 0 ? visibilityFilter(context, { branchId }) : {}),

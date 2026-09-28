@@ -65,7 +65,7 @@ export default async function DashboardMatrizPage() {
           title="Valor total em estoque"
           value={formatCurrency(dashboard.stockValue)}
           hint={`${dashboard.totalItems} item(ns) com saldo`}
-          href="/estoque/saldos"
+          href="/relatorios?relatorio=valor-estoque"
         />
 
         <MetricCard
@@ -89,7 +89,7 @@ export default async function DashboardMatrizPage() {
           title="Transferências em trânsito"
           value={dashboard.transfersInTransit}
           hint="material fora das unidades"
-          href="/transferencias?sentido=all"
+          href="/transferencias?emTransito=1"
           icon={<ArrowLeftRight className="size-3.5" />}
         />
 
@@ -98,6 +98,7 @@ export default async function DashboardMatrizPage() {
           value={dashboard.belowMinimum}
           tone={dashboard.belowMinimum > 0 ? "warning" : "success"}
           hint="em toda a rede"
+          href="/relatorios?relatorio=reposicao"
           icon={<TriangleAlert className="size-3.5" />}
         />
 

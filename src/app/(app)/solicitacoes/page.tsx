@@ -20,7 +20,8 @@ import {
   type RawSearchParams,
 } from "@/lib/pagination";
 import { requirePagePermission } from "@/server/auth/guards";
-import { listRequests } from "@/server/services/request";
+import { readRequestedBranchId } from "@/server/auth/scope";
+import { listRequestableBranches, listRequests } from "@/server/services/request";
 
 export const metadata: Metadata = {
   title: "Solicitações",
@@ -43,14 +44,21 @@ export default async function SolicitacoesPage({
   // inteiro; "minhas=1" restringe às próprias.
   const mineOnly = !canOverview || firstParam(params, "minhas") === "1";
 
-  const result = await listRequests(context, {
-    search: readSearch(params),
-    status: firstParam(params, "situacao") ?? null,
-    priority: firstParam(params, "prioridade") ?? null,
-    requesterId: mineOnly ? context.user.id : null,
-    page: readPage(params),
-    pageSize: readPageSize(params),
-  });
+  const showBranchFilter = context.isNetworkScope;
+  const branchId = readRequestedBranchId(context, firstParam(params, "filial"));
+
+  const [result, branches] = await Promise.all([
+    listRequests(context, {
+      search: readSearch(params),
+      status: firstParam(params, "situacao") ?? null,
+      priority: firstParam(params, "prioridade") ?? null,
+      requesterId: mineOnly ? context.user.id : null,
+      branchId,
+      page: readPage(params),
+      pageSize: readPageSize(params),
+    }),
+    showBranchFilter ? listRequestableBranches(context) : Promise.resolve([]),
+  ]);
 
   const columns: Array<Column<Row>> = [
     {
@@ -142,7 +150,16 @@ export default async function SolicitacoesPage({
           }))}
         />
 
-        <ClearFilters paramKeys={["busca", "situacao", "prioridade", "minhas"]} />
+        {showBranchFilter ? (
+          <TableFilterSelect
+            paramKey="filial"
+            placeholder="Unidade"
+            allLabel="Todas as unidades"
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+          />
+        ) : null}
+
+        <ClearFilters paramKeys={["busca", "situacao", "prioridade", "minhas", "filial"]} />
 
         {canOverview ? (
           <Link
