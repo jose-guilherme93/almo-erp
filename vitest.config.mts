@@ -14,6 +14,10 @@ export default defineConfig({
     exclude: ["node_modules", ".next", "e2e"],
     globals: false,
     setupFiles: ["./vitest.setup.ts"],
+    // Os testes de integração dividem o mesmo banco: rodar arquivos em
+    // paralelo faz um limpar o dado do outro. Sequencial é mais lento e
+    // confiável.
+    fileParallelism: false,
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],

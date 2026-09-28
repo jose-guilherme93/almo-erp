@@ -39,7 +39,7 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 03 — RBAC
 - [x] FASE 04 — Filiais
 - [x] FASE 05 — Catálogo
-- [ ] FASE 06 — Estoque
+- [x] FASE 06 — Estoque
 - [ ] FASE 07 — Transferências
 - [ ] FASE 08 — Solicitações
 - [ ] FASE 09 — Notificações
