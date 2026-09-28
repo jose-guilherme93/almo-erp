@@ -59,7 +59,12 @@ function catalogContext() {
  * consegue encontrá-los pelo prefixo.
  */
 function uniqueCategoryCode(): string {
-  return `${TEST_PREFIX}-${Date.now().toString(36).toUpperCase()}`;
+  // O sufixo aleatório evita colisão quando duas categorias são criadas no
+  // mesmo milissegundo (o CI rápido esbarrava nisso). Sem hífen extra para
+  // não mexer no prefixo que o gerador de SKU usa.
+  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+
+  return `${TEST_PREFIX}-${Date.now().toString(36).toUpperCase()}${suffix}`;
 }
 
 async function cleanup(): Promise<void> {
