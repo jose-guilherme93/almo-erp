@@ -45,7 +45,7 @@ Cada unidade tem seu próprio almoxarifado, seus próprios usuários e seus pró
 | UI | Tailwind CSS 4 + shadcn/ui + Radix UI |
 | Gráficos | Recharts |
 | Leitura de código de barras | `@zxing/browser` |
-| Tabela | TanStack Table 8 |
+| Tabelas | Server Components com filtros/paginação na URL (sem biblioteca de tabela) |
 | Testes | Vitest (regras de negócio) + Playwright (fluxos críticos) |
 | Qualidade | ESLint (flat) + Prettier + Husky + lint-staged |
 

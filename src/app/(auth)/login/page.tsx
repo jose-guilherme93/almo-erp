@@ -4,7 +4,8 @@ import Link from "next/link";
 import { GoogleSignInButton } from "@/components/layout/google-sign-in-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_DESCRIPTION, APP_NAME } from "@/lib/constants";
-import { loginWithGoogleAction } from "@/server/actions/auth";
+import { env } from "@/lib/env";
+import { loginE2EAction, loginWithGoogleAction } from "@/server/actions/auth";
 
 export const metadata: Metadata = {
   title: "Entrar",
@@ -65,6 +66,29 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             Veja o que fazer
           </Link>
         </p>
+
+        {env.E2E_AUTH_BYPASS ? (
+          <form action={loginE2EAction} className="space-y-2 rounded-md border border-dashed p-3">
+            <p className="text-muted-foreground text-xs font-medium">
+              Ambiente de teste — entrar sem Google
+            </p>
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <input
+              name="email"
+              type="email"
+              required
+              placeholder="e-mail do usuário de teste"
+              aria-label="E-mail do usuário de teste"
+              className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+            />
+            <button
+              type="submit"
+              className="bg-secondary text-secondary-foreground h-9 w-full rounded-md text-sm"
+            >
+              Entrar para teste
+            </button>
+          </form>
+        ) : null}
       </CardContent>
     </Card>
   );

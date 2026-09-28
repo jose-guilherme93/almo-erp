@@ -1,4 +1,5 @@
 import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import type { UserStatus } from "@/generated/prisma/enums";
 
@@ -9,6 +10,45 @@ import { authConfig } from "@/server/auth/config";
 import { provisionUserOnLogin } from "@/server/auth/provisioning";
 
 const log = logger.with({ service: "auth" });
+
+/**
+ * Provider de credenciais usado **apenas** nos testes end-to-end.
+ *
+ * `E2E_AUTH_BYPASS` só pode ser `true` fora de produção — o `src/lib/env.ts`
+ * derruba a aplicação se essa combinação acontecer. Mesmo aqui, a regra de
+ * acesso continua valendo: o e-mail precisa existir e estar ACTIVE.
+ */
+function e2eCredentialsProvider() {
+  return Credentials({
+    id: "e2e",
+    name: "Teste automatizado",
+    credentials: {
+      email: { label: "E-mail", type: "email" },
+    },
+    async authorize(credentials) {
+      const env = getEnv();
+
+      if (!env.E2E_AUTH_BYPASS || env.NODE_ENV === "production") {
+        log.warn("tentativa de login e2e com bypass desligado");
+        return null;
+      }
+
+      const email =
+        typeof credentials?.["email"] === "string" ? credentials["email"].trim().toLowerCase() : "";
+
+      if (email.length === 0) return null;
+
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, email: true, name: true, status: true },
+      });
+
+      if (!user || user.status !== "ACTIVE") return null;
+
+      return { id: user.id, email: user.email, name: user.name };
+    },
+  });
+}
 
 /**
  * Instância completa do Auth.js (runtime Node — pode usar Prisma).
@@ -36,6 +76,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // política de e-mail + a tabela de usuários (docs/ARQUITETURA.md §4.4).
       allowDangerousEmailAccountLinking: false,
     }),
+    // Presente sempre na lista, mas inerte: `authorize` recusa quando o
+    // bypass está desligado. Assim o bundle não muda entre ambientes.
+    e2eCredentialsProvider(),
   ],
 
   callbacks: {

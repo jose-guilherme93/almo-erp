@@ -49,6 +49,11 @@ const serverSchema = z.object({
   AUTH_GOOGLE_ID: optionalString,
   AUTH_GOOGLE_SECRET: optionalString,
   AUTH_ALLOWED_DOMAINS: csvDomains,
+  /**
+   * Habilita um provider de credenciais para testes end-to-end.
+   * JAMAIS pode estar ligado em produção — a aplicação recusa subir assim.
+   */
+  E2E_AUTH_BYPASS: booleanish.default(false),
 
   SEED_ADMIN_EMAIL: optionalString,
   SEED_ADMIN_NAME: z.string().trim().default("Administrador da Matriz"),
@@ -74,6 +79,14 @@ function loadEnv(): ServerEnv {
       .map((issue) => `  - ${issue.path.join(".") || "(raiz)"}: ${issue.message}`)
       .join("\n");
     throw new Error(`Variáveis de ambiente inválidas:\n${details}`);
+  }
+
+  // Trava de segurança: o bypass de autenticação para testes não pode existir
+  // em produção sob nenhuma circunstância.
+  if (parsed.data.NODE_ENV === "production" && parsed.data.E2E_AUTH_BYPASS) {
+    throw new Error(
+      "E2E_AUTH_BYPASS está ligado em produção. Desligue imediatamente: este recurso permite entrar sem autenticação.",
+    );
   }
 
   return parsed.data;

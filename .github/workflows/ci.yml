@@ -123,6 +123,10 @@ jobs:
 
       - name: Rodar e2e
         run: pnpm e2e --project=chromium
+        env:
+          # Liga o provider de credenciais usado só pelos testes. O
+          # src/lib/env.ts recusa esta combinação se NODE_ENV=production.
+          E2E_AUTH_BYPASS: "true"
 
       - name: Publicar relatório do Playwright
         if: ${{ !cancelled() }}

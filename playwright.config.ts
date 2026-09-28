@@ -11,6 +11,12 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
 
+  // O primeiro acesso a cada rota em `next dev` compila o segmento sob demanda;
+  // 15s evita flakiness sem afrouxar a verificação.
+  expect: {
+    timeout: 15_000,
+  },
+
   use: {
     baseURL,
     trace: "on-first-retry",
@@ -38,5 +44,10 @@ export default defineConfig({
     timeout: 120_000,
     stdout: "ignore",
     stderr: "pipe",
+    env: {
+      // Liga o provider de credenciais usado pelos testes. O `src/lib/env.ts`
+      // recusa esta combinação em produção.
+      E2E_AUTH_BYPASS: "true",
+    },
   },
 });
