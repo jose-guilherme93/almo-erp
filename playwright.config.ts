@@ -7,7 +7,8 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 2 : 0,
+  // Em CI, um retry só: o teto de 5 minutos não comporta duas reexecuções.
+  retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
 
@@ -38,7 +39,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "pnpm dev",
+    // Em CI usamos build + start (servidor de produção): muito mais rápido que
+    // o `next dev`, que compila cada rota sob demanda.
+    command: process.env.E2E_WEB_SERVER_COMMAND ?? "pnpm dev",
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

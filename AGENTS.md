@@ -315,6 +315,17 @@ Cobertura mínima obrigatória de teste:
 - Autorização: matriz de papel × permissão, e negação fora do escopo de filial.
 - Regra de e-mail corporativo: domínio permitido, domínio bloqueado, usuário não aprovado.
 
+### 9.1 CI (GitHub Actions)
+
+- **Só `main` dispara CI.** Pushes em `develop` ou em branches de trabalho não rodam
+  Actions. O PR para `main` roda o job de qualidade.
+- **Nenhum job passa de 5 minutos.** Todo job declara `timeout-minutes: 5` (e as etapas
+  pesadas, teto próprio). Um job que estouraria o teto deve **falhar rápido**, nunca
+  pendurar meia hora.
+- O CI automático (`ci.yml`) é só: install, lint, typecheck, migrations, seed, test e build.
+- **E2E é manual** (`e2e.yml`, `workflow_dispatch`), também com teto de 5 minutos e cache
+  dos navegadores. Não roda em push nem em PR.
+
 ---
 
 ## 10. Git
