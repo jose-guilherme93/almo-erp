@@ -1,19 +1,31 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Smoke test — garante que a aplicação sobe e renderiza a identidade do
- * produto. Os testes de autenticação entram em `auth.spec.ts` (FASE 02).
+ * Smoke test do almo-erp (FASE 00).
+ *
+ * Garante que a aplicação sobe, serve HTML em pt-BR e que a entrada do
+ * sistema manda quem não está logado para o login.
  */
-test("página inicial renderiza o nome do sistema em pt-BR", async ({ page }) => {
+
+test("raiz redireciona usuário anônimo para o login", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page).toHaveTitle(/almo-erp/i);
-  await expect(page.getByRole("heading", { name: "almo-erp" })).toBeVisible();
-  await expect(page.locator("html")).toHaveAttribute("lang", "pt-BR");
+  await expect(page).toHaveURL(/\/login/);
 });
 
-test("rota inexistente devolve página 404", async ({ page }) => {
-  const response = await page.goto("/rota-que-nao-existe");
+test("tela de login renderiza em pt-BR com a ação do Google", async ({ page }) => {
+  await page.goto("/login");
 
-  expect(response?.status()).toBe(404);
+  await expect(page).toHaveTitle(/almo-erp/i);
+  await expect(page.locator("html")).toHaveAttribute("lang", "pt-BR");
+  await expect(page.getByRole("button", { name: /entrar com google/i })).toBeVisible();
+  await expect(page.getByText(/acesso restrito a e-mails corporativos/i)).toBeVisible();
+});
+
+test("rota inexistente também vai para o login quando não há sessão", async ({ page }) => {
+  // O gate de sessão roda antes do roteamento: qualquer rota desconhecida
+  // com usuário anônimo cai no login, não em um 404.
+  await page.goto("/rota-que-nao-existe");
+
+  await expect(page).toHaveURL(/\/login/);
 });

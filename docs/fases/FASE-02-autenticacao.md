@@ -30,7 +30,7 @@ Esta fase entrega a parte real do "só corporativo" e cria a estrutura
 - [ ] `pnpm add next-auth@beta@5` (Auth.js v5) e o provider Google (já incluso).
 - [ ] `pnpm add @auth/prisma-adapter` + `pnpm add -D @auth/core` (adapter de sessão
       com Prisma, caso opte por sessão persistida em banco).
-- [ ] `auth.config.ts` na raiz (config sem `prisma`, para uso no edge/middleware).
+- [ ] `auth.config.ts` na raiz (config sem `prisma`, para uso na borda/proxy).
 - [ ] `src/lib/auth.ts` — `NextAuth()` completo, estendendo com o `authorize` do provider
       Google e o `adapter` do Prisma.
 - [ ] `src/app/api/auth/[...nextauth]/route.ts` exportando os handlers.
@@ -85,7 +85,7 @@ Esta fase entrega a parte real do "só corporativo" e cria a estrutura
 
 ### 02.4 — Middleware (gate grosso apenas)
 
-- [ ] `src/middleware.ts`:
+- [ ] `src/proxy.ts` (convenção do Next 16; antigo `middleware.ts`):
   - [ ] `matcher` cobrindo todas as rotas de `(app)` **exceto** `/login`, `/acesso-negado`,
         `/api/auth/*` e assets.
   - [ ] Sem sessão → `redirect("/login?callbackUrl=...")`.
@@ -141,7 +141,7 @@ Esta fase entrega a parte real do "só corporativo" e cria a estrutura
       `PENDING` criado, `Invite` criado, acesso negado.
 - [ ] Suspender o `User` no banco derruba o acesso no próximo request.
 - [ ] `AUTH_SECRET`, `AUTH_GOOGLE_SECRET` fora do git (`git grep` confirma).
-- [ ] Middleware **não** contém nenhuma checagem de role/permission.
+- [ ] O proxy **não** contém nenhuma checagem de role/permission.
 - [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` passam.
 
 ## Fora do escopo

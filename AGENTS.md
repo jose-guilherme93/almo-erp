@@ -56,13 +56,13 @@ Cada unidade tem seu próprio almoxarifado, seus próprios usuários e seus pró
 
 ## 3. Regras de ouro (nunca violar)
 
-### 3.1 Autorização mora no servidor, nunca só no middleware
+### 3.1 Autorização mora no servidor, nunca só na borda
 
 Existe um advisory de segurança do Next.js (jul/2026) sobre *bypass* de middleware.
 Portanto:
 
-- `src/middleware.ts` faz **apenas** o gate grosso: existe sessão? o usuário está `ACTIVE`?
-  Se não, redirect para `/login`. Nada além disso.
+- `src/proxy.ts` (convenção do Next 16; substituiu `middleware.ts`) faz **apenas** o
+  gate grosso: existe sessão? Se não, redirect para `/login`. Nada além disso.
 - **Toda** Server Action e **todo** Route Handler chama, na primeira linha útil:
 
   ```ts
@@ -133,7 +133,7 @@ almo-erp/
 │  ├─ migrations/
 │  └─ seed.ts
 ├─ src/
-│  ├─ middleware.ts
+│  ├─ proxy.ts                 # gate grosso de sessão (ex-middleware.ts)
 │  ├─ app/
 │  │  ├─ (auth)/               # login, acesso-negado (sem layout autenticado)
 │  │  ├─ (app)/                # área logada, com shell + guard de sessão
@@ -300,7 +300,7 @@ Cobertura mínima obrigatória de teste:
 ## 11. Anti-patterns (nunca fazer)
 
 - `findUnique` de entidade de negócio sem filtro de filial.
-- Autorizar só pelo `middleware.ts`.
+- Autorizar só pelo `proxy.ts` (antigo `middleware.ts`).
 - `update` ou `delete` em `StockDocument`/`StockLine`.
 - Saldo de estoque negativo.
 - `any`, `@ts-ignore`, `as unknown as`.

@@ -19,6 +19,12 @@ const optionalString = z
   .transform((value) => (value === "" ? undefined : value))
   .optional();
 
+/** Campo numérico opcional: string vazia no `.env` conta como ausente. */
+const optionalNumber = z.preprocess(
+  (value) => (value === "" || value === undefined ? undefined : value),
+  z.coerce.number().int().positive().optional(),
+);
+
 const csvDomains = z
   .string()
   .default("")
@@ -52,7 +58,7 @@ const serverSchema = z.object({
   MATRIX_APPROVAL_THRESHOLD: z.coerce.number().nonnegative().default(1000),
 
   SMTP_HOST: optionalString,
-  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_PORT: optionalNumber,
   SMTP_USER: optionalString,
   SMTP_PASSWORD: optionalString,
   SMTP_FROM: optionalString,

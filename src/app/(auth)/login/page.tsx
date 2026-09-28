@@ -1,0 +1,71 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+
+import { GoogleSignInButton } from "@/components/layout/google-sign-in-button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { APP_DESCRIPTION, APP_NAME } from "@/lib/constants";
+import { loginWithGoogleAction } from "@/server/actions/auth";
+
+export const metadata: Metadata = {
+  title: "Entrar",
+};
+
+type LoginPageProps = {
+  searchParams: Promise<{ callbackUrl?: string; error?: string }>;
+};
+
+/** Mensagens para os erros que o próprio Auth.js devolve na query string. */
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  AccessDenied: "Seu e-mail não foi autorizado a acessar o sistema.",
+  OAuthAccountNotLinked: "Este e-mail já está vinculado a outra forma de acesso.",
+  OAuthCallbackError: "Não foi possível concluir o login com o Google. Tente novamente.",
+  Configuration: "O login está temporariamente indisponível. Avise o administrador.",
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = await searchParams;
+  const errorMessage = params.error
+    ? (AUTH_ERROR_MESSAGES[params.error] ?? "Não foi possível entrar. Tente novamente.")
+    : null;
+
+  const redirectTo =
+    params.callbackUrl && params.callbackUrl.startsWith("/") ? params.callbackUrl : "/meu";
+
+  return (
+    <Card>
+      <CardHeader className="text-center">
+        <CardTitle>
+          <h1 className="text-2xl font-semibold tracking-tight">{APP_NAME}</h1>
+        </CardTitle>
+        <CardDescription className="text-balance">{APP_DESCRIPTION}</CardDescription>
+      </CardHeader>
+
+      <CardContent className="space-y-5">
+        {errorMessage ? (
+          <p
+            role="alert"
+            className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-sm"
+          >
+            {errorMessage}
+          </p>
+        ) : null}
+
+        <form action={loginWithGoogleAction} className="space-y-3">
+          <input type="hidden" name="redirectTo" value={redirectTo} />
+          <GoogleSignInButton />
+        </form>
+
+        <p className="text-muted-foreground text-center text-xs text-balance">
+          Acesso restrito a e-mails corporativos autorizados. Use sua conta da empresa.
+        </p>
+
+        <p className="text-muted-foreground text-center text-xs">
+          Problemas para entrar?{" "}
+          <Link href="/acesso-negado" className="underline underline-offset-4">
+            Veja o que fazer
+          </Link>
+        </p>
+      </CardContent>
+    </Card>
+  );
+}

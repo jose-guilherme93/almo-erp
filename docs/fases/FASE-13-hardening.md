@@ -64,7 +64,7 @@ Só implementar se houver provedor de e-mail definido.
 - [ ] `@zxing/browser` carregado **sob demanda** (dynamic import) para não inflar o bundle.
 - [ ] Revisão: nenhuma mensagem de erro vaza stack trace para o usuário
       (`error.tsx` genérico com `requestId`).
-- [ ] Revisão de `middleware.ts`: confirmar que segue sendo apenas o gate grosso.
+- [ ] Revisão de `src/proxy.ts`: confirmar que segue sendo apenas o gate grosso.
 
 ### 13.5 — Performance
 

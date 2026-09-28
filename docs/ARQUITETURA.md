@@ -132,7 +132,8 @@ Usuário clica "Entrar com Google"
       2. existe User com status = ACTIVE no banco?   (conta pré-aprovada por admin)
       3. user sem Membership? → cria membership padrão (CONSULTA) na filial padrão
   → sessão criada com userId, status, memberships
-  → middleware: sessão + status ACTIVE?  senão /login ou /acesso-negado
+  → proxy.ts (gate grosso): existe sessão?  senão /login
+  → layout de (app): getAuthContext() relê o banco e valida status ACTIVE
 ```
 
 Falhas produzem `/acesso-negado` com motivo legível e contato do administrador — nunca um erro 500.

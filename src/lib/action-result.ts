@@ -44,11 +44,34 @@ export function actionFailureFromError(error: unknown): ActionResult<never> {
   );
 }
 
+/**
+ * Erros de controle de fluxo do Next (`redirect()`, `notFound()`, `forbidden()`)
+ * não são falhas de negócio: precisam continuar subindo.
+ */
+function isNextControlFlowError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+
+  const digest = (error as { digest?: unknown }).digest;
+  if (typeof digest !== "string") return false;
+
+  return (
+    digest.startsWith("NEXT_REDIRECT") ||
+    digest === "NEXT_NOT_FOUND" ||
+    digest.startsWith("NEXT_HTTP_ERROR_FALLBACK")
+  );
+}
+
 /** Envolve o corpo de uma Server Action, capturando erros de domínio. */
 export async function runAction<T>(fn: () => Promise<ActionResult<T>>): Promise<ActionResult<T>> {
   try {
     return await fn();
   } catch (error) {
+    // `redirect()` precisa escapar: convertê-lo em ActionResult quebraria a
+    // navegação (o Next depende do throw para efetivar o redirect).
+    if (isNextControlFlowError(error)) {
+      throw error;
+    }
+
     return actionFailureFromError(error);
   }
 }
