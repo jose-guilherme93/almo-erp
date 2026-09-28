@@ -1,0 +1,955 @@
+// =============================================================================
+// almo-erp — schema Prisma
+//
+// Convenções (AGENTS.md §5 e FASE 01):
+//   - tabelas em snake_case plural (`@@map`)
+//   - colunas multi-palavra em snake_case (`@map`)
+//   - enums em SCREAMING_SNAKE, em inglês
+//   - Decimal(18,4) para quantidade e Decimal(14,2) para dinheiro
+//   - `onDelete` explícito em toda relação
+//   - tabelas de histórico (StockLine, RequestEvent, AuditLog, Notification)
+//     NÃO têm `updatedAt`: são append-only
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum BranchType {
+  MATRIX
+  BRANCH
+}
+
+enum StorageLocationType {
+  MAIN_WAREHOUSE
+  SECONDARY
+  QUARANTINE
+  TOOLS
+  OTHER
+}
+
+enum RoleScope {
+  ALL_BRANCHES
+  OWN_BRANCHES
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum StockDocumentType {
+  INBOUND
+  ISSUE
+  ADJUSTMENT
+  TRANSFER_OUT
+  TRANSFER_IN
+  RETURN
+  INVENTORY
+}
+
+enum StockDocumentStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum TransferStatus {
+  DRAFT
+  SENT
+  IN_TRANSIT
+  RECEIVED
+  RETURNED
+  CANCELLED
+}
+
+enum RequestStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  PARTIALLY_APPROVED
+  REJECTED
+  IN_PREPARATION
+  DELIVERED
+  CANCELLED
+}
+
+enum RequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ApprovalLevel {
+  BRANCH
+  MATRIX
+}
+
+enum ItemAvailabilityStatus {
+  AVAILABLE
+  PARTIAL
+  UNAVAILABLE
+}
+
+enum ReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+enum InventoryStatus {
+  OPEN
+  COUNTING
+  CLOSED
+  ADJUSTED
+  CANCELLED
+}
+
+enum RequestEventType {
+  CREATED
+  SUBMITTED
+  CLAIMED
+  APPROVED
+  PARTIALLY_APPROVED
+  REJECTED
+  PREPARATION_STARTED
+  DELIVERED
+  CANCELLED
+  COMMENTED
+}
+
+enum TransferEventType {
+  CREATED
+  SENT
+  RECEIVED
+  PARTIALLY_RECEIVED
+  RETURNED
+  CANCELLED
+}
+
+enum NotificationType {
+  REQUEST_CREATED
+  REQUEST_CLAIMED
+  REQUEST_APPROVED
+  REQUEST_PARTIALLY_APPROVED
+  REQUEST_REJECTED
+  REQUEST_DELIVERED
+  TRANSFER_SENT
+  TRANSFER_RECEIVED
+  STOCK_BELOW_MIN
+  INVENTORY_DIVERGENCE
+  ACCESS_REQUESTED
+  ACCESS_GRANTED
+}
+
+// -----------------------------------------------------------------------------
+// Organização e filiais
+// -----------------------------------------------------------------------------
+
+model Company {
+  id        String   @id @default(cuid())
+  legalName String   @map("legal_name")
+  tradeName String?  @map("trade_name")
+  cnpj      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branches Branch[]
+
+  @@map("companies")
+}
+
+model Branch {
+  id                String     @id @default(cuid())
+  code              String     @unique
+  name              String
+  type              BranchType
+  legalName         String?    @map("legal_name")
+  tradeName         String?    @map("trade_name")
+  cnpj              String?    @unique
+  stateRegistration String?    @map("state_registration")
+  cnae              String?
+  active            Boolean    @default(true)
+
+  // Endereço
+  zipCode    String?  @map("zip_code")
+  street     String?
+  number     String?
+  complement String?
+  district   String?
+  city       String?
+  state      String?
+  country    String?  @default("Brasil")
+  latitude   Decimal? @db.Decimal(10, 7)
+  longitude  Decimal? @db.Decimal(10, 7)
+
+  // Contato
+  email    String?
+  phone    String?
+  whatsapp String?
+
+  // Responsáveis
+  legalResponsibleId        String? @map("legal_responsible_id")
+  legalResponsibleName      String? @map("legal_responsible_name")
+  legalResponsibleDocument  String? @map("legal_responsible_document")
+  warehouseResponsibleId    String? @map("warehouse_responsible_id")
+  notificationResponsibleId String? @map("notification_responsible_id")
+  defaultApproverId         String? @map("default_approver_id")
+
+  // Operação
+  businessHours Json?   @map("business_hours")
+  notes         String?
+
+  // Governança
+  parentId  String?  @map("parent_id")
+  companyId String?  @map("company_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company                 Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  parent                  Branch?            @relation("BranchHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children                Branch[]           @relation("BranchHierarchy")
+  legalResponsible        User?              @relation("BranchLegalResponsible", fields: [legalResponsibleId], references: [id], onDelete: SetNull)
+  warehouseResponsible    User?              @relation("BranchWarehouseResponsible", fields: [warehouseResponsibleId], references: [id], onDelete: SetNull)
+  notificationResponsible User?              @relation("BranchNotificationResponsible", fields: [notificationResponsibleId], references: [id], onDelete: SetNull)
+  defaultApprover         User?              @relation("BranchDefaultApprover", fields: [defaultApproverId], references: [id], onDelete: SetNull)
+  storageLocations        StorageLocation[]
+  memberships             Membership[]
+  invites                 Invite[]
+  itemStockPolicies       ItemStockPolicy[]
+  stockLevels             StockLevel[]
+  stockDocuments          StockDocument[]
+  transfersAsOrigin       Transfer[]         @relation("TransferOrigin")
+  transfersAsDestination  Transfer[]         @relation("TransferDestination")
+  inventorySessions       InventorySession[]
+  requests                Request[]
+  deliveries              Delivery[]
+  notifications           Notification[]
+  auditLogs               AuditLog[]
+  emailPolicies           EmailPolicy[]
+
+  @@index([type])
+  @@index([active])
+  @@index([city, state])
+  @@map("branches")
+}
+
+model StorageLocation {
+  id            String              @id @default(cuid())
+  branchId      String              @map("branch_id")
+  code          String
+  name          String
+  type          StorageLocationType @default(MAIN_WAREHOUSE)
+  description   String?
+  responsibleId String?             @map("responsible_id")
+  active        Boolean             @default(true)
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  branch                 Branch?         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  responsible            User?           @relation(fields: [responsibleId], references: [id], onDelete: SetNull)
+  stockLevels            StockLevel[]
+  stockDocuments         StockDocument[] @relation("StockDocumentLocation")
+  stockDocumentsAsTarget StockDocument[] @relation("StockDocumentDestination")
+  inventoryLines         InventoryLine[]
+
+  @@unique([branchId, code])
+  @@index([branchId, active])
+  @@map("storage_locations")
+}
+
+// -----------------------------------------------------------------------------
+// Identidade e acesso
+// -----------------------------------------------------------------------------
+
+model User {
+  id          String     @id @default(cuid())
+  email       String     @unique
+  name        String
+  avatarUrl   String?    @map("avatar_url")
+  status      UserStatus @default(PENDING)
+  active      Boolean    @default(true)
+  lastLoginAt DateTime?  @map("last_login_at")
+
+  approvedById String?   @map("approved_by_id")
+  approvedAt   DateTime? @map("approved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  approvedBy    User?  @relation("UserApproval", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedUsers User[] @relation("UserApproval")
+
+  memberships Membership[]
+
+  legalResponsibleFor        Branch[] @relation("BranchLegalResponsible")
+  warehouseResponsibleFor    Branch[] @relation("BranchWarehouseResponsible")
+  notificationResponsibleFor Branch[] @relation("BranchNotificationResponsible")
+  defaultApproverFor         Branch[] @relation("BranchDefaultApprover")
+
+  storageLocationsResponsible StorageLocation[]
+
+  invitesSent     Invite[] @relation("InviteInvitedBy")
+  invitesAccepted Invite[] @relation("InviteAcceptedBy")
+
+  auditLogs      AuditLog[]
+  itemsCreated   Item[]
+  configsUpdated Config[]
+
+  stockDocumentsCreated StockDocument[]
+  reservationsCreated   StockReservation[]
+
+  transfersRequested Transfer[]      @relation("TransferRequestedBy")
+  transfersSent      Transfer[]      @relation("TransferSentBy")
+  transfersReceived  Transfer[]      @relation("TransferReceivedBy")
+  transfersCreated   Transfer[]      @relation("TransferCreatedBy")
+  transferEvents     TransferEvent[]
+
+  inventoryCreated InventorySession[] @relation("InventoryCreatedBy")
+  inventoryClosed  InventorySession[] @relation("InventoryClosedBy")
+
+  requestsRequested     Request[]      @relation("RequestRequester")
+  requestsResponsible   Request[]      @relation("RequestResponsible")
+  requestsClaimed       Request[]      @relation("RequestClaimedBy")
+  requestsDecided       Request[]      @relation("RequestDecidedBy")
+  requestsMatrixDecided Request[]      @relation("RequestMatrixDecidedBy")
+  requestEvents         RequestEvent[]
+
+  deliveries Delivery[]
+
+  notificationsReceived Notification[] @relation("NotificationRecipient")
+  notificationsActed    Notification[] @relation("NotificationActor")
+
+  @@index([status])
+  @@index([active])
+  @@map("users")
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  branchId  String   @map("branch_id")
+  roleId    String   @map("role_id")
+  isDefault Boolean  @default(false) @map("is_default")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, branchId, roleId])
+  @@index([branchId, roleId])
+  @@index([userId, active])
+  @@map("memberships")
+}
+
+model Role {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  description String?
+  scope       RoleScope @default(OWN_BRANCHES)
+  isSystem    Boolean   @default(false) @map("is_system")
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  memberships     Membership[]
+  rolePermissions RolePermission[]
+  emailPolicies   EmailPolicy[]
+  invites         Invite[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id // chave legível: "item:create"
+  resource    String
+  action      String
+  group       String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@index([resource])
+  @@index([group])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model EmailPolicy {
+  id              String   @id @default(cuid())
+  domain          String   @unique
+  pattern         String?
+  autoApprove     Boolean  @default(false) @map("auto_approve")
+  defaultRoleId   String?  @map("default_role_id")
+  defaultBranchId String?  @map("default_branch_id")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  defaultRole   Role?   @relation(fields: [defaultRoleId], references: [id], onDelete: SetNull)
+  defaultBranch Branch? @relation(fields: [defaultBranchId], references: [id], onDelete: SetNull)
+
+  @@map("email_policies")
+}
+
+model Invite {
+  id           String       @id @default(cuid())
+  email        String
+  token        String       @unique
+  roleId       String       @map("role_id")
+  branchId     String       @map("branch_id")
+  status       InviteStatus @default(PENDING)
+  invitedById  String       @map("invited_by_id")
+  expiresAt    DateTime     @map("expires_at")
+  acceptedAt   DateTime?    @map("accepted_at")
+  acceptedById String?      @map("accepted_by_id")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  role       Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  branch     Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  invitedBy  User   @relation("InviteInvitedBy", fields: [invitedById], references: [id], onDelete: Restrict)
+  acceptedBy User?  @relation("InviteAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([email, status])
+  @@index([status, expiresAt])
+  @@map("invites")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?  @map("actor_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  branchId   String?  @map("branch_id")
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  actor  User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([branchId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("audit_logs")
+}
+
+// -----------------------------------------------------------------------------
+// Catálogo
+// -----------------------------------------------------------------------------
+
+model Category {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  name             String
+  description      String?
+  parentId         String?  @map("parent_id")
+  requiresApproval Boolean  @default(false) @map("requires_approval")
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryHierarchy")
+  items    Item[]
+
+  @@index([parentId])
+  @@index([active])
+  @@map("categories")
+}
+
+model Unit {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  allowsDecimals Boolean  @default(false) @map("allows_decimals")
+  isSystem       Boolean  @default(false) @map("is_system")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  items Item[]
+
+  @@map("units")
+}
+
+model Item {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  barcode          String?  @unique
+  name             String
+  description      String?
+  categoryId       String   @map("category_id")
+  unitId           String   @map("unit_id")
+  referencePrice   Decimal  @default(0) @map("reference_price") @db.Decimal(14, 2)
+  controlledByLot  Boolean  @default(false) @map("controlled_by_lot")
+  perishable       Boolean  @default(false)
+  requiresApproval Boolean  @default(false) @map("requires_approval")
+  hasSerialControl Boolean  @default(false) @map("has_serial_control")
+  active           Boolean  @default(true)
+  createdById      String?  @map("created_by_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  category       Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  unit           Unit              @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  createdBy      User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  lots           ItemLot[]
+  stockPolicies  ItemStockPolicy[]
+  stockLevels    StockLevel[]
+  stockLines     StockLine[]
+  transferLines  TransferLine[]
+  inventoryLines InventoryLine[]
+  requestLines   RequestLine[]
+
+  @@index([categoryId])
+  @@index([unitId])
+  @@index([name])
+  @@index([active])
+  @@map("items")
+}
+
+model ItemLot {
+  id              String    @id @default(cuid())
+  itemId          String    @map("item_id")
+  code            String
+  expirationDate  DateTime? @map("expiration_date")
+  initialQuantity Decimal   @default(0) @map("initial_quantity") @db.Decimal(18, 4)
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  item       Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  stockLines StockLine[]
+
+  @@unique([itemId, code])
+  @@index([itemId, expirationDate])
+  @@map("item_lots")
+}
+
+model ItemStockPolicy {
+  id                 String   @id @default(cuid())
+  itemId             String   @map("item_id")
+  branchId           String   @map("branch_id")
+  minimumQuantity    Decimal  @default(0) @map("minimum_quantity") @db.Decimal(18, 4)
+  maximumQuantity    Decimal? @map("maximum_quantity") @db.Decimal(18, 4)
+  alertQuantity      Decimal? @map("alert_quantity") @db.Decimal(18, 4)
+  averageConsumption Decimal? @map("average_consumption") @db.Decimal(18, 4)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, branchId])
+  @@index([branchId])
+  @@map("item_stock_policies")
+}
+
+// -----------------------------------------------------------------------------
+// Estoque
+// -----------------------------------------------------------------------------
+
+model StockLevel {
+  id                String    @id @default(cuid())
+  itemId            String    @map("item_id")
+  storageLocationId String    @map("storage_location_id")
+  branchId          String    @map("branch_id")
+  quantity          Decimal   @default(0) @db.Decimal(18, 4)
+  reservedQuantity  Decimal   @default(0) @map("reserved_quantity") @db.Decimal(18, 4)
+  averageCost       Decimal   @default(0) @map("average_cost") @db.Decimal(14, 2)
+  version           Int       @default(0)
+  lastMovementAt    DateTime? @map("last_movement_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  item            Item               @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  storageLocation StorageLocation    @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+  branch          Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  reservations    StockReservation[]
+
+  @@unique([itemId, storageLocationId])
+  @@index([branchId, itemId])
+  @@map("stock_levels")
+}
+
+model StockDocument {
+  id                    String              @id @default(cuid())
+  number                String
+  type                  StockDocumentType
+  status                StockDocumentStatus @default(DRAFT)
+  branchId              String              @map("branch_id")
+  storageLocationId     String              @map("storage_location_id")
+  destinationLocationId String?             @map("destination_location_id")
+  date                  DateTime            @default(now())
+  notes                 String?
+  referenceType         String?             @map("reference_type")
+  referenceId           String?             @map("reference_id")
+  totalQuantity         Decimal             @default(0) @map("total_quantity") @db.Decimal(18, 4)
+  totalCost             Decimal             @default(0) @map("total_cost") @db.Decimal(14, 2)
+  postedAt              DateTime?           @map("posted_at")
+  reversalDocumentId    String?             @map("reversal_document_id")
+  createdById           String              @map("created_by_id")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  branch              Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  storageLocation     StorageLocation  @relation("StockDocumentLocation", fields: [storageLocationId], references: [id], onDelete: Restrict)
+  destinationLocation StorageLocation? @relation("StockDocumentDestination", fields: [destinationLocationId], references: [id], onDelete: Restrict)
+  createdBy           User             @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  lines               StockLine[]
+  reversalDocument    StockDocument?   @relation("StockDocumentReversal", fields: [reversalDocumentId], references: [id], onDelete: SetNull)
+  reversalOf          StockDocument[]  @relation("StockDocumentReversal")
+  delivery            Delivery?
+
+  @@unique([branchId, number])
+  @@index([branchId, status, date])
+  @@index([type])
+  @@index([referenceType, referenceId])
+  @@map("stock_documents")
+}
+
+/// Linha de movimentação. Append-only: nunca é alterada nem removida.
+/// `quantity` é assinada: positiva em entrada, negativa em saída.
+model StockLine {
+  id              String   @id @default(cuid())
+  stockDocumentId String   @map("stock_document_id")
+  itemId          String   @map("item_id")
+  itemLotId       String?  @map("item_lot_id")
+  quantity        Decimal  @db.Decimal(18, 4)
+  unitCost        Decimal  @default(0) @map("unit_cost") @db.Decimal(14, 2)
+  lineTotal       Decimal  @default(0) @map("line_total") @db.Decimal(14, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  stockDocument StockDocument @relation(fields: [stockDocumentId], references: [id], onDelete: Restrict)
+  item          Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  itemLot       ItemLot?      @relation(fields: [itemLotId], references: [id], onDelete: Restrict)
+
+  @@index([stockDocumentId])
+  @@index([itemId, createdAt])
+  @@map("stock_lines")
+}
+
+model StockReservation {
+  id            String            @id @default(cuid())
+  requestLineId String            @unique @map("request_line_id")
+  stockLevelId  String            @map("stock_level_id")
+  quantity      Decimal           @db.Decimal(18, 4)
+  status        ReservationStatus @default(ACTIVE)
+  createdById   String?           @map("created_by_id")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  requestLine RequestLine @relation(fields: [requestLineId], references: [id], onDelete: Cascade)
+  stockLevel  StockLevel  @relation(fields: [stockLevelId], references: [id], onDelete: Restrict)
+  createdBy   User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([stockLevelId, status])
+  @@map("stock_reservations")
+}
+
+model Transfer {
+  id                  String          @id @default(cuid())
+  number              String
+  originBranchId      String          @map("origin_branch_id")
+  destinationBranchId String          @map("destination_branch_id")
+  status              TransferStatus  @default(DRAFT)
+  priority            RequestPriority @default(NORMAL)
+  requestedById       String?         @map("requested_by_id")
+  sentById            String?         @map("sent_by_id")
+  sentAt              DateTime?       @map("sent_at")
+  receivedById        String?         @map("received_by_id")
+  receivedAt          DateTime?       @map("received_at")
+  notes               String?
+  rejectionReason     String?         @map("rejection_reason")
+  createdById         String          @map("created_by_id")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  originBranch      Branch          @relation("TransferOrigin", fields: [originBranchId], references: [id], onDelete: Restrict)
+  destinationBranch Branch          @relation("TransferDestination", fields: [destinationBranchId], references: [id], onDelete: Restrict)
+  requestedBy       User?           @relation("TransferRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  sentBy            User?           @relation("TransferSentBy", fields: [sentById], references: [id], onDelete: SetNull)
+  receivedBy        User?           @relation("TransferReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  createdBy         User            @relation("TransferCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  lines             TransferLine[]
+  events            TransferEvent[]
+
+  @@unique([originBranchId, number])
+  @@index([destinationBranchId, status])
+  @@index([originBranchId, status])
+  @@map("transfers")
+}
+
+model TransferLine {
+  id               String   @id @default(cuid())
+  transferId       String   @map("transfer_id")
+  itemId           String   @map("item_id")
+  quantitySent     Decimal  @map("quantity_sent") @db.Decimal(18, 4)
+  quantityReceived Decimal  @default(0) @map("quantity_received") @db.Decimal(18, 4)
+  notes            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  item     Item     @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([transferId])
+  @@map("transfer_lines")
+}
+
+model TransferEvent {
+  id         String            @id @default(cuid())
+  transferId String            @map("transfer_id")
+  actorId    String?           @map("actor_id")
+  type       TransferEventType
+  fromStatus TransferStatus?   @map("from_status")
+  toStatus   TransferStatus?   @map("to_status")
+  comment    String?
+  metadata   Json?
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  actor    User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([transferId, createdAt])
+  @@map("transfer_events")
+}
+
+model InventorySession {
+  id                String          @id @default(cuid())
+  number            String
+  branchId          String          @map("branch_id")
+  storageLocationId String?         @map("storage_location_id")
+  status            InventoryStatus @default(OPEN)
+  startedAt         DateTime?       @map("started_at")
+  closedAt          DateTime?       @map("closed_at")
+  closedById        String?         @map("closed_by_id")
+  notes             String?
+  createdById       String          @map("created_by_id")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  closedBy  User?           @relation("InventoryClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  createdBy User            @relation("InventoryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  lines     InventoryLine[]
+
+  @@unique([branchId, number])
+  @@index([branchId, status])
+  @@map("inventory_sessions")
+}
+
+model InventoryLine {
+  id                 String   @id @default(cuid())
+  inventorySessionId String   @map("inventory_session_id")
+  itemId             String   @map("item_id")
+  storageLocationId  String   @map("storage_location_id")
+  systemQuantity     Decimal  @map("system_quantity") @db.Decimal(18, 4)
+  countedQuantity    Decimal? @map("counted_quantity") @db.Decimal(18, 4)
+  difference         Decimal? @db.Decimal(18, 4)
+  adjusted           Boolean  @default(false)
+  notes              String?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  inventorySession InventorySession @relation(fields: [inventorySessionId], references: [id], onDelete: Cascade)
+  item             Item             @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  storageLocation  StorageLocation  @relation(fields: [storageLocationId], references: [id], onDelete: Restrict)
+
+  @@unique([inventorySessionId, itemId, storageLocationId])
+  @@index([inventorySessionId])
+  @@map("inventory_lines")
+}
+
+// -----------------------------------------------------------------------------
+// Solicitações
+// -----------------------------------------------------------------------------
+
+model Request {
+  id              String          @id @default(cuid())
+  number          String
+  branchId        String          @map("branch_id")
+  requesterId     String          @map("requester_id")
+  status          RequestStatus   @default(DRAFT)
+  priority        RequestPriority @default(NORMAL)
+  approvalLevel   ApprovalLevel   @default(BRANCH) @map("approval_level")
+  neededAt        DateTime?       @map("needed_at")
+  notes           String?
+  rejectionReason String?         @map("rejection_reason")
+
+  responsibleId String?   @map("responsible_id")
+  claimedById   String?   @map("claimed_by_id")
+  claimedAt     DateTime? @map("claimed_at")
+
+  decidedById       String?   @map("decided_by_id")
+  decidedAt         DateTime? @map("decided_at")
+  matrixDecidedById String?   @map("matrix_decided_by_id")
+  matrixDecidedAt   DateTime? @map("matrix_decided_at")
+
+  deliveredAt DateTime? @map("delivered_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  branch          Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  requester       User           @relation("RequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  responsible     User?          @relation("RequestResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  claimedBy       User?          @relation("RequestClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  decidedBy       User?          @relation("RequestDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  matrixDecidedBy User?          @relation("RequestMatrixDecidedBy", fields: [matrixDecidedById], references: [id], onDelete: SetNull)
+  lines           RequestLine[]
+  events          RequestEvent[]
+  delivery        Delivery?
+
+  @@unique([branchId, number])
+  @@index([branchId, status])
+  @@index([requesterId, status])
+  @@index([responsibleId, status])
+  @@index([status, priority, createdAt])
+  @@map("requests")
+}
+
+model RequestLine {
+  id                 String                 @id @default(cuid())
+  requestId          String                 @map("request_id")
+  itemId             String                 @map("item_id")
+  requestedQuantity  Decimal                @map("requested_quantity") @db.Decimal(18, 4)
+  approvedQuantity   Decimal                @default(0) @map("approved_quantity") @db.Decimal(18, 4)
+  deliveredQuantity  Decimal                @default(0) @map("delivered_quantity") @db.Decimal(18, 4)
+  unitPriceSnapshot  Decimal?               @map("unit_price_snapshot") @db.Decimal(14, 2)
+  lineNotes          String?                @map("line_notes")
+  nonApprovalReason  String?                @map("non_approval_reason")
+  availabilityStatus ItemAvailabilityStatus @default(AVAILABLE) @map("availability_status")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  request     Request           @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  item        Item              @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  reservation StockReservation?
+
+  @@index([requestId])
+  @@map("request_lines")
+}
+
+model RequestEvent {
+  id         String           @id @default(cuid())
+  requestId  String           @map("request_id")
+  actorId    String?          @map("actor_id")
+  type       RequestEventType
+  fromStatus RequestStatus?   @map("from_status")
+  toStatus   RequestStatus?   @map("to_status")
+  comment    String?
+  metadata   Json?
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([requestId, createdAt])
+  @@map("request_events")
+}
+
+model Delivery {
+  id                 String   @id @default(cuid())
+  requestId          String   @unique @map("request_id")
+  branchId           String   @map("branch_id")
+  deliveredById      String   @map("delivered_by_id")
+  deliveredAt        DateTime @default(now()) @map("delivered_at")
+  receivedByName     String   @map("received_by_name")
+  receivedByDocument String?  @map("received_by_document")
+  signatureUrl       String?  @map("signature_url")
+  stockDocumentId    String?  @unique @map("stock_document_id")
+  notes              String?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  request       Request        @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  branch        Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  deliveredBy   User           @relation(fields: [deliveredById], references: [id], onDelete: Restrict)
+  stockDocument StockDocument? @relation(fields: [stockDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, deliveredAt])
+  @@map("deliveries")
+}
+
+// -----------------------------------------------------------------------------
+// Notificações e configuração
+// -----------------------------------------------------------------------------
+
+/// Notificação persistida. Append-only para o conteúdo; só `readAt` muda.
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String           @map("user_id")
+  type       NotificationType
+  title      String
+  body       String
+  actorId    String?          @map("actor_id")
+  entityType String?          @map("entity_type")
+  entityId   String?          @map("entity_id")
+  branchId   String?          @map("branch_id")
+  link       String?
+  readAt     DateTime?        @map("read_at")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  user   User    @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor  User?   @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, type, entityId])
+  @@map("notifications")
+}
+
+model Config {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  description String?
+  updatedById String?  @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("configs")
+}

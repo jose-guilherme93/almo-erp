@@ -1,10 +1,18 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
 # Build
 .next/
 out/
+build/
 .turbo/
 *.tsbuildinfo
 next-env.d.ts
@@ -29,7 +37,15 @@ prisma/*.db-journal
 *.log
 npm-debug.log*
 pnpm-debug.log*
+yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
+
+# Deploy
+.vercel
+
+# Certificados
+*.pem
 
 # Editor / SO
 .DS_Store
@@ -42,3 +58,6 @@ Thumbs.db
 /tmp/
 *.sqlite
 *.sqlite3
+
+# Prisma Client gerado (recriado por `pnpm prisma generate`)
+src/generated/
