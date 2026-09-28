@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger";
 import { formatQuantity } from "@/lib/format";
 import { prisma } from "@/lib/db";
 import {
+  availableQuantity,
   computeAverageCost,
   computeLineTotal,
   sumQuantities,
@@ -13,6 +14,7 @@ import {
 import { lockStockLevels, type StockLevelKey } from "@/server/services/stock/lock";
 import { nextStockDocumentNumber } from "@/server/services/stock/numbering";
 import { writeAuditLog } from "@/server/services/audit";
+import { notify } from "@/server/services/notification";
 
 const log = logger.with({ service: "stock" });
 
@@ -369,6 +371,19 @@ export async function postStockDocument(
     })),
   });
 
+  // Material que saiu pode ter cruzado o mínimo: avisa quem repõe.
+  const outboundItems = prepared
+    .filter((entry) => isOutbound(entry.line.quantity))
+    .map((entry) => entry.line.itemId);
+
+  if (outboundItems.length > 0) {
+    await notifyBelowMinimum(tx, {
+      branchId: input.branchId,
+      itemIds: outboundItems,
+      actorId: input.createdById,
+    });
+  }
+
   log.info("documento de estoque lançado", {
     documentId: document.id,
     number,
@@ -380,6 +395,75 @@ export async function postStockDocument(
   });
 
   return { documentId: document.id, number, totalQuantity, totalCost };
+}
+
+/**
+ * Avisa quando um material cruza o mínimo da unidade.
+ *
+ * A verificação roda dentro da transação do documento e é **deduplicada por
+ * 7 dias**: sem isso, cada saída de um item já em falta geraria uma
+ * notificação nova e o alerta viraria ruído.
+ */
+async function notifyBelowMinimum(
+  tx: Prisma.TransactionClient,
+  input: { branchId: string; itemIds: readonly string[]; actorId: string },
+): Promise<void> {
+  const policies = await tx.itemStockPolicy.findMany({
+    where: {
+      branchId: input.branchId,
+      itemId: { in: [...input.itemIds] },
+      minimumQuantity: { gt: 0 },
+      item: { active: true },
+    },
+    select: {
+      minimumQuantity: true,
+      item: { select: { id: true, code: true, name: true, unit: { select: { code: true } } } },
+    },
+  });
+
+  if (policies.length === 0) return;
+
+  const levels = await tx.stockLevel.findMany({
+    where: { branchId: input.branchId, itemId: { in: policies.map((p) => p.item.id) } },
+    select: { itemId: true, quantity: true, reservedQuantity: true },
+  });
+
+  const availableByItem = new Map<string, Prisma.Decimal>();
+
+  for (const level of levels) {
+    const current = availableByItem.get(level.itemId) ?? new Prisma.Decimal(0);
+
+    availableByItem.set(
+      level.itemId,
+      current.plus(availableQuantity(level.quantity, level.reservedQuantity)),
+    );
+  }
+
+  for (const policy of policies) {
+    const available = availableByItem.get(policy.item.id) ?? new Prisma.Decimal(0);
+
+    if (available.greaterThanOrEqualTo(policy.minimumQuantity)) continue;
+
+    await notify(
+      tx,
+      {
+        type: "STOCK_BELOW_MIN",
+        actorId: input.actorId,
+        branchId: input.branchId,
+        entityType: "Item",
+        entityId: policy.item.id,
+        data: {
+          itemId: policy.item.id,
+          itemCode: policy.item.code,
+          itemName: policy.item.name,
+          unitCode: policy.item.unit.code,
+          available: available.toString(),
+          minimum: policy.minimumQuantity.toString(),
+        },
+      },
+      { dedupe: true },
+    );
+  }
 }
 
 /**

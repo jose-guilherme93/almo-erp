@@ -4,12 +4,14 @@ import type { ReactNode } from "react";
 import { AppNav } from "@/components/layout/app-nav";
 import { BranchSwitcher, type BranchOption } from "@/components/layout/branch-switcher";
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { APP_NAME } from "@/lib/constants";
 import { visibleNavigation } from "@/lib/navigation";
 import { logoutAction } from "@/server/actions/auth";
 import { requirePageSession } from "@/server/auth/guards";
+import { latestUnread, unreadCount } from "@/server/services/notification/inbox";
 
 /**
  * Shell da área autenticada.
@@ -39,6 +41,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const activeMembership = context.activeBranchId
     ? context.getMembership(context.activeBranchId)
     : undefined;
+
+  // Contador do sino e lista curta: mesma fonte usada pelo dashboard.
+  const [unread, latest] = await Promise.all([
+    unreadCount(context.user.id),
+    latestUnread(context.user.id, 5),
+  ]);
 
   return (
     <div className="flex min-h-svh">
@@ -74,6 +82,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   {activeMembership.roleName}
                 </Badge>
               ) : null}
+
+              <NotificationBell
+                unread={unread}
+                latest={latest.map((notification) => ({
+                  id: notification.id,
+                  title: notification.title,
+                  body: notification.body,
+                  link: notification.link,
+                  createdAt: notification.createdAt.toISOString(),
+                }))}
+              />
 
               <span className="text-muted-foreground hidden text-sm xl:inline">
                 {context.user.name}

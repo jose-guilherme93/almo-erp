@@ -3,6 +3,7 @@ import type { TransferStatus } from "@/generated/prisma/enums";
 import { BusinessRuleError, NotFoundError } from "@/lib/errors";
 import { prisma } from "@/lib/db";
 import { writeAuditLog } from "@/server/services/audit";
+import { notify } from "@/server/services/notification";
 import { postStockDocument } from "@/server/services/stock/post-document";
 import { nextTransferNumber } from "@/server/services/stock/numbering";
 import { assertTransition } from "@/server/services/transfer/transitions";
@@ -352,6 +353,19 @@ export async function sendTransfer(
         tx,
       );
 
+      await notify(tx, {
+        type: "TRANSFER_SENT",
+        actorId: context.user.id,
+        branchId: transfer.destinationBranchId,
+        entityType: "Transfer",
+        entityId: transfer.id,
+        data: {
+          transferId: transfer.id,
+          number: transfer.number,
+          originBranchId: transfer.originBranchId,
+        },
+      });
+
       return { documentNumber: document.number };
     },
     { timeout: 20_000, maxWait: 10_000 },
@@ -552,6 +566,19 @@ export async function receiveTransfer(
         },
         tx,
       );
+
+      await notify(tx, {
+        type: "TRANSFER_RECEIVED",
+        actorId: context.user.id,
+        branchId: transfer.originBranchId,
+        entityType: "Transfer",
+        entityId: transfer.id,
+        data: {
+          transferId: transfer.id,
+          number: transfer.number,
+          destinationBranchId: transfer.destinationBranchId,
+        },
+      });
 
       return { status: nextStatus, fullyReceived };
     },

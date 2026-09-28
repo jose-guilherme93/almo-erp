@@ -12,6 +12,7 @@ import {
   reserveStock,
 } from "@/server/services/stock/reservation";
 import { writeAuditLog } from "@/server/services/audit";
+import { notify } from "@/server/services/notification";
 import {
   AWAITING_DELIVERY_STATUSES,
   PENDING_APPROVAL_STATUSES,
@@ -543,6 +544,22 @@ export async function submitRequest(
       tx,
     );
 
+    // Notifica quem aprova na unidade — na MESMA transação do envio.
+    await notify(tx, {
+      type: "REQUEST_CREATED",
+      actorId: context.user.id,
+      branchId: request.branchId,
+      entityType: "Request",
+      entityId: request.id,
+      data: {
+        requestId: request.id,
+        number: request.number,
+        requesterName: context.user.name,
+        itemCount: String(request.lines.length),
+        priority: request.status,
+      },
+    });
+
     log.info("solicitação enviada para aprovação", {
       requestId,
       number: request.number,
@@ -612,6 +629,15 @@ export async function claimRequest(
         tx,
       );
     }
+
+    await notify(tx, {
+      type: "REQUEST_CLAIMED",
+      actorId: context.user.id,
+      branchId: request.branchId,
+      entityType: "Request",
+      entityId: request.id,
+      data: { requestId: request.id, claimerName: context.user.name },
+    });
 
     return { claimed: true };
   });
@@ -802,6 +828,20 @@ export async function approveRequest(
         tx,
       );
 
+      await notify(tx, {
+        type: fullyApproved ? "REQUEST_APPROVED" : "REQUEST_PARTIALLY_APPROVED",
+        actorId: context.user.id,
+        branchId: request.branchId,
+        entityType: "Request",
+        entityId: request.id,
+        data: {
+          requestId: request.id,
+          number: request.number,
+          requesterId: request.requesterId,
+          deciderName: context.user.name,
+        },
+      });
+
       log.info("solicitação decidida", {
         requestId: request.id,
         number: request.number,
@@ -864,6 +904,20 @@ export async function rejectRequest(
       },
       tx,
     );
+
+    await notify(tx, {
+      type: "REQUEST_REJECTED",
+      actorId: context.user.id,
+      branchId: request.branchId,
+      entityType: "Request",
+      entityId: request.id,
+      data: {
+        requestId: request.id,
+        number: request.number,
+        requesterId: request.requesterId,
+        reason: input.reason,
+      },
+    });
 
     return { number: request.number };
   });
@@ -1122,6 +1176,20 @@ export async function deliverRequest(
         },
         tx,
       );
+
+      await notify(tx, {
+        type: "REQUEST_DELIVERED",
+        actorId: context.user.id,
+        branchId: request.branchId,
+        entityType: "Request",
+        entityId: request.id,
+        data: {
+          requestId: request.id,
+          number: request.number,
+          requesterId: request.requesterId,
+          receivedByName: input.receivedByName,
+        },
+      });
 
       log.info("solicitação entregue", {
         requestId: request.id,
