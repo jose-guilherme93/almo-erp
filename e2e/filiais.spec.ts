@@ -94,7 +94,9 @@ test.describe("detalhe da unidade", () => {
       .click();
 
     await expect(page).toHaveURL(/aba=usuarios/);
-    await expect(page.getByText("Almoxarife SP")).toBeVisible();
+    // O nome pode repetir quando há o mesmo usuário em mais de um domínio de
+    // demonstração: basta que exista na lista da unidade.
+    await expect(page.getByText("Almoxarife SP").first()).toBeVisible();
   });
 });
 
