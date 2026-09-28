@@ -86,7 +86,7 @@ const ITEMS = [
   // EPI — proteção da cabeça
   {
     code: "EPI-0001",
-    barcode: "7891234500017",
+    barcode: "7891234500014",
     name: "Capacete de segurança classe B",
     categoryCode: "EPI-CABECA",
     unitCode: "UN",
@@ -97,7 +97,7 @@ const ITEMS = [
   },
   {
     code: "EPI-0002",
-    barcode: "7891234500024",
+    barcode: "7891234500021",
     name: "Óculos de proteção incolor",
     categoryCode: "EPI-CABECA",
     unitCode: "UN",
@@ -109,7 +109,7 @@ const ITEMS = [
   // EPI — proteção das mãos
   {
     code: "EPI-0003",
-    barcode: "7891234500031",
+    barcode: "7891234500038",
     name: "Luva de vaqueta reforçada",
     categoryCode: "EPI-MAOS",
     unitCode: "PAR",
@@ -120,7 +120,7 @@ const ITEMS = [
   },
   {
     code: "EPI-0004",
-    barcode: "7891234500048",
+    barcode: "7891234500045",
     name: "Luva nitrílica descartável",
     categoryCode: "EPI-MAOS",
     unitCode: "CX",
@@ -131,7 +131,7 @@ const ITEMS = [
   },
   {
     code: "EPI-0005",
-    barcode: "7891234500055",
+    barcode: "7891234500052",
     name: "Bota de segurança couro com biqueira",
     categoryCode: "EPI",
     unitCode: "PAR",
@@ -143,7 +143,7 @@ const ITEMS = [
   // Limpeza
   {
     code: "LMP-0001",
-    barcode: "7891234500062",
+    barcode: "7891234500069",
     name: "Água sanitária 1 litro",
     categoryCode: "LIMPEZA",
     unitCode: "UN",
@@ -154,7 +154,7 @@ const ITEMS = [
   },
   {
     code: "LMP-0002",
-    barcode: "7891234500079",
+    barcode: "7891234500076",
     name: "Detergente neutro 500 ml",
     categoryCode: "LIMPEZA",
     unitCode: "UN",
@@ -165,7 +165,7 @@ const ITEMS = [
   },
   {
     code: "LMP-0003",
-    barcode: "7891234500086",
+    barcode: "7891234500083",
     name: "Papel higiênico 30 metros",
     categoryCode: "LIMPEZA",
     unitCode: "PCT",
@@ -176,7 +176,7 @@ const ITEMS = [
   },
   {
     code: "LMP-0004",
-    barcode: "7891234500093",
+    barcode: "7891234500090",
     name: "Saco de lixo 100 litros",
     categoryCode: "LIMPEZA",
     unitCode: "PCT",
@@ -188,7 +188,7 @@ const ITEMS = [
   // Escritório
   {
     code: "ESC-0001",
-    barcode: "7891234500109",
+    barcode: "7891234500106",
     name: "Caneta esferográfica azul",
     categoryCode: "ESCRITORIO",
     unitCode: "CX",
@@ -199,7 +199,7 @@ const ITEMS = [
   },
   {
     code: "ESC-0002",
-    barcode: "7891234500116",
+    barcode: "7891234500113",
     name: "Papel A4 75g 500 folhas",
     categoryCode: "ESCRITORIO",
     unitCode: "FD",
@@ -210,7 +210,7 @@ const ITEMS = [
   },
   {
     code: "ESC-0003",
-    barcode: "7891234500123",
+    barcode: "7891234500120",
     name: "Toner HP 26A preto",
     categoryCode: "ESCRITORIO",
     unitCode: "UN",
@@ -222,7 +222,7 @@ const ITEMS = [
   // Copa e consumo
   {
     code: "CNS-0001",
-    barcode: "7891234500130",
+    barcode: "7891234500137",
     name: "Café torrado e moído 500 g",
     categoryCode: "CONSUMO",
     unitCode: "PCT",
@@ -233,7 +233,7 @@ const ITEMS = [
   },
   {
     code: "CNS-0002",
-    barcode: "7891234500147",
+    barcode: "7891234500144",
     name: "Açúcar refinado 1 kg",
     categoryCode: "CONSUMO",
     unitCode: "UN",
@@ -244,7 +244,7 @@ const ITEMS = [
   },
   {
     code: "CNS-0003",
-    barcode: "7891234500154",
+    barcode: "7891234500151",
     name: "Copo descartável 200 ml",
     categoryCode: "CONSUMO",
     unitCode: "PCT",

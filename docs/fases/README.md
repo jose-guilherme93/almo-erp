@@ -37,8 +37,8 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 01 — Schema
 - [x] FASE 02 — Autenticação
 - [x] FASE 03 — RBAC
-- [ ] FASE 04 — Filiais
-- [ ] FASE 05 — Catálogo
+- [x] FASE 04 — Filiais
+- [x] FASE 05 — Catálogo
 - [ ] FASE 06 — Estoque
 - [ ] FASE 07 — Transferências
 - [ ] FASE 08 — Solicitações
