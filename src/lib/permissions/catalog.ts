@@ -15,6 +15,7 @@ export const PERMISSION_GROUPS = [
   "Solicitações",
   "Transferências",
   "Inventário",
+  "Manutenção",
   "Relatórios",
   "Administração",
   "Notificações",
@@ -88,6 +89,12 @@ export const PERMISSIONS = [
     "Transferências",
     "Receber e conferir transferências (entrada no destino)",
   ),
+
+  // --- Manutenção ---
+  define("manutencao", "read", "Manutenção", "Ver os chamados de reparo"),
+  define("manutencao", "create", "Manutenção", "Abrir chamados de reparo"),
+  define("manutencao", "atender", "Manutenção", "Assumir, priorizar, atribuir e concluir chamados"),
+  define("manutencao", "manage", "Manutenção", "Gerenciar o fluxo completo de manutenção"),
 
   // --- Inventário ---
   define("inventario", "read", "Inventário", "Consultar sessões de inventário"),

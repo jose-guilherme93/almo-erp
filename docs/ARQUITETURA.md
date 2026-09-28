@@ -352,11 +352,17 @@ diferentes.
 | `/dashboard` | `relatorio:read` + escopo rede | SUPER_ADMIN, ADMIN_MATRIZ |
 | `/dashboard/unidades` | `filial:read` + escopo rede | SUPER_ADMIN, ADMIN_MATRIZ |
 | `/dashboard/unidade/[branchId]` | `solicitacao:approve` | ADMIN_FILIAL, GESTOR, SUPER_ADMIN, ADMIN_MATRIZ |
+| `/solicitar` | `solicitacao:create` ou `manutencao:create` | qualquer logado — escolha entre material e reparo |
 | `/solicitacoes/nova` | `solicitacao:create` | qualquer logado |
+| `/reparos` | `manutencao:read` | qualquer logado com vínculo |
+| `/reparos/novo` | `manutencao:create` | qualquer logado |
+| `/reparos/[id]` | `manutencao:read` | quem abriu, quem atende, gestão da unidade |
 | `/solicitacoes` | `solicitacao:read` | qualquer logado (as próprias) |
 | `/solicitacoes/[id]` | `solicitacao:read` | dono, aprovadores da filial, matriz |
 | `/solicitacoes/[id]/aprovar` | `solicitacao:approve` | aprovador da filial |
 | `/entregas` | `solicitacao:entregar` | ALMOXARIFE, ADMIN_FILIAL, matriz |
+| `/admin/auditoria` | `papel:manage` | SUPER_ADMIN |
+| `/admin/configuracoes` | `configuracao:manage` | SUPER_ADMIN |
 | `/estoque/saldos` | `estoque:read` | todos com membership |
 | `/estoque/movimentacoes` | `estoque:read` | idem |
 | `/estoque/entradas` | `estoque:entrada` | ALMOXARIFE+ |
@@ -373,6 +379,27 @@ diferentes.
 | `/admin/configuracoes` | `configuracao:manage` | SUPER_ADMIN |
 
 ---
+
+## 9.1 Chamados de reparo
+
+Modelo próprio (`MaintenanceRequest`), separado da solicitação de material: um chamado
+não tem itens nem estoque, é um pedido de serviço. Misturar os dois obrigaria a inventar
+campos vazios nos dois lados.
+
+```
+OPEN ──assumir──▶ IN_REVIEW ──atribuir──▶ IN_PROGRESS ⇄ WAITING_PARTS ──▶ DONE
+  │                    │
+  └──recusar──▶ REJECTED   └──cancelar──▶ CANCELLED
+```
+
+Campos que existem por um motivo:
+
+- `priority` é **nulo ao abrir**. Quem recebe classifica — quem abre não sabe o impacto
+  na operação.
+- `location` e `assetTag` fazem a equipe chegar no lugar certo sem ligar para perguntar.
+- `resolutionHours` é calculado na conclusão e alimenta o tempo médio de atendimento.
+
+Aparece no dashboard da unidade junto com a fila de aprovação, e no sino de quem atende.
 
 ## 10. Auditoria
 

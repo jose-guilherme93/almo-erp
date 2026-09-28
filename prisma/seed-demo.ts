@@ -17,13 +17,14 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../src/generated/prisma/client";
 import type { AuthContext } from "../src/server/auth/context";
 import { createAndPostStockDocument } from "../src/server/services/stock/post-document";
-import {
-  approveRequest,
-  createRequest,
-  deliverRequest,
-  submitRequest,
-} from "../src/server/services/request";
+import { approveRequest, createRequest, deliverRequest } from "../src/server/services/request";
 import { createTransfer, sendTransfer } from "../src/server/services/transfer";
+import {
+  assignMaintenanceRequest,
+  completeMaintenanceRequest,
+  createMaintenanceRequest,
+  setMaintenancePriority,
+} from "../src/server/services/maintenance";
 
 const connectionString = process.env["DATABASE_URL"];
 
@@ -105,6 +106,9 @@ async function resetDemoData(): Promise<void> {
   await prisma.requestEvent.deleteMany({ where: { actorId: { in: userIds } } });
   await prisma.requestLine.deleteMany({ where: { request: { requesterId: { in: userIds } } } });
   await prisma.request.deleteMany({ where: { requesterId: { in: userIds } } });
+
+  await prisma.maintenanceEvent.deleteMany({ where: { actorId: { in: userIds } } });
+  await prisma.maintenanceRequest.deleteMany({ where: { requesterId: { in: userIds } } });
 
   await prisma.transferEvent.deleteMany({ where: { actorId: { in: userIds } } });
   await prisma.transferLine.deleteMany({ where: { transfer: { createdById: { in: userIds } } } });
@@ -407,12 +411,11 @@ async function main(): Promise<void> {
   const papelA4 = itemByCode("ESC-0002");
   const capacete = itemByCode("EPI-0001");
 
-  // 3.1 Aguardando aprovação — aparece na fila e no sino do admin da unidade.
-  const pending = await createRequest(
+  // 3.1 Já entra aguardando aprovação — aparece na fila e no sino do admin.
+  await createRequest(
     contexts.solicitante,
     {
       branchId: saoPaulo.id,
-      priority: "HIGH",
       neededAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
       notes: "Reposição do estoque de limpeza do andar 3.",
       lines: [
@@ -424,35 +427,28 @@ async function main(): Promise<void> {
     { ip: "127.0.0.1" },
   );
 
-  await submitRequest(contexts.solicitante, pending.id);
-
-  // 3.2 Segunda solicitação urgente, também aguardando decisão.
-  const urgent = await createRequest(
+  // 3.2 Segunda solicitação, também aguardando decisão. A prioridade quem
+  // define é o aprovador, ao decidir.
+  await createRequest(
     contexts.solicitante,
     {
       branchId: saoPaulo.id,
-      priority: "URGENT",
-      notes: "Acidente na linha de produção: precisa de EPI hoje.",
+      notes: "Óculos de proteção para a equipe que entrou hoje.",
       lines: [{ itemId: oculos.id, quantity: "6" }],
     },
     { ip: "127.0.0.1" },
   );
-
-  await submitRequest(contexts.solicitante, urgent.id);
 
   // 3.3 Aprovada e reservada — aparece em Entregas aguardando o almoxarife.
   const approved = await createRequest(
     contexts.solicitante,
     {
       branchId: saoPaulo.id,
-      priority: "NORMAL",
       notes: "Material de escritório do mês.",
       lines: [{ itemId: papelA4.id, quantity: "8" }],
     },
     { ip: "127.0.0.1" },
   );
-
-  await submitRequest(contexts.solicitante, approved.id);
 
   const approvedLines = await prisma.requestLine.findMany({
     where: { requestId: approved.id },
@@ -461,6 +457,7 @@ async function main(): Promise<void> {
 
   await approveRequest(contexts.gestor, {
     requestId: approved.id,
+    priority: "HIGH",
     comment: "Aprovado. Separar no almoxarifado central.",
     lines: approvedLines.map((line) => ({ lineId: line.id, approvedQuantity: "8" })),
   });
@@ -470,14 +467,11 @@ async function main(): Promise<void> {
     contexts.solicitante,
     {
       branchId: saoPaulo.id,
-      priority: "NORMAL",
       notes: "Material de limpeza da recepção.",
       lines: [{ itemId: limpeza.id, quantity: "6" }],
     },
     { ip: "127.0.0.1" },
   );
-
-  await submitRequest(contexts.solicitante, delivered.id);
 
   const deliveredLines = await prisma.requestLine.findMany({
     where: { requestId: delivered.id },
@@ -502,14 +496,11 @@ async function main(): Promise<void> {
     contexts.solicitante,
     {
       branchId: saoPaulo.id,
-      priority: "NORMAL",
       notes: "Pedido de capacetes para a equipe nova.",
       lines: [{ itemId: capacete.id, quantity: "20" }],
     },
     { ip: "127.0.0.1" },
   );
-
-  await submitRequest(contexts.solicitante, partial.id);
 
   const partialLines = await prisma.requestLine.findMany({
     where: { requestId: partial.id },
@@ -554,17 +545,105 @@ async function main(): Promise<void> {
   console.log("  transferências: 1 em trânsito (matriz → São Paulo)");
 
   /* ---------------------------------------------------------------------- */
+  /* 5. Chamados de reparo                                                   */
+  /* ---------------------------------------------------------------------- */
+
+  const contextsReparo = {
+    adminFilial: makeContext({
+      userId: adminFilial.id,
+      email: adminFilial.email,
+      name: adminFilial.name,
+      branchId: saoPaulo.id,
+      permissions: ["manutencao:read", "manutencao:create", "manutencao:atender"],
+    }),
+    solicitante: makeContext({
+      userId: solicitante.id,
+      email: solicitante.email,
+      name: solicitante.name,
+      branchId: saoPaulo.id,
+      permissions: ["manutencao:read", "manutencao:create"],
+    }),
+    almoxarife: makeContext({
+      userId: almoxarife.id,
+      email: almoxarife.email,
+      name: almoxarife.name,
+      branchId: saoPaulo.id,
+      permissions: ["manutencao:read", "manutencao:atender"],
+    }),
+  };
+
+  // 5.1 Aberto, ainda sem prioridade — é o que a manutenção precisa triar.
+  await createMaintenanceRequest(contextsReparo.solicitante, {
+    branchId: saoPaulo.id,
+    category: "HVAC",
+    title: "Ar-condicionado da sala 3 não está gelando",
+    description:
+      "O aparelho liga, sopra ar mas não gela. Começou ontem à tarde. A sala fica com 30°C por volta das 14h e a equipe está reclamando.",
+    location: "Sala 3 — 2º andar",
+    assetTag: "PAT-001234",
+  });
+
+  // 5.2 Em andamento, com prioridade já definida por quem recebeu.
+  const emAndamento = await createMaintenanceRequest(contextsReparo.solicitante, {
+    branchId: saoPaulo.id,
+    category: "ELECTRICAL",
+    title: "Tomada do depósito esquentando",
+    description:
+      "A tomada onde fica o carregador da empilhadeira está quente ao toque e cheira a queimado. Paramos de usar por precaução.",
+    location: "Depósito — fundos",
+  });
+
+  await setMaintenancePriority(contextsReparo.adminFilial, {
+    requestId: emAndamento.id,
+    priority: "URGENT",
+    comment: "Risco de incêndio. Atender hoje.",
+  });
+
+  await assignMaintenanceRequest(contextsReparo.adminFilial, {
+    requestId: emAndamento.id,
+    assignedToId: almoxarife.id,
+    comment: "Eletricista agendado para hoje à tarde.",
+  });
+
+  // 5.3 Concluído — alimenta o histórico e o tempo médio de resolução.
+  const concluido = await createMaintenanceRequest(contextsReparo.solicitante, {
+    branchId: saoPaulo.id,
+    category: "PLUMBING",
+    title: "Vazamento na torneira da copa",
+    description: "A torneira da pia da copa fica pingando e molha o balcão inteiro.",
+    location: "Copa — 1º andar",
+  });
+
+  await setMaintenancePriority(contextsReparo.adminFilial, {
+    requestId: concluido.id,
+    priority: "NORMAL",
+  });
+
+  await assignMaintenanceRequest(contextsReparo.adminFilial, {
+    requestId: concluido.id,
+    assignedToId: almoxarife.id,
+  });
+
+  await completeMaintenanceRequest(contextsReparo.almoxarife, {
+    requestId: concluido.id,
+    resolution: "Substituído o reparo e a vedação. Testado por 30 minutos sem vazamento.",
+  });
+
+  console.log("  chamados de reparo: 1 aberto, 1 em andamento, 1 concluído");
+
+  /* ---------------------------------------------------------------------- */
 
   const summary = await prisma.$transaction([
     prisma.stockLevel.count(),
     prisma.request.count(),
     prisma.transfer.count(),
     prisma.notification.count(),
+    prisma.maintenanceRequest.count(),
   ]);
 
   console.log("\nSeed de demonstração concluído.");
   console.log(
-    `  ${summary[0]} saldo(s), ${summary[1]} solicitação(ões), ${summary[2]} transferência(s), ${summary[3]} notificação(ões)`,
+    `  ${summary[0]} saldo(s), ${summary[1]} solicitação(ões), ${summary[2]} transferência(s), ${summary[3]} notificação(ões), ${summary[4]} chamado(s) de reparo`,
   );
 }
 

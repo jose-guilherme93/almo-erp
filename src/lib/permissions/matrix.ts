@@ -65,6 +65,10 @@ const ADMIN_FILIAL: readonly PermissionKey[] = [
   "transferencia:receber",
   "inventario:read",
   "inventario:manage",
+  "manutencao:read",
+  "manutencao:create",
+  "manutencao:atender",
+  "manutencao:manage",
   "relatorio:read",
   "usuario:read",
   "usuario:manage",
@@ -84,6 +88,9 @@ const GESTOR: readonly PermissionKey[] = [
   "transferencia:read",
   "transferencia:receber",
   "inventario:read",
+  "manutencao:read",
+  "manutencao:create",
+  "manutencao:atender",
   "relatorio:read",
   "usuario:read",
   "notificacao:read",
@@ -109,6 +116,9 @@ const ALMOXARIFE: readonly PermissionKey[] = [
   "transferencia:receber",
   "inventario:read",
   "inventario:manage",
+  "manutencao:read",
+  "manutencao:create",
+  "manutencao:atender",
   "relatorio:read",
   "notificacao:read",
 ];
@@ -121,6 +131,8 @@ const SOLICITANTE: readonly PermissionKey[] = [
   "solicitacao:read",
   "solicitacao:create",
   "transferencia:read",
+  "manutencao:read",
+  "manutencao:create",
   "notificacao:read",
 ];
 
@@ -134,6 +146,7 @@ const CONSULTA: readonly PermissionKey[] = [
   "solicitacao:read",
   "transferencia:read",
   "inventario:read",
+  "manutencao:read",
   "relatorio:read",
   "notificacao:read",
 ];

@@ -26,21 +26,35 @@ import {
 
 type Line = { key: string; item: ItemOption; quantity: string; notes: string };
 
-const PRIORITIES = [
-  { value: "LOW", label: "Baixa", hint: "Sem urgência; entra na fila normal." },
-  { value: "NORMAL", label: "Normal", hint: "Prazo habitual da unidade." },
-  { value: "HIGH", label: "Alta", hint: "Precisa de atenção; sobe na fila." },
-  { value: "URGENT", label: "Urgente", hint: "Parada de operação; primeiro da fila." },
-];
+export type RequestableBranch = {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  city: string | null;
+};
 
 /**
  * Formulário de solicitação de material.
  *
- * Acessível a qualquer usuário logado com vínculo em unidade — é a porta de
- * entrada do sistema para quem não é da administração.
+ * Acessível a qualquer usuário logado. Duas decisões propositais:
+ *
+ *  - **A unidade é escolhida aqui**, entre todas as unidades ativas. O
+ *    colaborador pode estar em outra unidade e precisar de material de lá;
+ *    quem resolve o pedido é quem recebe, na unidade escolhida.
+ *  - **Não há prioridade.** Quem pede não tem como saber o que é urgente para
+ *    a operação — quem separa o material, sim.
+ *
+ * A solicitação já nasce enviada para aprovação: não existe rascunho.
  */
-export function RequestForm({ branchId, branchCode }: { branchId: string; branchCode: string }) {
-  const [priority, setPriority] = useState("NORMAL");
+export function RequestForm({
+  branches,
+  defaultBranchId,
+}: {
+  branches: RequestableBranch[];
+  defaultBranchId: string;
+}) {
+  const [branchId, setBranchId] = useState(defaultBranchId);
   const [lines, setLines] = useState<Line[]>([]);
   const [availability, setAvailability] = useState<
     Record<string, { available: string; status: string }>
@@ -57,6 +71,8 @@ export function RequestForm({ branchId, branchCode }: { branchId: string; branch
 
   const fieldErrors = state && !state.ok ? (state.fieldErrors ?? {}) : {};
 
+  // A disponibilidade é sempre da unidade escolhida: trocar a unidade
+  // reconsulta, senão o número exibido mentiria.
   const refreshAvailability = async (itemIds: string[]) => {
     if (itemIds.length === 0) return;
 
@@ -93,28 +109,34 @@ export function RequestForm({ branchId, branchCode }: { branchId: string; branch
   return (
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="branchId" value={branchId} />
-      <input type="hidden" name="priority" value={priority} />
 
       {state && !state.ok ? <FormError message={state.error} /> : null}
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <FormField id="request-branch" label="Unidade" hint="A entrega sai desta unidade.">
-          <Input id="request-branch" value={branchCode} readOnly disabled />
-        </FormField>
-
+      <div className="grid gap-4 sm:grid-cols-2">
         <FormField
-          id="request-priority"
-          label="Prioridade"
-          hint={PRIORITIES.find((entry) => entry.value === priority)?.hint}
+          id="request-branch"
+          label="De qual unidade você precisa?"
+          required
+          hint="O material sai desta unidade. O responsável por ela responde ao pedido."
+          errors={fieldErrors["branchId"]}
         >
-          <Select value={priority} onValueChange={setPriority}>
-            <SelectTrigger id="request-priority" className="w-full">
-              <SelectValue />
+          <Select
+            value={branchId}
+            onValueChange={(value) => {
+              setBranchId(value);
+              setAvailability({});
+              void refreshAvailability(lines.map((line) => line.item.id));
+            }}
+          >
+            <SelectTrigger id="request-branch" className="w-full">
+              <SelectValue placeholder="Escolha a unidade" />
             </SelectTrigger>
             <SelectContent>
-              {PRIORITIES.map((entry) => (
-                <SelectItem key={entry.value} value={entry.value}>
-                  {entry.label}
+              {branches.map((branch) => (
+                <SelectItem key={branch.id} value={branch.id}>
+                  {branch.name}
+                  {branch.type === "MATRIX" ? " (matriz)" : ""}
+                  {branch.city ? ` — ${branch.city}` : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -124,7 +146,7 @@ export function RequestForm({ branchId, branchCode }: { branchId: string; branch
         <FormField
           id="request-needed-at"
           label="Precisa para"
-          hint="Opcional. Ajuda a priorizar a fila."
+          hint="Opcional. Ajuda quem recebe a organizar a fila."
           errors={fieldErrors["neededAt"]}
         >
           <Input id="request-needed-at" name="neededAt" type="date" />
@@ -135,8 +157,8 @@ export function RequestForm({ branchId, branchCode }: { branchId: string; branch
         <p className="text-sm font-medium">Adicionar material</p>
         <ItemCombobox onSelect={addItem} />
         <p className="text-muted-foreground text-xs">
-          A disponibilidade mostrada é a da sua unidade agora. Pedir material em falta é permitido —
-          o aprovador decide o que fazer.
+          A disponibilidade mostrada é a da unidade escolhida. Pedir material em falta é permitido —
+          quem responde decide o que fazer.
         </p>
       </div>
 
@@ -254,13 +276,14 @@ export function RequestForm({ branchId, branchCode }: { branchId: string; branch
       </FormField>
 
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={isPending || lines.length === 0}>
-          {isPending ? "Criando…" : "Criar solicitação"}
+        <Button type="submit" disabled={isPending || lines.length === 0 || !branchId}>
+          {isPending ? "Enviando…" : "Enviar solicitação"}
         </Button>
       </div>
 
       <p className="text-muted-foreground text-xs">
-        A solicitação é criada como rascunho. Ela só vai para aprovação quando você enviar.
+        A solicitação vai direto para quem responde na unidade escolhida. Você é avisado assim que
+        houver uma decisão.
       </p>
     </form>
   );

@@ -30,6 +30,11 @@ export function resolveHomeRoute(context: AuthContext): string {
     return `/dashboard/unidade/${approverBranch}`;
   }
 
+  // Quem só pede material ou abre chamado cai direto na tela de escolha.
+  if (context.hasPermission("solicitacao:create") || context.hasPermission("manutencao:create")) {
+    return "/solicitar";
+  }
+
   return "/meu";
 }
 

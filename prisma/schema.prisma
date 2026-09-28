@@ -105,6 +105,42 @@ enum ApprovalLevel {
   MATRIX
 }
 
+/// Natureza do chamado. Definida por quem abre, mas a urgência é de quem recebe.
+enum MaintenanceCategory {
+  ELECTRICAL
+  PLUMBING
+  HVAC
+  FURNITURE
+  CIVIL
+  IT
+  EQUIPMENT
+  CLEANING
+  OTHER
+}
+
+enum MaintenanceStatus {
+  OPEN
+  IN_REVIEW
+  IN_PROGRESS
+  WAITING_PARTS
+  DONE
+  REJECTED
+  CANCELLED
+}
+
+enum MaintenanceEventType {
+  CREATED
+  CLAIMED
+  PRIORITY_SET
+  ASSIGNED
+  PROGRESS_UPDATED
+  WAITING_PARTS
+  COMPLETED
+  REJECTED
+  CANCELLED
+  COMMENTED
+}
+
 enum ItemAvailabilityStatus {
   AVAILABLE
   PARTIAL
@@ -160,6 +196,10 @@ enum NotificationType {
   INVENTORY_DIVERGENCE
   ACCESS_REQUESTED
   ACCESS_GRANTED
+  MAINTENANCE_CREATED
+  MAINTENANCE_ASSIGNED
+  MAINTENANCE_PRIORITY_SET
+  MAINTENANCE_DONE
 }
 
 // -----------------------------------------------------------------------------
@@ -227,27 +267,28 @@ model Branch {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company                 Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  parent                  Branch?            @relation("BranchHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
-  children                Branch[]           @relation("BranchHierarchy")
-  legalResponsible        User?              @relation("BranchLegalResponsible", fields: [legalResponsibleId], references: [id], onDelete: SetNull)
-  warehouseResponsible    User?              @relation("BranchWarehouseResponsible", fields: [warehouseResponsibleId], references: [id], onDelete: SetNull)
-  notificationResponsible User?              @relation("BranchNotificationResponsible", fields: [notificationResponsibleId], references: [id], onDelete: SetNull)
-  defaultApprover         User?              @relation("BranchDefaultApprover", fields: [defaultApproverId], references: [id], onDelete: SetNull)
+  company                 Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  parent                  Branch?              @relation("BranchHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children                Branch[]             @relation("BranchHierarchy")
+  legalResponsible        User?                @relation("BranchLegalResponsible", fields: [legalResponsibleId], references: [id], onDelete: SetNull)
+  warehouseResponsible    User?                @relation("BranchWarehouseResponsible", fields: [warehouseResponsibleId], references: [id], onDelete: SetNull)
+  notificationResponsible User?                @relation("BranchNotificationResponsible", fields: [notificationResponsibleId], references: [id], onDelete: SetNull)
+  defaultApprover         User?                @relation("BranchDefaultApprover", fields: [defaultApproverId], references: [id], onDelete: SetNull)
   storageLocations        StorageLocation[]
   memberships             Membership[]
   invites                 Invite[]
   itemStockPolicies       ItemStockPolicy[]
   stockLevels             StockLevel[]
   stockDocuments          StockDocument[]
-  transfersAsOrigin       Transfer[]         @relation("TransferOrigin")
-  transfersAsDestination  Transfer[]         @relation("TransferDestination")
+  transfersAsOrigin       Transfer[]           @relation("TransferOrigin")
+  transfersAsDestination  Transfer[]           @relation("TransferDestination")
   inventorySessions       InventorySession[]
   requests                Request[]
   deliveries              Delivery[]
   notifications           Notification[]
   auditLogs               AuditLog[]
   emailPolicies           EmailPolicy[]
+  maintenanceRequests     MaintenanceRequest[]
 
   @@index([type])
   @@index([active])
@@ -340,6 +381,12 @@ model User {
 
   notificationsReceived Notification[] @relation("NotificationRecipient")
   notificationsActed    Notification[] @relation("NotificationActor")
+
+  maintenanceRequests    MaintenanceRequest[] @relation("MaintenanceRequester")
+  maintenanceResponsible MaintenanceRequest[] @relation("MaintenanceResponsible")
+  maintenanceClaimed     MaintenanceRequest[] @relation("MaintenanceClaimedBy")
+  maintenanceAssigned    MaintenanceRequest[] @relation("MaintenanceAssignedTo")
+  maintenanceEvents      MaintenanceEvent[]
 
   @@index([status])
   @@index([active])
@@ -952,4 +999,76 @@ model Config {
   updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@map("configs")
+}
+
+// -----------------------------------------------------------------------------
+// Chamados de reparo (manutenção)
+// -----------------------------------------------------------------------------
+
+/// Chamado de reparo: "o ar-condicionado da sala 3 parou".
+///
+/// Diferente da solicitação de material, não tem itens nem estoque: é um
+/// pedido de serviço, com local, descrição, responsável e andamento.
+model MaintenanceRequest {
+  id          String              @id @default(cuid())
+  number      String
+  branchId    String              @map("branch_id")
+  requesterId String              @map("requester_id")
+  category    MaintenanceCategory
+  status      MaintenanceStatus   @default(OPEN)
+  /// Definida pelo responsável que recebe o chamado, não por quem abre.
+  priority    RequestPriority?    @map("priority")
+
+  /// Onde exatamente o problema está (sala, andar, equipamento).
+  location    String
+  assetTag    String? @map("asset_tag")
+  title       String
+  description String
+
+  responsibleId String?   @map("responsible_id")
+  claimedById   String?   @map("claimed_by_id")
+  claimedAt     DateTime? @map("claimed_at")
+  assignedToId  String?   @map("assigned_to_id")
+  assignedAt    DateTime? @map("assigned_at")
+
+  resolution      String?
+  completedAt     DateTime?
+  resolutionHours Int?      @map("resolution_hours")
+
+  rejectReason String? @map("reject_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branch      Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  requester   User               @relation("MaintenanceRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  responsible User?              @relation("MaintenanceResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  claimedBy   User?              @relation("MaintenanceClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  assignedTo  User?              @relation("MaintenanceAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  events      MaintenanceEvent[]
+
+  @@unique([branchId, number])
+  @@index([branchId, status])
+  @@index([requesterId, status])
+  @@index([assignedToId, status])
+  @@index([status, priority, createdAt])
+  @@map("maintenance_requests")
+}
+
+model MaintenanceEvent {
+  id         String               @id @default(cuid())
+  requestId  String               @map("request_id")
+  actorId    String?              @map("actor_id")
+  type       MaintenanceEventType
+  fromStatus MaintenanceStatus?   @map("from_status")
+  toStatus   MaintenanceStatus?   @map("to_status")
+  comment    String?
+  metadata   Json?
+  createdAt  DateTime             @default(now()) @map("created_at")
+
+  request MaintenanceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actor   User?              @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([requestId, createdAt])
+  @@map("maintenance_events")
 }

@@ -90,6 +90,27 @@ export const STOCK_DOCUMENT_TYPE: Record<string, BadgeDescriptor> = {
   INVENTORY: { label: "Inventário", tone: "neutral" },
 };
 
+/* -------------------------------------------------------------------------- */
+/* Chamados de reparo                                                          */
+/* -------------------------------------------------------------------------- */
+
+export const MAINTENANCE_STATUS_BADGE: Record<string, BadgeDescriptor> = {
+  OPEN: { label: "Aberto", tone: "info" },
+  IN_REVIEW: { label: "Em análise", tone: "warning" },
+  IN_PROGRESS: { label: "Em andamento", tone: "info" },
+  WAITING_PARTS: { label: "Aguardando peça", tone: "warning" },
+  DONE: { label: "Concluído", tone: "success" },
+  REJECTED: { label: "Recusado", tone: "danger" },
+  CANCELLED: { label: "Cancelado", tone: "muted" },
+};
+
+export const MAINTENANCE_PRIORITY_BADGE: Record<string, BadgeDescriptor> = {
+  LOW: { label: "Baixa", tone: "muted" },
+  NORMAL: { label: "Normal", tone: "neutral" },
+  HIGH: { label: "Alta", tone: "warning" },
+  URGENT: { label: "Urgente", tone: "danger" },
+};
+
 export const INVENTORY_STATUS: Record<string, BadgeDescriptor> = {
   OPEN: { label: "Aberto", tone: "info" },
   COUNTING: { label: "Em contagem", tone: "warning" },

@@ -108,7 +108,41 @@ const TEMPLATES: Record<
     body: () => "Você já pode entrar no sistema com sua conta corporativa.",
     link: () => "/meu",
   },
+  MAINTENANCE_CREATED: {
+    title: (data) => `Novo chamado de reparo ${data["number"] ?? ""}`.trim(),
+    body: (data) =>
+      `${data["requesterName"] ?? "Alguém"} abriu: ${data["title"] ?? "reparo"} (${data["location"] ?? "local não informado"}). Defina a prioridade.`,
+    link: (_e, _i, data) => `/reparos/${data["maintenanceId"] ?? ""}`,
+  },
+  MAINTENANCE_ASSIGNED: {
+    title: (data) => `Chamado ${data["number"] ?? ""} atribuído a você`,
+    body: () => "Você é o responsável pelo atendimento. Registre o andamento.",
+    link: (_e, _i, data) => `/reparos/${data["maintenanceId"] ?? ""}`,
+  },
+  MAINTENANCE_PRIORITY_SET: {
+    title: (data) => `Chamado ${data["number"] ?? ""} classificado`,
+    body: (data) =>
+      `${data["deciderName"] ?? "A manutenção"} definiu a prioridade como ${priorityLabel(data["priority"])}.`,
+    link: (_e, _i, data) => `/reparos/${data["maintenanceId"] ?? ""}`,
+  },
+  MAINTENANCE_DONE: {
+    title: (data) => `Chamado ${data["number"] ?? ""} concluído`,
+    body: (data) => `${data["actorName"] ?? "A manutenção"} concluiu o reparo.`,
+    link: (_e, _i, data) => `/reparos/${data["maintenanceId"] ?? ""}`,
+  },
 };
+
+/** Rótulo de prioridade, para o texto da notificação. */
+function priorityLabel(priority: string | undefined): string {
+  const labels: Record<string, string> = {
+    LOW: "baixa",
+    NORMAL: "normal",
+    HIGH: "alta",
+    URGENT: "urgente",
+  };
+
+  return labels[priority ?? ""] ?? "não definida";
+}
 
 /**
  * Resolve quem recebe cada notificação.
@@ -237,6 +271,38 @@ export async function resolveRecipients(
     case "ACCESS_GRANTED": {
       const userId = payload.data?.["userId"];
       return userId ? [userId] : [];
+    }
+
+    case "MAINTENANCE_CREATED": {
+      if (!payload.branchId) return [];
+
+      // Quem atende manutenção na unidade + o responsável padrão.
+      const [attendants, branch] = await Promise.all([
+        usersWithPermission(payload.branchId, "manutencao:atender"),
+        payload.branchId
+          ? client.branch.findUnique({
+              where: { id: payload.branchId },
+              select: { notificationResponsibleId: true },
+            })
+          : Promise.resolve(null),
+      ]);
+
+      const recipients = new Set<string>(attendants);
+
+      if (branch?.notificationResponsibleId) recipients.add(branch.notificationResponsibleId);
+
+      return [...recipients].filter((id) => !exclude.has(id));
+    }
+
+    case "MAINTENANCE_ASSIGNED": {
+      const assignedToId = payload.data?.["assignedToId"];
+      return assignedToId && !exclude.has(assignedToId) ? [assignedToId] : [];
+    }
+
+    case "MAINTENANCE_PRIORITY_SET":
+    case "MAINTENANCE_DONE": {
+      const requesterId = payload.data?.["requesterId"];
+      return requesterId && !exclude.has(requesterId) ? [requesterId] : [];
     }
 
     default:

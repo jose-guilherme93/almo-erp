@@ -7,22 +7,34 @@ import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePagePermission } from "@/server/auth/guards";
-import { resolveWorkingBranch } from "@/server/auth/scope";
+import { listRequestableBranches } from "@/server/services/request";
 
 export const metadata: Metadata = {
-  title: "Nova solicitação",
+  title: "Solicitar material",
 };
 
+/**
+ * Tela de solicitação de material.
+ *
+ * Qualquer usuário logado pode abrir. A unidade é escolhida aqui, entre todas
+ * as unidades ativas — quem responde ao pedido é quem cuida daquela unidade.
+ */
 export default async function NovaSolicitacaoPage() {
   const context = await requirePagePermission("solicitacao:create");
-  const branchId = resolveWorkingBranch(context, null);
-  const branch = context.getMembership(branchId);
+
+  const branches = await listRequestableBranches(context);
+
+  // Pré-seleciona a unidade em que o usuário já está operando, quando houver.
+  const defaultBranchId =
+    context.activeBranchId && branches.some((branch) => branch.id === context.activeBranchId)
+      ? context.activeBranchId
+      : (branches[0]?.id ?? "");
 
   return (
-    <PageBody className="max-w-4xl">
+    <PageBody className="max-w-3xl">
       <PageHeader
         title="Solicitar material"
-        description="Peça o que você precisa do almoxarifado da sua unidade."
+        description="Escolha a unidade, adicione os materiais e envie. Vai direto para quem responde."
         action={
           <Button asChild variant="ghost" size="sm">
             <Link href="/meu">
@@ -37,12 +49,12 @@ export default async function NovaSolicitacaoPage() {
         <CardHeader>
           <CardTitle>O que você precisa</CardTitle>
           <CardDescription>
-            Busque pelo nome do material ou leia o código de barras. Você acompanha o status do
-            pedido e é avisado quando estiver pronto para retirada.
+            Busque pelo nome do material ou use o leitor de código de barras. Você acompanha o
+            andamento e é avisado quando for aprovado ou entregue.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <RequestForm branchId={branchId} branchCode={branch?.branchCode ?? ""} />
+          <RequestForm branches={branches} defaultBranchId={defaultBranchId} />
         </CardContent>
       </Card>
     </PageBody>

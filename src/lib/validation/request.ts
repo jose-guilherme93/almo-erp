@@ -14,9 +14,14 @@ export const requestLineSchema = z.object({
   lineNotes: z.string().trim().max(200).optional(),
 });
 
+/**
+ * Abertura de solicitação.
+ *
+ * Sem prioridade: quem abre não tem como saber o que é urgente para a
+ * operação. Quem define é o responsável que recebe (ver `requestApprovalSchema`).
+ */
 export const requestCreateSchema = z.object({
-  branchId: z.string().trim().min(1, "Unidade é obrigatória."),
-  priority: requestPrioritySchema.default("NORMAL"),
+  branchId: z.string().trim().min(1, "Escolha a unidade."),
   neededAt: z
     .string()
     .trim()
@@ -38,6 +43,8 @@ export const requestApprovalSchema = z
   .object({
     requestId: z.string().trim().min(1),
     decision: z.enum(["approve", "reject"]).default("approve"),
+    /** Definida por quem decide, não por quem pediu. */
+    priority: requestPrioritySchema.default("NORMAL"),
     comment: z.string().trim().max(600).optional(),
     reason: z.string().trim().max(600).optional(),
     lines: z

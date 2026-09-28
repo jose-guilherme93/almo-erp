@@ -27,7 +27,8 @@ Cada unidade tem seu próprio almoxarifado, seus próprios usuários e seus pró
 | Comentários de código | **português**, apenas para regra de negócio não óbvia |
 
 `Item` (código) = "material" (na UI). `Branch` = "filial"/"unidade" (na UI).
-`Request` = "solicitação". `StockDocument` = "movimentação de estoque".
+`Request` = "solicitação" (material). `MaintenanceRequest` = "chamado de reparo".
+`StockDocument` = "movimentação de estoque".
 
 ---
 
@@ -117,7 +118,27 @@ Toda transição de status relevante **cria notificações** na mesma transaçã
 `src/server/services/notificacao/notify.ts`. Quem recebe é sempre resolvido por regra
 explícita (ver `docs/ARQUITETURA.md` §7). **Nunca** "depois a gente notifica".
 
-### 3.7 Não invente requisitos
+### 3.7 A urgência é de quem recebe, a unidade é de quem pede
+
+Duas regras de produto que valem para **toda** solicitação (material ou reparo):
+
+- **Quem pede não define prioridade.** A solicitação nasce `NORMAL` e sem classificação
+  no reparo; quem decide é o responsável que recebe, porque é ele quem conhece a fila e
+  o estoque do momento. Não adicione seletor de urgência no formulário de abertura.
+- **Quem pede escolhe a unidade**, entre todas as ativas — não apenas as do seu vínculo.
+  O colaborador pode estar em outra unidade. Quem resolve é quem recebe lá.
+
+Exceção consciente ao escopo por filial: a **abertura** aceita qualquer unidade ativa
+(§3.2 continua valendo para leitura, edição e aprovação). O solicitante sempre enxerga o
+que ele mesmo pediu, mesmo que tenha escolhido outra unidade.
+
+### 3.8 Criar já é enviar
+
+Solicitação de material e chamado de reparo **não têm rascunho**: nascem na fila de quem
+responde, já com o evento e a notificação. Não existe botão "enviar para aprovação" —
+pedir é um ato, não um rascunho.
+
+### 3.9 Não invente requisitos
 
 Se algo não está neste repositório (`AGENTS.md`, `docs/`, `docs/fases/`), **pergunte** —
 não invente regra de negócio. Se implementou algo, atualize a doc no mesmo commit.

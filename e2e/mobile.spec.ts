@@ -1,0 +1,181 @@
+import { expect, test } from "@playwright/test";
+
+import { loginAs, TEST_USERS } from "./helpers/auth";
+
+/**
+ * Responsividade para uso no celular.
+ *
+ * O sistema é instalado como PWA no celular do colaborador — o almoxarife usa
+ * no balcão. O critério objetivo de "não quebrou" é: **nenhuma tela pode
+ * gerar rolagem horizontal** na largura de um celular comum.
+ *
+ * Rolagem horizontal é o sintoma clássico de tabela larga, grid fixo ou
+ * elemento com largura maior que a viewport.
+ */
+
+const MOBILE = { width: 390, height: 844 };
+
+/** Telas por perfil — cada uma é verificada na largura de celular. */
+const SCREENS: Array<{ user: Parameters<typeof loginAs>[1]; path: string; label: string }> = [
+  { user: "superAdmin", path: "/dashboard", label: "Dashboard da matriz" },
+  { user: "superAdmin", path: "/dashboard/unidades", label: "Visão por unidade" },
+  { user: "superAdmin", path: "/admin/usuarios", label: "Usuários" },
+  { user: "superAdmin", path: "/admin/auditoria", label: "Auditoria" },
+  { user: "superAdmin", path: "/filiais", label: "Unidades" },
+  { user: "superAdmin", path: "/catalogo/itens", label: "Materiais" },
+  { user: "adminFilial", path: "/dashboard/unidade/x", label: "Dashboard da unidade" },
+  { user: "adminFilial", path: "/solicitacoes/fila", label: "Fila de aprovação" },
+  { user: "adminFilial", path: "/entregas", label: "Entregas" },
+  { user: "almoxarife", path: "/estoque/saldos", label: "Saldos" },
+  { user: "almoxarife", path: "/estoque/movimentacoes", label: "Movimentações" },
+  { user: "almoxarife", path: "/estoque/entradas/nova", label: "Nova entrada" },
+  { user: "almoxarife", path: "/inventario", label: "Inventário" },
+  { user: "almoxarife", path: "/transferencias", label: "Transferências" },
+  { user: "almoxarife", path: "/reparos", label: "Chamados de reparo" },
+  { user: "solicitante", path: "/solicitar", label: "Escolha do pedido" },
+  { user: "solicitante", path: "/solicitacoes/nova", label: "Solicitar material" },
+  { user: "solicitante", path: "/reparos/novo", label: "Abrir reparo" },
+  { user: "solicitante", path: "/solicitacoes", label: "Minhas solicitações" },
+  { user: "solicitante", path: "/meu", label: "Meu painel" },
+  { user: "solicitante", path: "/notificacoes", label: "Notificações" },
+  { user: "superAdmin", path: "/relatorios", label: "Relatórios" },
+];
+
+test.use({ viewport: MOBILE });
+
+test.describe("mobile 390px", () => {
+  for (const screen of SCREENS) {
+    test(`${screen.label} (${screen.path}) não tem rolagem horizontal`, async ({ page }) => {
+      await loginAs(page, screen.user);
+      await page.goto(screen.path);
+
+      // Espera o conteúdo principal renderizar antes de medir.
+      await page.waitForLoadState("networkidle");
+
+      const overflow = await page.evaluate(() => {
+        const root = document.documentElement;
+
+        // Procuramos o elemento que estoura, para o erro ser acionável.
+        const culprits: string[] = [];
+
+        for (const element of document.querySelectorAll<HTMLElement>("body *")) {
+          const rect = element.getBoundingClientRect();
+
+          if (rect.width === 0) continue;
+
+          if (rect.right > root.clientWidth + 1) {
+            const id = element.id ? `#${element.id}` : "";
+            const cls =
+              typeof element.className === "string" && element.className.length > 0
+                ? `.${element.className.split(" ").slice(0, 2).join(".")}`
+                : "";
+
+            culprits.push(`${element.tagName.toLowerCase()}${id}${cls}`);
+          }
+        }
+
+        return {
+          hasHorizontalScroll: root.scrollWidth > root.clientWidth + 1,
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          culprits: [...new Set(culprits)].slice(0, 5),
+        };
+      });
+
+      expect(
+        overflow.hasHorizontalScroll,
+        `Rolagem horizontal: ${overflow.scrollWidth}px numa viewport de ${overflow.clientWidth}px. Elementos que estouram: ${overflow.culprits.join(", ")}`,
+      ).toBe(false);
+    });
+  }
+});
+
+test.describe("navegação no celular", () => {
+  test("o menu abre em gaveta e navega", async ({ page }) => {
+    await loginAs(page, "solicitante");
+    await page.goto("/meu");
+
+    await page.getByRole("button", { name: "Abrir menu" }).click();
+
+    // O menu é uma gaveta: os itens ficam visíveis sem empurrar o conteúdo.
+    await expect(page.getByRole("link", { name: "Fazer um pedido" })).toBeVisible();
+
+    await page.getByRole("link", { name: "Fazer um pedido" }).click();
+
+    await expect(page).toHaveURL(/\/solicitar/);
+  });
+
+  test("a barra superior cabe na tela do celular", async ({ page }) => {
+    await loginAs(page, "adminFilial");
+    await page.goto("/meu");
+
+    await expect(page.getByRole("button", { name: /Notificações/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sair" })).toBeVisible();
+  });
+});
+
+test.describe("PWA", () => {
+  test("o manifesto é servido sem exigir sessão", async ({ request }) => {
+    const response = await request.get("/manifest.webmanifest");
+
+    expect(response.status()).toBe(200);
+
+    const manifest = (await response.json()) as {
+      name: string;
+      display: string;
+      start_url: string;
+      icons: Array<{ sizes: string }>;
+    };
+
+    expect(manifest.name).toBe("almo-erp");
+    expect(manifest.display).toBe("standalone");
+    expect(manifest.start_url).toBe("/");
+    expect(manifest.icons.some((icon) => icon.sizes === "192x192")).toBe(true);
+    expect(manifest.icons.some((icon) => icon.sizes === "512x512")).toBe(true);
+  });
+
+  test("o service worker é servido na raiz", async ({ request }) => {
+    const response = await request.get("/sw.js");
+
+    expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toContain("javascript");
+  });
+
+  test("o ícone está disponível em 192 e 512", async ({ request }) => {
+    for (const size of [192, 512]) {
+      const response = await request.get(`/icons/icon-${size}.png`);
+
+      expect(response.status(), `ícone ${size}`).toBe(200);
+      expect(response.headers()["content-type"]).toBe("image/png");
+    }
+  });
+
+  test("a página declara o manifesto e o modo tela cheia (iOS)", async ({ page }) => {
+    await page.goto("/login");
+
+    await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
+      "href",
+      "/manifest.webmanifest",
+    );
+    // As duas: a padronizada (iOS 16.4+) e a legada (iOS anterior).
+    await expect(page.locator('meta[name="mobile-web-app-capable"]')).toHaveAttribute(
+      "content",
+      "yes",
+    );
+    await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute(
+      "content",
+      "yes",
+    );
+    await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute(
+      "content",
+      "almo-erp",
+    );
+  });
+
+  test("o cadastro de usuário existente serve de sanidade do login", async ({ page }) => {
+    // Garante que o helper de login continua funcionando após as mudanças.
+    await loginAs(page, TEST_USERS.solicitante);
+
+    await expect(page).toHaveURL(/\/(solicitar|meu)/);
+  });
+});

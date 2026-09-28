@@ -18,7 +18,6 @@ import {
   deliverRequest,
   getRequestDetail,
   rejectRequest,
-  submitRequest,
 } from "@/server/services/request";
 
 const TEST_PREFIX = "SOL";
@@ -114,19 +113,19 @@ async function reserved(): Promise<string> {
   return level?.reservedQuantity.toString() ?? "0";
 }
 
-/** Cria uma solicitação em rascunho com um item. */
+/**
+ * Abre uma solicitação. Ela já nasce enviada para aprovação — não existe mais
+ * a etapa de rascunho.
+ */
 async function newRequest(quantity = 10) {
   return createRequest(solicitanteContext(), {
     branchId,
-    priority: "NORMAL",
     lines: [{ itemId, quantity: String(quantity) }],
   });
 }
 
 /** Leva a solicitação até aprovada. */
 async function approveFully(requestId: string, quantity = 10) {
-  await submitRequest(solicitanteContext(), requestId);
-
   const detail = await prisma.request.findUniqueOrThrow({
     where: { id: requestId },
     select: { lines: { select: { id: true } } },
@@ -237,14 +236,51 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe.runIf(process.env["DATABASE_URL"])("criação e envio", () => {
-  it("cria rascunho sem reservar saldo", async () => {
+describe.runIf(process.env["DATABASE_URL"])("abertura", () => {
+  it("nasce enviada para aprovação e sem reservar saldo", async () => {
     const request = await newRequest(10);
 
     const saved = await prisma.request.findUniqueOrThrow({ where: { id: request.id } });
 
-    expect(saved.status).toBe("DRAFT");
+    expect(saved.status).toBe("SUBMITTED");
     expect(await reserved()).toBe("0");
+  });
+
+  it("notifica quem responde na unidade escolhida", async () => {
+    const request = await newRequest(10);
+
+    const notifications = await prisma.notification.findMany({
+      where: { type: "REQUEST_CREATED", entityId: request.id },
+    });
+
+    expect(notifications.length).toBeGreaterThan(0);
+  });
+
+  it("aceita unidade fora do vínculo do solicitante", async () => {
+    // O colaborador pode estar em outra unidade e pedir material de lá.
+    const request = await createRequest(solicitanteContext(), {
+      branchId: otherBranchId,
+      lines: [{ itemId, quantity: "1" }],
+    });
+
+    const saved = await prisma.request.findUniqueOrThrow({
+      where: { id: request.id },
+      select: { status: true, branchId: true },
+    });
+
+    expect(saved.branchId).toBe(otherBranchId);
+    expect(saved.status).toBe("SUBMITTED");
+  });
+
+  it("o solicitante continua vendo o que pediu para outra unidade", async () => {
+    const request = await createRequest(solicitanteContext(), {
+      branchId: otherBranchId,
+      lines: [{ itemId, quantity: "1" }],
+    });
+
+    const detail = await getRequestDetail(solicitanteContext(), request.id);
+
+    expect(detail.branch.id).toBe(otherBranchId);
   });
 
   it("grava o preço de referência como snapshot da linha", async () => {
@@ -292,7 +328,6 @@ describe.runIf(process.env["DATABASE_URL"])("criação e envio", () => {
 
     const request = await createRequest(solicitanteContext(), {
       branchId,
-      priority: "NORMAL",
       lines: [{ itemId: semEstoque.id, quantity: "5" }],
     });
 
@@ -303,9 +338,9 @@ describe.runIf(process.env["DATABASE_URL"])("criação e envio", () => {
     expect(line.availabilityStatus).toBe("UNAVAILABLE");
   });
 
-  it("enviar muda o status e registra o evento", async () => {
+  it("registra o evento de envio já na criação", async () => {
+    // Não existe mais a etapa de rascunho: nascer já é entrar na fila.
     const request = await newRequest(10);
-    await submitRequest(solicitanteContext(), request.id);
 
     const saved = await prisma.request.findUniqueOrThrow({
       where: { id: request.id },
@@ -316,17 +351,8 @@ describe.runIf(process.env["DATABASE_URL"])("criação e envio", () => {
     expect(saved.events.map((event) => event.type)).toContain("SUBMITTED");
   });
 
-  it("não permite que outra pessoa envie a solicitação", async () => {
-    const request = await newRequest(10);
-
-    await expect(submitRequest(aprovadorContext(), request.id)).rejects.toMatchObject({
-      code: "BUSINESS_RULE",
-    });
-  });
-
   it("assumir a análise move para IN_REVIEW", async () => {
     const request = await newRequest(10);
-    await submitRequest(solicitanteContext(), request.id);
 
     await claimRequest(aprovadorContext(), request.id);
 
@@ -341,6 +367,27 @@ describe.runIf(process.env["DATABASE_URL"])("criação e envio", () => {
 });
 
 describe.runIf(process.env["DATABASE_URL"])("aprovação", () => {
+  it("o aprovador define a prioridade ao decidir", async () => {
+    const request = await newRequest(10);
+    const detail = await prisma.request.findUniqueOrThrow({
+      where: { id: request.id },
+      select: { lines: { select: { id: true } } },
+    });
+
+    await approveRequest(aprovadorContext(), {
+      requestId: request.id,
+      priority: "URGENT",
+      lines: [{ lineId: detail.lines[0]?.id ?? "", approvedQuantity: "10" }],
+    });
+
+    const saved = await prisma.request.findUniqueOrThrow({
+      where: { id: request.id },
+      select: { priority: true },
+    });
+
+    expect(saved.priority).toBe("URGENT");
+  });
+
   it("aprovar reserva o saldo sem baixar", async () => {
     const request = await newRequest(10);
     const result = await approveFully(request.id, 10);
@@ -352,7 +399,6 @@ describe.runIf(process.env["DATABASE_URL"])("aprovação", () => {
 
   it("aprovação parcial exige motivo", async () => {
     const request = await newRequest(10);
-    await submitRequest(solicitanteContext(), request.id);
 
     const detail = await prisma.request.findUniqueOrThrow({
       where: { id: request.id },
@@ -369,7 +415,6 @@ describe.runIf(process.env["DATABASE_URL"])("aprovação", () => {
 
   it("aprovação parcial com motivo registra o que não foi atendido", async () => {
     const request = await newRequest(10);
-    await submitRequest(solicitanteContext(), request.id);
 
     const detail = await prisma.request.findUniqueOrThrow({
       where: { id: request.id },
@@ -400,7 +445,6 @@ describe.runIf(process.env["DATABASE_URL"])("aprovação", () => {
 
   it("não aprova mais do que foi solicitado", async () => {
     const request = await newRequest(10);
-    await submitRequest(solicitanteContext(), request.id);
 
     const detail = await prisma.request.findUniqueOrThrow({
       where: { id: request.id },
@@ -417,7 +461,6 @@ describe.runIf(process.env["DATABASE_URL"])("aprovação", () => {
 
   it("aprovar sem saldo na unidade falha e nada é reservado", async () => {
     const request = await newRequest(500);
-    await submitRequest(solicitanteContext(), request.id);
 
     const detail = await prisma.request.findUniqueOrThrow({
       where: { id: request.id },
@@ -443,7 +486,6 @@ describe.runIf(process.env["DATABASE_URL"])("aprovação", () => {
 
   it("rejeitar com motivo muda o status e não reserva nada", async () => {
     const request = await newRequest(10);
-    await submitRequest(solicitanteContext(), request.id);
 
     await rejectRequest(aprovadorContext(), {
       requestId: request.id,

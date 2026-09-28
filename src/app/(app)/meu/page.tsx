@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Bell, ClipboardList, PackageSearch, Plus } from "lucide-react";
+import { Bell, ClipboardList, PackageSearch, Plus, Wrench } from "lucide-react";
 
 import { REQUEST_PRIORITY, REQUEST_STATUS, statusBadge } from "@/components/domain/status-badge";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
@@ -11,6 +11,11 @@ import { formatDate, formatDateTime, formatRelative } from "@/lib/format";
 import { requirePageSession } from "@/server/auth/guards";
 import { dashboardRoutes, describeProfile } from "@/server/auth/home-route";
 import { listMyRequests, listPendingDeliveries } from "@/server/services/request";
+import { listMaintenanceRequests } from "@/server/services/maintenance";
+import {
+  MAINTENANCE_STATUS_BADGE,
+  MAINTENANCE_PRIORITY_BADGE,
+} from "@/components/domain/status-badge";
 import { latestUnread, unreadCount } from "@/server/services/notification/inbox";
 
 export const metadata: Metadata = {
@@ -28,13 +33,19 @@ export default async function MeuPage() {
 
   const activeBranchId = context.activeBranchId;
 
-  const [requests, unread, latest, pendingDelivery] = await Promise.all([
+  const canOpenRepair = context.hasPermission("manutencao:create");
+  const canSeeRepairs = context.hasPermission("manutencao:read");
+
+  const [requests, unread, latest, pendingDelivery, repairs] = await Promise.all([
     listMyRequests(context, { limit: 8 }),
     unreadCount(context.user.id),
     latestUnread(context.user.id, 3),
     activeBranchId && context.hasPermission("solicitacao:entregar", activeBranchId)
       ? listPendingDeliveries(context, activeBranchId, { pageSize: 3 })
       : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 3, totalPages: 1 }),
+    canSeeRepairs
+      ? listMaintenanceRequests(context, { mineOnly: true, pageSize: 5 })
+      : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 5, totalPages: 1 }),
   ]);
 
   const routes = dashboardRoutes(context);
@@ -45,11 +56,11 @@ export default async function MeuPage() {
         title={`Olá, ${context.user.name.split(" ")[0]}`}
         description={describeProfile(context)}
         action={
-          context.hasPermission("solicitacao:create") ? (
+          context.hasPermission("solicitacao:create") || canOpenRepair ? (
             <Button asChild>
-              <Link href="/solicitacoes/nova">
+              <Link href="/solicitar">
                 <Plus className="size-4" />
-                Solicitar material
+                Fazer um pedido
               </Link>
             </Button>
           ) : null
@@ -143,6 +154,46 @@ export default async function MeuPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {repairs.items.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wrench className="size-5" aria-hidden />
+              Meus chamados de reparo
+            </CardTitle>
+            <CardDescription>Manutenção que você pediu.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y text-sm">
+              {repairs.items.map((repair) => (
+                <li
+                  key={repair.id}
+                  className="flex flex-wrap items-center justify-between gap-2 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{repair.title}</p>
+                    <p className="text-muted-foreground truncate text-xs">
+                      {repair.number} · {repair.location} · {formatRelative(repair.createdAt)}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    {repair.priority
+                      ? statusBadge(MAINTENANCE_PRIORITY_BADGE, repair.priority)
+                      : null}
+                    {statusBadge(MAINTENANCE_STATUS_BADGE, repair.status)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <Button asChild variant="outline" size="sm" className="mt-3">
+              <Link href="/reparos?meus=1">Ver todos os meus chamados</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {pendingDelivery.total > 0 ? (
         <Card>

@@ -27,7 +27,7 @@ export async function lockBranchForNumbering(
 
 async function nextSequence(
   tx: Prisma.TransactionClient,
-  model: "stockDocument" | "transfer" | "request" | "inventorySession",
+  model: "stockDocument" | "transfer" | "request" | "inventorySession" | "maintenanceRequest",
   where: Record<string, unknown>,
   prefix: string,
   year: number,
@@ -104,6 +104,26 @@ export async function nextRequestNumber(
   const sequence = await nextSequence(tx, "request", { branchId }, DOCUMENT_PREFIX.REQUEST, year);
 
   return formatNumber(DOCUMENT_PREFIX.REQUEST, year, sequence);
+}
+
+/** Próximo número de chamado de reparo. */
+export async function nextMaintenanceNumber(
+  tx: Prisma.TransactionClient,
+  branchId: string,
+  date: Date = new Date(),
+): Promise<string> {
+  await lockBranchForNumbering(tx, branchId);
+
+  const year = date.getFullYear();
+  const sequence = await nextSequence(
+    tx,
+    "maintenanceRequest",
+    { branchId },
+    DOCUMENT_PREFIX.MAINTENANCE,
+    year,
+  );
+
+  return formatNumber(DOCUMENT_PREFIX.MAINTENANCE, year, sequence);
 }
 
 /** Próximo número de inventário. */

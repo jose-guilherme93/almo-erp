@@ -7,27 +7,49 @@ corporativa do Google.
 
 ## Para quem solicita material
 
+### Escolher o que você precisa
+
+Ao entrar, você cai na tela **O que você precisa?** com duas opções:
+
+- **Preciso de material** — itens do almoxarifado (EPI, limpeza, escritório, copa).
+- **Preciso de um reparo** — manutenção predial ou de equipamento.
+
 ### Pedir material
 
-1. Menu **Minhas solicitações** → botão **Solicitar material** (ou **Solicitar material**
-   na tela inicial).
-2. Escolha a **prioridade**:
-   - **Baixa** — sem urgência, entra na fila normal.
-   - **Normal** — prazo habitual da unidade.
-   - **Alta** — sobe na fila.
-   - **Urgente** — parada de operação, primeiro da fila.
-3. Se tiver data em mente, preencha **Precisa para**.
-4. Busque o material por **nome**, **código** ou **código de barras** (o botão de
+1. Escolha **De qual unidade você precisa?**
+   > Você pode pedir para **qualquer unidade**, não só a sua. Quem responde é o
+   > responsável pela unidade que você escolher.
+2. Se tiver data em mente, preencha **Precisa para** (opcional).
+3. Busque o material por **nome**, **código** ou **código de barras** (o botão de
    câmera lê o código; se não houver câmera, use **Digitar código**).
-5. Informe a **quantidade**. Ao lado aparece quanto existe disponível na sua unidade
-   agora.
-   > Pedir algo em falta é permitido: o aprovador pode aprovar parcialmente ou pedir
+4. Informe a **quantidade**. Ao lado aparece quanto existe disponível na unidade
+   escolhida agora.
+   > Pedir algo em falta é permitido: quem responde pode aprovar parcialmente ou pedir
    > transferência de outra unidade. O aviso é para você saber o que esperar.
-6. Explique a necessidade no campo **Justificativa do pedido**, se não for rotineiro.
-7. **Criar solicitação**.
+5. Explique a necessidade no campo **Justificativa**, se não for rotineiro.
+6. **Enviar solicitação**.
 
-A solicitação fica como **rascunho**. Ela só vai para a unidade quando você clicar em
-**Enviar para aprovação**.
+O pedido **vai direto para quem responde** na unidade escolhida. Não existe etapa de
+rascunho nem de confirmação: se você pediu, o pedido já está na fila.
+
+> **Você não escolhe a urgência.** Quem classifica o pedido como baixa, normal, alta ou
+> urgente é quem recebe — porque é quem conhece a fila e o estoque do momento.
+
+### Abrir um chamado de reparo
+
+1. Escolha **Onde fica o problema?** (qualquer unidade).
+2. Escolha o **tipo** — elétrica, hidráulica, ar-condicionado, mobiliário, informática,
+   equipamentos, limpeza ou outros.
+3. **Resuma o problema** em uma frase, como você contaria para um colega.
+4. Informe **onde exatamente** (sala, andar, setor) e, se houver, o **número de
+   patrimônio** do equipamento.
+5. **Descreva** o que está acontecendo, desde quando e o que já foi tentado.
+6. **Abrir chamado**.
+
+A equipe de manutenção da unidade é avisada na hora. Você acompanha o andamento em
+**Meus chamados de reparo**, na tela inicial.
+
+> Assim como no material, **a urgência é definida por quem atende**, não por quem abre.
 
 ### Acompanhar
 
@@ -35,8 +57,7 @@ Em **Minhas solicitações** você vê cada pedido e a situação:
 
 | Situação | O que significa |
 |---|---|
-| Rascunho | Ainda não enviado. Só você vê. |
-| Aguardando aprovação | Na fila da sua unidade. |
+| Aguardando aprovação | Na fila da unidade escolhida. |
 | Em análise | Um aprovador assumiu o pedido. |
 | Aprovada | Liberada. O material está reservado para você. |
 | Aprovada parcialmente | Parte foi aprovada. Veja o motivo item por item. |
@@ -48,7 +69,7 @@ A linha do tempo na página do pedido mostra **quem fez o quê e quando**.
 
 ### Cancelar
 
-Enquanto estiver em **Rascunho** ou **Aguardando aprovação**, você pode cancelar.
+Enquanto estiver **Aguardando aprovação**, você pode cancelar a solicitação ou o chamado.
 
 ### Ser avisado
 
@@ -72,6 +93,8 @@ Ele ordena por prioridade e tempo de espera, e marca com ⚠ o que passou de 24 
 3. Opcionalmente, clique em **Assumir análise** — isso avisa os outros aprovadores que
    você está cuidando do pedido.
 4. Clique em **Decidir**:
+   - **Defina a prioridade** — baixa, normal, alta ou urgente. Quem pediu não tem como
+     saber o que é crítico para a operação; você tem.
    - **Aprovação total**: mantenha as quantidades como estão.
    - **Aprovação parcial**: reduza a quantidade e **explique o motivo** de cada item
      reduzido. O solicitante vê exatamente o que não foi atendido e por quê.
@@ -84,6 +107,22 @@ fica separado, sem ainda baixar do estoque.
 > aprove parcialmente o que existe, ou peça transferência de outra unidade.
 
 ---
+
+### Atender um chamado de reparo
+
+O dashboard da unidade mostra os **chamados de reparo** com destaque para os que ainda
+estão **sem prioridade** — são os que precisam de triagem.
+
+1. Abra o chamado e clique em **Assumir chamado** (sai da fila dos outros).
+2. **Definir prioridade** — quem abriu foi avisado de que o chamado foi reconhecido.
+3. **Atribuir a alguém** da unidade: o chamado vai para **Em andamento** e a pessoa
+   recebe na caixa de entrada.
+4. Registre o andamento quando houver novidade, ou marque **Aguardando peça**.
+5. Ao terminar, **Concluir** descrevendo o que foi feito. O tempo até a conclusão fica
+   registrado no histórico.
+
+Se o chamado não for da sua alçada, use **Recusar** e explique o motivo — quem abriu
+recebe a justificativa.
 
 ## Para o almoxarife
 

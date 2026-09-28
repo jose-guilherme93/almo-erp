@@ -24,6 +24,16 @@ Todas as 14 fases do plano estão implementadas:
 | 12 | Relatórios com exportação CSV |
 | 13 | Hardening: auditoria, configurações, cabeçalhos de segurança e manual |
 
+Extras pedidos pela operação, já implementados:
+
+- **PWA instalável** no celular do colaborador (manifesto, service worker, ícones,
+  tela cheia). Verificado por teste automatizado: nenhuma tela gera rolagem horizontal
+  em 390px.
+- **Solicitação sem rascunho**: criar já envia para quem responde.
+- **Qualquer unidade** pode ser escolhida ao abrir material ou reparo.
+- **A urgência é definida por quem recebe**, não por quem pede.
+- **Chamados de reparo** (`/reparos`), com triagem, prioridade, atribuição e conclusão.
+
 ## Documentação
 
 | Arquivo | Conteúdo |

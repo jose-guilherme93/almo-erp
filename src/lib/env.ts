@@ -82,10 +82,22 @@ function loadEnv(): ServerEnv {
   }
 
   // Trava de segurança: o bypass de autenticação para testes não pode existir
-  // em produção sob nenhuma circunstância.
-  if (parsed.data.NODE_ENV === "production" && parsed.data.E2E_AUTH_BYPASS) {
+  // num servidor de produção.
+  //
+  // A verificação é ignorada durante o **build** (`next build` também roda com
+  // NODE_ENV=production), mas continua valendo em toda execução do servidor —
+  // que é onde o risco existe: é o processo que atende requisição.
+  const isBuildPhase = process.env["NEXT_PHASE"] === "phase-production-build";
+
+  if (parsed.data.NODE_ENV === "production" && parsed.data.E2E_AUTH_BYPASS && !isBuildPhase) {
     throw new Error(
-      "E2E_AUTH_BYPASS está ligado em produção. Desligue imediatamente: este recurso permite entrar sem autenticação.",
+      [
+        "E2E_AUTH_BYPASS está ligado num servidor de produção.",
+        "Este recurso permite entrar sem autenticação e não pode ficar ligado aqui.",
+        "",
+        "Para explorar o sistema localmente, use `pnpm dev` (ambiente de desenvolvimento).",
+        "Para rodar em produção, remova a linha E2E_AUTH_BYPASS=true do .env.",
+      ].join("\n"),
     );
   }
 

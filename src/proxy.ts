@@ -22,10 +22,11 @@ export const config = {
   matcher: [
     /*
      * Roda em tudo, exceto:
-     *  - /api/auth/*        (endpoints do próprio Auth.js)
+     *  - /api/auth/*           (endpoints do próprio Auth.js)
      *  - /login, /acesso-negado
+     *  - /manifest.webmanifest (o navegador busca sem cookie: precisa passar)
      *  - arquivos estáticos do Next e assets públicos
      */
-    "/((?!api/auth|_next/static|_next/image|login|acesso-negado|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|woff2?)$).*)",
+    "/((?!api/auth|_next/static|_next/image|login|acesso-negado|manifest\\.webmanifest|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|webmanifest|woff2?)$).*)",
   ],
 };

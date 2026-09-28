@@ -49,9 +49,20 @@ export const NAVIGATION: NavGroup[] = [
     label: "Operação",
     items: [
       {
+        label: "Fazer um pedido",
+        href: "/solicitar",
+        permission: "solicitacao:create",
+        description: "Material ou reparo",
+      },
+      {
         label: "Solicitações",
         href: "/solicitacoes",
         permission: "solicitacao:read",
+      },
+      {
+        label: "Reparos",
+        href: "/reparos",
+        permission: "manutencao:read",
       },
       {
         label: "Fila de aprovação",

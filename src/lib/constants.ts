@@ -20,6 +20,7 @@ export const DOCUMENT_PREFIX = {
   STOCK: "MV",
   TRANSFER: "TR",
   REQUEST: "SOL",
+  MAINTENANCE: "REP",
   INVENTORY: "INV",
 } as const;
 

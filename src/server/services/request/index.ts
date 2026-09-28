@@ -92,7 +92,11 @@ function visibilityFilter(context: AuthContext, options?: { branchId?: string | 
     return { branchId };
   }
 
-  return { branchId: { in: visibleBranchIds(context) } };
+  // O solicitante enxerga o que ele pediu mesmo se escolheu outra unidade:
+  // a solicitação é dele antes de ser da filial.
+  return {
+    OR: [{ branchId: { in: visibleBranchIds(context) } }, { requesterId: context.user.id }],
+  };
 }
 
 export async function getRequestDetail(context: AuthContext, requestId: string) {
@@ -373,89 +377,169 @@ export type RequestLineInput = {
   lineNotes?: string;
 };
 
+/**
+ * Unidades que o usuário pode escolher ao abrir uma solicitação.
+ *
+ * Diferente do resto do sistema, aqui **qualquer unidade ativa** é aceita: o
+ * colaborador pode estar temporariamente em outra unidade e precisa pedir
+ * material de lá. Quem resolve o pedido é quem recebe — a unidade escolhida.
+ */
+export async function listRequestableBranches(context: AuthContext) {
+  // Passa pelo guard para exigir sessão válida, mas não restringe ao escopo:
+  // a regra de escolha é do solicitante, não do vínculo.
+  void context;
+
+  return prisma.branch.findMany({
+    where: { active: true },
+    orderBy: [{ type: "asc" }, { code: "asc" }],
+    select: { id: true, code: true, name: true, type: true, city: true, state: true },
+  });
+}
+
+/**
+ * Abre uma solicitação.
+ *
+ * Nasce **já enviada para aprovação**: pedir material é um ato, não um
+ * rascunho. Não existe etapa de "confirmar envio" — quem pediu, pediu.
+ *
+ * A prioridade **não** vem do solicitante: quem define é o responsável que
+ * recebe, porque é ele quem conhece a fila e o estoque. Nasce `NORMAL`.
+ */
 export async function createRequest(
   context: AuthContext,
   input: {
     branchId: string;
-    priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
     neededAt?: string;
     notes?: string;
     lines: RequestLineInput[];
   },
   metadata?: { ip?: string | null; userAgent?: string | null },
-) {
-  assertBranchAccess(context, input.branchId);
-
+): Promise<{ id: string; number: string }> {
   if (input.lines.length === 0) {
     throw new BusinessRuleError("Adicione ao menos um material à solicitação.");
   }
 
-  return prisma.$transaction(async (tx) => {
-    const number = await nextRequestNumber(tx, input.branchId);
+  const branch = await prisma.branch.findFirst({
+    where: { id: input.branchId, active: true },
+    select: {
+      id: true,
+      name: true,
+      defaultApproverId: true,
+      notificationResponsibleId: true,
+    },
+  });
 
-    const items = await tx.item.findMany({
-      where: { id: { in: input.lines.map((line) => line.itemId) } },
-      select: { id: true, referencePrice: true, requiresApproval: true },
-    });
+  if (!branch) {
+    throw new BusinessRuleError("A unidade escolhida está inativa ou não existe.");
+  }
 
-    const itemById = new Map(items.map((item) => [item.id, item]));
+  const items = await prisma.item.findMany({
+    where: { id: { in: input.lines.map((line) => line.itemId) }, active: true },
+    select: { id: true, referencePrice: true },
+  });
 
-    const availability = await classifyAvailability(
-      tx,
-      input.branchId,
-      input.lines.map((line) => ({
-        itemId: line.itemId,
-        quantity: new Prisma.Decimal(line.quantity),
-      })),
+  if (items.length !== input.lines.length) {
+    throw new BusinessRuleError(
+      "Algum material da solicitação está inativo ou não existe. Revise a lista.",
     );
+  }
 
-    const request = await tx.request.create({
-      data: {
-        number,
-        branchId: input.branchId,
-        requesterId: context.user.id,
-        status: "DRAFT",
-        priority: input.priority,
-        neededAt: input.neededAt ? new Date(input.neededAt) : null,
-        notes: input.notes,
-        lines: {
-          create: input.lines.map((line) => ({
-            itemId: line.itemId,
-            requestedQuantity: new Prisma.Decimal(line.quantity),
-            availabilityStatus: availability.get(line.itemId) ?? "UNAVAILABLE",
-            unitPriceSnapshot: itemById.get(line.itemId)?.referencePrice ?? null,
-            lineNotes: line.lineNotes,
-          })),
+  const itemById = new Map(items.map((item) => [item.id, item]));
+
+  return prisma.$transaction(
+    async (tx) => {
+      const number = await nextRequestNumber(tx, input.branchId);
+
+      const availability = await classifyAvailability(
+        tx,
+        input.branchId,
+        input.lines.map((line) => ({
+          itemId: line.itemId,
+          quantity: new Prisma.Decimal(line.quantity),
+        })),
+      );
+
+      const responsibleId = branch.defaultApproverId ?? branch.notificationResponsibleId;
+
+      const request = await tx.request.create({
+        data: {
+          number,
+          branchId: input.branchId,
+          requesterId: context.user.id,
+          // Já entra na fila de aprovação.
+          status: "SUBMITTED",
+          priority: "NORMAL",
+          neededAt: input.neededAt ? new Date(input.neededAt) : null,
+          notes: input.notes,
+          responsibleId,
+          lines: {
+            create: input.lines.map((line) => ({
+              itemId: line.itemId,
+              requestedQuantity: new Prisma.Decimal(line.quantity),
+              availabilityStatus: availability.get(line.itemId) ?? "UNAVAILABLE",
+              unitPriceSnapshot: itemById.get(line.itemId)?.referencePrice ?? null,
+              lineNotes: line.lineNotes,
+            })),
+          },
         },
-      },
-      select: { id: true, number: true },
-    });
+        select: { id: true, number: true },
+      });
 
-    await tx.requestEvent.create({
-      data: {
-        requestId: request.id,
-        actorId: context.user.id,
-        type: "CREATED",
-        toStatus: "DRAFT",
-      },
-    });
+      await tx.requestEvent.create({
+        data: {
+          requestId: request.id,
+          actorId: context.user.id,
+          type: "SUBMITTED",
+          toStatus: "SUBMITTED",
+          comment: "Solicitação aberta pelo colaborador",
+        },
+      });
 
-    await writeAuditLog(
-      {
+      await writeAuditLog(
+        {
+          actorId: context.user.id,
+          action: "request.created",
+          entityType: "Request",
+          entityId: request.id,
+          branchId: input.branchId,
+          after: {
+            number,
+            lines: input.lines.length,
+            status: "SUBMITTED",
+            responsibleId,
+          },
+          ip: metadata?.ip,
+          userAgent: metadata?.userAgent,
+        },
+        tx,
+      );
+
+      // Notifica quem responde **na unidade escolhida**, na mesma transação.
+      await notify(tx, {
+        type: "REQUEST_CREATED",
         actorId: context.user.id,
-        action: "request.created",
+        branchId: input.branchId,
         entityType: "Request",
         entityId: request.id,
-        branchId: input.branchId,
-        after: { number, lines: input.lines.length, priority: input.priority },
-        ip: metadata?.ip,
-        userAgent: metadata?.userAgent,
-      },
-      tx,
-    );
+        data: {
+          requestId: request.id,
+          number,
+          requesterName: context.user.name,
+          itemCount: String(input.lines.length),
+          priority: "NORMAL",
+        },
+      });
 
-    return request;
-  });
+      log.info("solicitação aberta e enviada para aprovação", {
+        requestId: request.id,
+        number,
+        branchId: input.branchId,
+      });
+
+      return request;
+    },
+    { timeout: 20_000, maxWait: 10_000 },
+  );
 }
 
 export async function submitRequest(
@@ -649,6 +733,13 @@ export async function claimRequest(
 
 export type ApproveInput = {
   requestId: string;
+  /**
+   * Prioridade definida por quem **recebe** o chamado.
+   *
+   * Faz sentido aqui e não na abertura: quem abre não tem como saber se o que
+   * pediu é urgente para a operação — quem separa o material, sim.
+   */
+  priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT";
   lines: Array<{
     lineId: string;
     approvedQuantity: string;
@@ -792,6 +883,7 @@ export async function approveRequest(
         where: { id: request.id },
         data: {
           status: nextStatus,
+          ...(input.priority ? { priority: input.priority } : {}),
           decidedById: context.user.id,
           decidedAt: new Date(),
           claimedById: context.user.id,

@@ -8,20 +8,33 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { ActionResult } from "@/lib/action-result";
 import { formatQuantity } from "@/lib/format";
 import {
   assumirSolicitacaoAction,
   cancelarSolicitacaoAction,
   decidirSolicitacaoAction,
-  enviarSolicitacaoAction,
   iniciarSeparacaoAction,
 } from "@/server/actions/solicitacao";
 
 /* -------------------------------------------------------------------------- */
-/* Solicitante: enviar e cancelar                                              */
+/* Solicitante: cancelar                                                       */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Ações de quem pediu.
+ *
+ * Não há "enviar para aprovação": a solicitação já nasce enviada. Pedir
+ * material é um ato, não um rascunho — a confirmação só existiria para dar
+ * trabalho a quem pediu.
+ */
 export function RequesterActions({
   requestId,
   status,
@@ -35,27 +48,19 @@ export function RequesterActions({
 }) {
   const [mode, setMode] = useState<"none" | "cancel">("none");
 
-  const [submitState, submitAction, isSubmitting] = useActionState<
-    ActionResult<unknown> | null,
-    FormData
-  >(enviarSolicitacaoAction, null);
-
   const [cancelState, cancelAction, isCancelling] = useActionState<
     ActionResult<unknown> | null,
     FormData
   >(cancelarSolicitacaoAction, null);
 
   useEffect(() => {
-    for (const state of [submitState, cancelState]) {
-      if (!state) continue;
-      if (state.ok) toast.success(state.message ?? "Solicitação atualizada.");
-      else toast.error(state.error);
-    }
-  }, [submitState, cancelState]);
+    if (!cancelState) return;
 
-  const error =
-    (submitState && !submitState.ok ? submitState.error : null) ??
-    (cancelState && !cancelState.ok ? cancelState.error : null);
+    if (cancelState.ok) toast.success(cancelState.message ?? "Solicitação cancelada.");
+    else toast.error(cancelState.error);
+  }, [cancelState]);
+
+  const error = cancelState && !cancelState.ok ? cancelState.error : null;
 
   const canCancel =
     (isOwner && ["DRAFT", "SUBMITTED"].includes(status)) ||
@@ -66,15 +71,6 @@ export function RequesterActions({
       {error ? <FormError message={error} /> : null}
 
       <div className="flex flex-wrap gap-2">
-        {status === "DRAFT" && isOwner ? (
-          <form action={submitAction}>
-            <input type="hidden" name="requestId" value={requestId} />
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Enviando…" : "Enviar para aprovação"}
-            </Button>
-          </form>
-        ) : null}
-
         {canCancel && mode === "none" ? (
           <Button type="button" variant="outline" onClick={() => setMode("cancel")}>
             Cancelar solicitação
@@ -108,6 +104,13 @@ export function RequesterActions({
 /* Aprovador: assumir e decidir                                                */
 /* -------------------------------------------------------------------------- */
 
+const PRIORITY_OPTIONS = [
+  { value: "LOW", label: "Baixa", hint: "sem pressa" },
+  { value: "NORMAL", label: "Normal", hint: "prazo habitual" },
+  { value: "HIGH", label: "Alta", hint: "atender hoje" },
+  { value: "URGENT", label: "Urgente", hint: "parada de operação" },
+];
+
 export type DecisionLine = {
   id: string;
   itemName: string;
@@ -139,6 +142,8 @@ export function ApprovalPanel({
   );
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<"none" | "decide" | "reject">("none");
+  // A urgência é decisão de quem recebe, não de quem pediu.
+  const [priority, setPriority] = useState("NORMAL");
 
   const [claimState, claimAction, isClaiming] = useActionState<
     ActionResult<unknown> | null,
@@ -218,6 +223,26 @@ export function ApprovalPanel({
         <form action={decisionAction} className="space-y-4 rounded-md border p-3">
           <input type="hidden" name="requestId" value={requestId} />
           <input type="hidden" name="decision" value="approve" />
+          <input type="hidden" name="priority" value={priority} />
+
+          <FormField
+            id="decision-priority"
+            label="Prioridade deste pedido"
+            hint="Você define: quem pediu não tem como saber o que é urgente para a operação."
+          >
+            <Select value={priority} onValueChange={setPriority}>
+              <SelectTrigger id="decision-priority" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRIORITY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label} — {option.hint}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
 
           <p className="text-sm font-medium">Quantidade aprovada</p>
           <p className="text-muted-foreground text-xs">

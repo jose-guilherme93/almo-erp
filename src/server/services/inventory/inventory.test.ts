@@ -68,13 +68,25 @@ async function cleanup(): Promise<void> {
     await prisma.inventorySession.deleteMany({ where: { id: { in: sessionIds } } });
   }
 
+  // Ordem: linhas de documento, documentos, saldo, item. Inverter causa
+  // violação de chave estrangeira.
+  const documents = await prisma.stockDocument.findMany({
+    where: { createdById: actorId },
+    select: { id: true },
+  });
+
+  const documentIds = documents.map((document) => document.id);
+
+  if (documentIds.length > 0) {
+    await prisma.stockLine.deleteMany({ where: { stockDocumentId: { in: documentIds } } });
+    await prisma.stockDocument.deleteMany({ where: { id: { in: documentIds } } });
+  }
+
   if (itemIds.length > 0) {
     await prisma.stockLine.deleteMany({ where: { itemId: { in: itemIds } } });
     await prisma.stockLevel.deleteMany({ where: { itemId: { in: itemIds } } });
     await prisma.item.deleteMany({ where: { id: { in: itemIds } } });
   }
-
-  await prisma.stockDocument.deleteMany({ where: { createdById: actorId } });
 }
 
 /** Abre um inventário com os itens do teste. */
@@ -82,9 +94,16 @@ async function openSession() {
   return createInventorySession(context(), { branchId, storageLocationId: locationId });
 }
 
+/**
+ * Linha do material **deste teste**.
+ *
+ * A sessão cobre a unidade inteira — e a unidade pode ter outros materiais
+ * (o seed de demonstração popula a mesma filial). Pegar "a primeira linha"
+ * tornaria o teste dependente de dado alheio.
+ */
 async function firstLineId(sessionId: string): Promise<string> {
   const line = await prisma.inventoryLine.findFirstOrThrow({
-    where: { inventorySessionId: sessionId },
+    where: { inventorySessionId: sessionId, itemId },
     select: { id: true },
   });
 

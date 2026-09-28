@@ -9,7 +9,6 @@ import { actionSuccess, runAction, type ActionResult } from "@/lib/action-result
 import { prisma } from "@/lib/db";
 import { availableQuantity } from "@/server/services/stock/average-cost";
 import { requirePermission } from "@/server/auth/guards";
-import { resolveWorkingBranch } from "@/server/auth/scope";
 import {
   formDataToValues,
   readList,
@@ -28,9 +27,9 @@ import {
   claimRequest,
   createRequest,
   deliverRequest,
+  listRequestableBranches,
   rejectRequest,
   startPreparation,
-  submitRequest,
 } from "@/server/services/request";
 
 /** Ações do fluxo de solicitação de material. */
@@ -71,8 +70,7 @@ export async function criarSolicitacaoAction(
     const values = formDataToValues(formData);
 
     const parsed = requestCreateSchema.safeParse({
-      branchId: resolveWorkingBranch(context, readText(values, "branchId")),
-      priority: readText(values, "priority") ?? "NORMAL",
+      branchId: readText(values, "branchId"),
       neededAt: readText(values, "neededAt"),
       notes: readText(values, "notes"),
       lines: readRequestLines(values),
@@ -95,25 +93,28 @@ export async function criarSolicitacaoAction(
   return result;
 }
 
-export async function enviarSolicitacaoAction(
-  _previous: ActionResult<unknown> | null,
-  formData: FormData,
-): Promise<ActionResult<undefined>> {
+/**
+ * Lista as unidades que o solicitante pode escolher.
+ *
+ * Qualquer unidade ativa: o colaborador pode estar em outra unidade e precisa
+ * pedir material de lá. Quem resolve é quem recebe o pedido.
+ */
+export async function listarUnidadesParaSolicitarAction(): Promise<
+  ActionResult<Array<{ id: string; code: string; name: string; type: string; city: string | null }>>
+> {
   return runAction(async () => {
     const context = await requirePermission("solicitacao:create");
-    const values = formDataToValues(formData);
-    const requestId = readText(values, "requestId");
 
-    if (!requestId) return { ok: false, error: "Solicitação não informada." };
-
-    const metadata = await requestMetadata();
-    const result = await submitRequest(context, requestId, metadata);
-
-    revalidateRequestViews(requestId);
+    const branches = await listRequestableBranches(context);
 
     return actionSuccess(
-      undefined,
-      `Solicitação ${result.number} enviada para aprovação da unidade.`,
+      branches.map((branch) => ({
+        id: branch.id,
+        code: branch.code,
+        name: branch.name,
+        type: branch.type,
+        city: branch.city,
+      })),
     );
   });
 }
@@ -179,6 +180,7 @@ export async function decidirSolicitacaoAction(
     const parsed = requestApprovalSchema.safeParse({
       requestId: readText(values, "requestId"),
       decision: decision ?? "approve",
+      priority: readText(values, "priority") ?? "NORMAL",
       comment: readText(values, "comment"),
       reason: readText(values, "reason"),
       lines: lineIds.map((lineId, index) => ({
@@ -208,6 +210,7 @@ export async function decidirSolicitacaoAction(
       context,
       {
         requestId: parsed.data.requestId,
+        priority: parsed.data.priority,
         lines: parsed.data.lines,
         comment: parsed.data.comment,
       },

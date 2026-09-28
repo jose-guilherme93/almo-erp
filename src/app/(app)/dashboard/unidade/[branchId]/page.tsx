@@ -8,6 +8,7 @@ import {
   ClipboardList,
   PackageSearch,
   TriangleAlert,
+  Wrench,
 } from "lucide-react";
 
 import {
@@ -27,6 +28,11 @@ import { requirePagePermission } from "@/server/auth/guards";
 import { getUnitDashboard } from "@/server/services/dashboard";
 import { listApprovalQueue, listPendingDeliveries } from "@/server/services/request";
 import { listBelowMinimum } from "@/server/services/stock/alerts";
+import { listMaintenanceQueue, maintenanceSummary } from "@/server/services/maintenance";
+import {
+  MAINTENANCE_PRIORITY_BADGE,
+  MAINTENANCE_STATUS_BADGE,
+} from "@/components/domain/status-badge";
 
 export const metadata: Metadata = {
   title: "Dashboard da unidade",
@@ -68,11 +74,17 @@ export default async function DashboardUnidadePage({ params }: UnitDashboardProp
 
   if (!branch) notFound();
 
-  const [dashboard, queue, deliveries, belowMinimum] = await Promise.all([
+  const [dashboard, queue, deliveries, belowMinimum, repairQueue, repairs] = await Promise.all([
     getUnitDashboard(context, branchId),
     listApprovalQueue(context, branchId, { pageSize: 5 }),
     listPendingDeliveries(context, branchId, { pageSize: 5 }),
     listBelowMinimum({ branchId, limit: 5 }),
+    context.hasPermission("manutencao:read", branchId)
+      ? listMaintenanceQueue(context, branchId, { pageSize: 5 })
+      : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 5, totalPages: 1 }),
+    context.hasPermission("manutencao:read", branchId)
+      ? maintenanceSummary([branchId])
+      : Promise.resolve(null),
   ]);
 
   const unread = dashboard.inbox.unread;
@@ -239,7 +251,77 @@ export default async function DashboardUnidadePage({ params }: UnitDashboardProp
           tone={queue.total > 0 ? "warning" : "success"}
           href="/solicitacoes/fila"
         />
+
+        {repairs ? (
+          <MetricCard
+            title="Reparos em aberto"
+            value={repairs.open}
+            tone={repairs.withoutPriority > 0 ? "warning" : "neutral"}
+            hint={
+              repairs.withoutPriority > 0
+                ? `${repairs.withoutPriority} sem prioridade`
+                : "todos classificados"
+            }
+            href="/reparos"
+            icon={<Wrench className="size-3.5" />}
+          />
+        ) : null}
       </div>
+
+      {repairQueue.total > 0 ? (
+        <Card className={repairs && repairs.withoutPriority > 0 ? "border-amber-300" : undefined}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wrench className="size-5" aria-hidden />
+              Chamados de reparo
+            </CardTitle>
+            <CardDescription>
+              {repairs && repairs.withoutPriority > 0
+                ? `${repairs.withoutPriority} sem prioridade definida — quem recebe é que classifica.`
+                : `${repairQueue.total} chamado(s) em aberto nesta unidade.`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y text-sm">
+              {repairQueue.items.map((repair) => (
+                <li
+                  key={repair.id}
+                  className="flex flex-wrap items-center justify-between gap-2 py-2"
+                >
+                  <div className="min-w-0">
+                    <Link
+                      href={`/reparos/${repair.id}`}
+                      className="block truncate font-medium hover:underline"
+                    >
+                      {repair.title}
+                    </Link>
+                    <p className="text-muted-foreground truncate text-xs">
+                      {repair.number} · {repair.location} · {repair.requester.name} ·{" "}
+                      {formatRelative(repair.createdAt)}
+                      {repair.assignedTo ? ` · com ${repair.assignedTo.name}` : ""}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    {repair.priority ? (
+                      statusBadge(MAINTENANCE_PRIORITY_BADGE, repair.priority)
+                    ) : (
+                      <Badge variant="outline" className="border-amber-300 text-amber-700">
+                        a classificar
+                      </Badge>
+                    )}
+                    {statusBadge(MAINTENANCE_STATUS_BADGE, repair.status)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <Button asChild variant="outline" size="sm" className="mt-3">
+              <Link href="/reparos">Ver todos os chamados ({repairQueue.total})</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {deliveries.items.length > 0 ? (
         <Card>

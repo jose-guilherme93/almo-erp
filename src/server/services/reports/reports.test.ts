@@ -168,8 +168,9 @@ describe.runIf(process.env["DATABASE_URL"])("consumo por material", () => {
 
     const result = await runReport("consumo-material", scopeFor());
 
-    expect(result.rows).toHaveLength(0);
-    expect(result.summary).toContain("0 material");
+    // A unidade pode ter saídas de demonstração; o que importa é este
+    // material não aparecer.
+    expect(result.rows.some((row) => row[0] === `${TEST_PREFIX}-0001`)).toBe(false);
   });
 });
 
@@ -186,10 +187,12 @@ describe.runIf(process.env["DATABASE_URL"])("valor de estoque", () => {
 
     const result = await runReport("valor-estoque", scopeFor());
 
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]?.[4]).toBe("Material do Relatório");
-    expect(result.rows[0]?.[6]).toBe("20");
-    expect(result.rows[0]?.[9]).toBe("150");
+    const row = result.rows.find((entry) => entry[3] === `${TEST_PREFIX}-0001`);
+
+    expect(row).toBeDefined();
+    expect(row?.[4]).toBe("Material do Relatório");
+    expect(row?.[6]).toBe("20");
+    expect(row?.[9]).toBe("150");
   });
 });
 
