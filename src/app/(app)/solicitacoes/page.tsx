@@ -36,8 +36,12 @@ export default async function SolicitacoesPage({
   const params = await searchParams;
   const context = await requirePagePermission("solicitacao:read");
 
-  // Por padrão mostramos as próprias solicitações; quem aprova pode ver todas.
-  const mineOnly = firstParam(params, "minhas") !== "0";
+  const canOverview = context.hasPermission("solicitacao:overview");
+
+  // Sem visão geral, a pessoa só enxerga as próprias — e é isso que a lista
+  // mostra. Com visão geral (almoxarifado/matriz), o padrão é ver o escopo
+  // inteiro; "minhas=1" restringe às próprias.
+  const mineOnly = !canOverview || firstParam(params, "minhas") === "1";
 
   const result = await listRequests(context, {
     search: readSearch(params),
@@ -95,11 +99,13 @@ export default async function SolicitacoesPage({
   return (
     <PageBody>
       <PageHeader
-        title={mineOnly ? "Minhas solicitações" : "Solicitações da unidade"}
+        title={mineOnly ? "Minhas solicitações" : "Solicitações"}
         description={
           mineOnly
             ? "Acompanhe o andamento dos seus pedidos de material."
-            : "Todas as solicitações da sua unidade."
+            : context.isNetworkScope
+              ? "Todas as solicitações de todas as unidades."
+              : "Todas as solicitações da sua unidade."
         }
         action={
           context.hasPermission("solicitacao:create") ? (
@@ -138,12 +144,16 @@ export default async function SolicitacoesPage({
 
         <ClearFilters paramKeys={["busca", "situacao", "prioridade", "minhas"]} />
 
-        {context.hasPermission("solicitacao:approve") ? (
+        {canOverview ? (
           <Link
-            href={mineOnly ? "/solicitacoes?minhas=0" : "/solicitacoes"}
+            href={mineOnly ? "/solicitacoes" : "/solicitacoes?minhas=1"}
             className="border-input hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm"
           >
-            {mineOnly ? "Ver todas da unidade" : "Ver só as minhas"}
+            {mineOnly
+              ? context.isNetworkScope
+                ? "Ver todas as unidades"
+                : "Ver todas da unidade"
+              : "Ver só as minhas"}
           </Link>
         ) : null}
       </div>

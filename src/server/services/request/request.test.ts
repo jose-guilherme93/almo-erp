@@ -17,6 +17,7 @@ import {
   createRequest,
   deliverRequest,
   getRequestDetail,
+  listApprovalQueue,
   listRequests,
   rejectRequest,
 } from "@/server/services/request";
@@ -683,6 +684,39 @@ describe.runIf(process.env["DATABASE_URL"])("escopo", () => {
 
     expect(list.items.map((item) => item.id)).toContain(minha.id);
     expect(list.items.map((item) => item.id)).not.toContain(deOutro.id);
+  });
+
+  it("a fila sem filial mostra pendências de todas as unidades para quem tem escopo de rede", async () => {
+    const minha = await newRequest(5);
+
+    const redeContext = makeAuthContext({
+      userId: aprovadorId,
+      networkPermissions: ["solicitacao:approve", "solicitacao:overview"],
+      networkBranchIds: [branchId, otherBranchId],
+      activeBranchId: otherBranchId,
+    });
+
+    const queue = await listApprovalQueue(redeContext, null);
+
+    expect(queue.items.map((item) => item.id)).toContain(minha.id);
+  });
+
+  it("a fila sem filial cai na filial ativa para quem não tem escopo de rede", async () => {
+    const minha = await newRequest(5);
+    const outra = await createRequest(
+      makeAuthContext({
+        userId: aprovadorId,
+        memberships: [{ branchId: otherBranchId, roleSlug: "ADMIN_FILIAL" }],
+        permissions: ["solicitacao:create"],
+        activeBranchId: otherBranchId,
+      }),
+      { branchId: otherBranchId, lines: [{ itemId, quantity: "5" }] },
+    );
+
+    const queue = await listApprovalQueue(aprovadorContext(), null);
+
+    expect(queue.items.map((item) => item.id)).toContain(minha.id);
+    expect(queue.items.map((item) => item.id)).not.toContain(outra.id);
   });
 
   it("com visão geral do almoxarifado, enxerga as solicitações da filial", async () => {

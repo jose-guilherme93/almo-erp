@@ -335,8 +335,9 @@ Fonte única: `src/server/services/notificacao/rules.ts`. Cada tipo declara o re
 
 | Tipo | Destinatários |
 |---|---|
-| `REQUEST_CREATED` | `defaultApproverId` + todos com `solicitacao:approve` na filial (exceto o autor) |
-| `REQUEST_CLAIMED` | demais aprovadores da filial (saiu da fila) |
+| `REQUEST_CREATED` | `defaultApproverId` + todos com `solicitacao:approve` na filial + papéis de **escopo de rede** com `solicitacao:approve` (exceto o autor) |
+| `REQUEST_CLAIMED` | demais aprovadores da filial + papéis de escopo de rede (saiu da fila) |
+| `MAINTENANCE_CREATED` | quem atende (`manutencao:atender`) na filial + rede + responsável da filial |
 | `REQUEST_APPROVED` / `PARTIALLY_APPROVED` / `REJECTED` | `requesterId` |
 | `REQUEST_DELIVERED` | `requesterId` + `responsibleId` |
 | `TRANSFER_SENT` | `ALMOXARIFE`/`GESTOR`/`ADMIN_FILIAL` do destino |
@@ -401,10 +402,11 @@ diferentes.
 | `/dashboard/unidade/[branchId]` | `solicitacao:approve` | ADMIN_FILIAL, GESTOR, SUPER_ADMIN, ADMIN_MATRIZ |
 | `/solicitar` | `solicitacao:create` ou `manutencao:create` | qualquer logado — escolha entre material e reparo |
 | `/solicitacoes/nova` | `solicitacao:create` | qualquer logado |
-| `/reparos` | `manutencao:read` | qualquer logado com vínculo |
+| `/reparos` | `manutencao:read` | dono e setor de atendimento (ver §9.1) |
 | `/reparos/novo` | `manutencao:create` | qualquer logado |
-| `/reparos/[id]` | `manutencao:read` | quem abriu, quem atende, gestão da unidade |
-| `/solicitacoes` | `solicitacao:read` | qualquer logado (as próprias) |
+| `/reparos/[id]` | `manutencao:read` | dono, setor de atendimento, gestão da unidade |
+| `/solicitacoes` | `solicitacao:read` | as próprias; com `solicitacao:overview`, todo o escopo |
+| `/solicitacoes/fila` | `solicitacao:approve` | filial ativa; com escopo de rede, todas as unidades |
 | `/solicitacoes/[id]` | `solicitacao:read` | dono, aprovadores da filial, matriz |
 | `/solicitacoes/[id]/aprovar` | `solicitacao:approve` | aprovador da filial |
 | `/entregas` | `solicitacao:entregar` | ALMOXARIFE, ADMIN_FILIAL, matriz |
@@ -419,7 +421,6 @@ diferentes.
 | `/catalogo/itens` | `item:read` | todos com membership |
 | `/filiais` | `filial:read` | matriz (leitura), ADMIN_FILIAL (a sua) |
 | `/notificacoes` | `notificacao:read` | qualquer logado |
-| `/reparos`, `/reparos/[id]` | `manutencao:read` | dono, setor de atendimento, matriz |
 | `/encaminhamentos`, `/encaminhamentos/[id]` | `manutencao:atender` | setor de origem e de destino |
 | `/api/anexos/[id]` | visibilidade da demanda pai | quem enxerga a solicitação/chamado |
 | `/relatorios` | `relatorio:read` | GESTOR+ |

@@ -289,23 +289,43 @@ export async function listRequests(context: AuthContext, filters: RequestListFil
 }
 
 /**
- * Fila de aprovação da unidade: o que precisa de decisão agora.
+ * Fila de aprovação: o que precisa de decisão agora.
  *
  * Ordena por prioridade e tempo de espera — urgente primeiro, e dentro disso o
  * mais antigo, para nada envelhecer esquecido.
+ *
+ * Com `branchId`, é a fila daquela unidade. Sem `branchId`, quem tem escopo de
+ * rede vê a fila de **todas** as unidades; os demais caem na filial ativa.
+ * Sem isso o super administrador abriria a fila da matriz e nunca veria o
+ * pedido feito numa unidade.
  */
 export async function listApprovalQueue(
   context: AuthContext,
-  branchId: string,
+  branchId: string | null,
   options: { page?: number; pageSize?: number } = {},
 ) {
-  assertBranchAccess(context, branchId);
-
   const page = Math.max(1, options.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));
 
+  let branchScope: Prisma.RequestWhereInput;
+
+  if (branchId) {
+    assertBranchAccess(context, branchId);
+    branchScope = { branchId };
+  } else if (context.isNetworkScope) {
+    branchScope = { branchId: { in: visibleBranchIds(context) } };
+  } else {
+    const active = context.activeBranchId;
+
+    if (!active) {
+      throw new BusinessRuleError("Nenhuma unidade ativa. Selecione uma unidade para continuar.");
+    }
+
+    branchScope = { branchId: active };
+  }
+
   const where: Prisma.RequestWhereInput = {
-    branchId,
+    ...branchScope,
     status: { in: [...PENDING_APPROVAL_STATUSES] },
   };
 
@@ -328,6 +348,8 @@ export async function listApprovalQueue(
         createdAt: true,
         neededAt: true,
         notes: true,
+        branch: { select: { id: true, code: true, name: true } },
+        sector: { select: { name: true } },
         requester: { select: { id: true, name: true } },
         responsible: { select: { id: true, name: true } },
         claimedBy: { select: { id: true, name: true } },

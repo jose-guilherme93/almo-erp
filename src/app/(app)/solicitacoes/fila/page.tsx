@@ -3,16 +3,16 @@ import Link from "next/link";
 import { ClipboardCheck, TriangleAlert } from "lucide-react";
 
 import { DataTable, type Column } from "@/components/data-table/data-table";
+import { ClearFilters, TableFilterSelect } from "@/components/data-table/table-filters";
 import { REQUEST_PRIORITY, REQUEST_STATUS, statusBadge } from "@/components/domain/status-badge";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDuration, formatQuantity } from "@/lib/format";
-import { readPage, readPageSize, type RawSearchParams } from "@/lib/pagination";
+import { firstParam, readPage, readPageSize, type RawSearchParams } from "@/lib/pagination";
 import { requirePageAnyPermission } from "@/server/auth/guards";
-import { resolveWorkingBranch } from "@/server/auth/scope";
-import { hoursSince, listApprovalQueue } from "@/server/services/request";
+import { hoursSince, listApprovalQueue, listRequestableBranches } from "@/server/services/request";
 
 export const metadata: Metadata = {
   title: "Fila de aprovação",
@@ -27,12 +27,22 @@ export default async function FilaAprovacaoPage({
 }) {
   const params = await searchParams;
   const context = await requirePageAnyPermission(["solicitacao:approve"]);
-  const branchId = resolveWorkingBranch(context, null);
 
-  const result = await listApprovalQueue(context, branchId, {
-    page: readPage(params),
-    pageSize: readPageSize(params),
-  });
+  // Sem filial escolhida: quem tem escopo de rede vê a fila de todas as
+  // unidades; os demais caem na filial ativa (tratado no serviço).
+  const requestedBranch = firstParam(params, "filial");
+  const branchId =
+    requestedBranch && context.branchIds.includes(requestedBranch) ? requestedBranch : null;
+
+  const showBranchFilter = context.isNetworkScope;
+
+  const [result, branches] = await Promise.all([
+    listApprovalQueue(context, branchId, {
+      page: readPage(params),
+      pageSize: readPageSize(params),
+    }),
+    showBranchFilter ? listRequestableBranches(context) : Promise.resolve([]),
+  ]);
 
   const slaHours = 24;
 
@@ -44,7 +54,8 @@ export default async function FilaAprovacaoPage({
         <div className="min-w-0">
           <p className="truncate font-mono font-medium">{row.number}</p>
           <p className="text-muted-foreground truncate text-xs">
-            {row.requester.name} · {row._count.lines} item(ns)
+            {row.requester.name}
+            {showBranchFilter ? ` · ${row.branch.code}` : ""} · {row._count.lines} item(ns)
           </p>
         </div>
       ),
@@ -97,8 +108,12 @@ export default async function FilaAprovacaoPage({
   return (
     <PageBody>
       <PageHeader
-        title="Fila de aprovação"
-        description="Solicitações da sua unidade aguardando decisão. Urgentes primeiro."
+        title={showBranchFilter ? "Fila de aprovação da rede" : "Fila de aprovação"}
+        description={
+          showBranchFilter
+            ? "Solicitações de todas as unidades aguardando decisão. Urgentes primeiro."
+            : "Solicitações da sua unidade aguardando decisão. Urgentes primeiro."
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -129,6 +144,18 @@ export default async function FilaAprovacaoPage({
         </Card>
       </div>
 
+      {showBranchFilter ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <TableFilterSelect
+            paramKey="filial"
+            placeholder="Unidade"
+            allLabel="Todas as unidades"
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+          />
+          <ClearFilters paramKeys={["filial"]} />
+        </div>
+      ) : null}
+
       <DataTable
         columns={columns}
         rows={result.items}
@@ -141,7 +168,11 @@ export default async function FilaAprovacaoPage({
         totalPages={result.totalPages}
         rowHref={(row) => `/solicitacoes/${row.id}`}
         emptyTitle="Nenhuma solicitação aguardando decisão"
-        emptyDescription="Quando alguém da sua unidade pedir material, o pedido aparece aqui."
+        emptyDescription={
+          showBranchFilter
+            ? "Nenhuma unidade tem pedido aguardando aprovação agora."
+            : "Quando alguém da sua unidade pedir material, o pedido aparece aqui."
+        }
         emptyAction={
           <Button asChild variant="outline">
             <Link href="/solicitacoes">

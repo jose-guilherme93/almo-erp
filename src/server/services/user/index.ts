@@ -549,4 +549,33 @@ export async function usersWithPermission(branchId: string, permission: string):
   return [...new Set(memberships.map((membership) => membership.userId))];
 }
 
+/**
+ * Usuários com a permissão em um papel de escopo **de rede** (matriz,
+ * super admin).
+ *
+ * `usersWithPermission` só encontra vínculo na filial; um super admin tem
+ * vínculo apenas na matriz, então não seria notificado de um pedido feito numa
+ * unidade. Este helper fecha essa lacuna.
+ */
+export async function usersWithNetworkPermission(
+  permission: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<string[]> {
+  const memberships = await client.membership.findMany({
+    where: {
+      active: true,
+      user: { status: "ACTIVE", active: true },
+      role: {
+        active: true,
+        scope: "ALL_BRANCHES",
+        rolePermissions: { some: { permissionId: permission } },
+      },
+    },
+    select: { userId: true },
+    orderBy: { userId: "asc" },
+  });
+
+  return [...new Set(memberships.map((membership) => membership.userId))];
+}
+
 export { branchFilter, userVisibilityFilter };

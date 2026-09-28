@@ -2,7 +2,11 @@ import type { NotificationType } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
-import { usersInSectors, usersWithPermission } from "@/server/services/user";
+import {
+  usersInSectors,
+  usersWithNetworkPermission,
+  usersWithPermission,
+} from "@/server/services/user";
 
 const log = logger.with({ service: "notification" });
 
@@ -189,9 +193,12 @@ export async function resolveRecipients(
         select: { defaultApproverId: true, notificationResponsibleId: true },
       });
 
-      const approvers = await usersWithPermission(payload.branchId, "solicitacao:approve");
+      const [approvers, networkApprovers] = await Promise.all([
+        usersWithPermission(payload.branchId, "solicitacao:approve"),
+        usersWithNetworkPermission("solicitacao:approve", client),
+      ]);
 
-      const recipients = new Set<string>(approvers);
+      const recipients = new Set<string>([...approvers, ...networkApprovers]);
 
       // O aprovador padrão e o responsável por notificações sempre entram,
       // mesmo que o papel deles não tenha a permissão explicitamente.
@@ -205,9 +212,13 @@ export async function resolveRecipients(
     case "REQUEST_CLAIMED": {
       if (!payload.branchId) return [];
 
-      const approvers = await usersWithPermission(payload.branchId, "solicitacao:approve");
+      // Quem saiu da fila importa à unidade e à rede (matriz acompanha tudo).
+      const [approvers, networkApprovers] = await Promise.all([
+        usersWithPermission(payload.branchId, "solicitacao:approve"),
+        usersWithNetworkPermission("solicitacao:approve", client),
+      ]);
 
-      return approvers.filter((id) => !exclude.has(id));
+      return [...new Set([...approvers, ...networkApprovers])].filter((id) => !exclude.has(id));
     }
 
     case "REQUEST_APPROVED":
@@ -300,18 +311,17 @@ export async function resolveRecipients(
     case "MAINTENANCE_CREATED": {
       if (!payload.branchId) return [];
 
-      // Quem atende manutenção na unidade + o responsável padrão.
-      const [attendants, branch] = await Promise.all([
+      // Quem atende manutenção na unidade + o responsável padrão + a rede.
+      const [attendants, networkAttendants, branch] = await Promise.all([
         usersWithPermission(payload.branchId, "manutencao:atender"),
-        payload.branchId
-          ? client.branch.findUnique({
-              where: { id: payload.branchId },
-              select: { notificationResponsibleId: true },
-            })
-          : Promise.resolve(null),
+        usersWithNetworkPermission("manutencao:atender", client),
+        client.branch.findUnique({
+          where: { id: payload.branchId },
+          select: { notificationResponsibleId: true },
+        }),
       ]);
 
-      const recipients = new Set<string>(attendants);
+      const recipients = new Set<string>([...attendants, ...networkAttendants]);
 
       if (branch?.notificationResponsibleId) recipients.add(branch.notificationResponsibleId);
 

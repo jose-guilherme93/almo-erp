@@ -15,17 +15,19 @@ const TEST_PREFIX = "NTF";
 const ACTOR_EMAIL = "autor.notificacao@ator.teste.local";
 const APROVADOR_EMAIL = "aprovador.notificacao@ator.teste.local";
 const OUTRA_UNIDADE_EMAIL = "outro.notificacao@ator.teste.local";
+const MATRIZ_EMAIL = "matriz.notificacao@ator.teste.local";
 
 let databaseAvailable = false;
 let actorId = "";
 let aprovadorId = "";
 let outroId = "";
+let matrizId = "";
 let branchId = "";
 let otherBranchId = "";
 
 async function cleanup(): Promise<void> {
   await prisma.notification.deleteMany({
-    where: { userId: { in: [actorId, aprovadorId, outroId].filter(Boolean) } },
+    where: { userId: { in: [actorId, aprovadorId, outroId, matrizId].filter(Boolean) } },
   });
 }
 
@@ -66,7 +68,7 @@ beforeAll(async () => {
   branchId = branches[0]?.id ?? "";
   otherBranchId = branches[1]?.id ?? "";
 
-  const [actor, aprovador, outro] = await Promise.all([
+  const [actor, aprovador, outro, matriz] = await Promise.all([
     prisma.user.upsert({
       where: { email: ACTOR_EMAIL },
       update: { status: "ACTIVE" },
@@ -85,26 +87,35 @@ beforeAll(async () => {
       create: { email: OUTRA_UNIDADE_EMAIL, name: "Outra Unidade", status: "ACTIVE" },
       select: { id: true },
     }),
+    prisma.user.upsert({
+      where: { email: MATRIZ_EMAIL },
+      update: { status: "ACTIVE" },
+      create: { email: MATRIZ_EMAIL, name: "Admin da Matriz", status: "ACTIVE" },
+      select: { id: true },
+    }),
   ]);
 
   actorId = actor.id;
   aprovadorId = aprovador.id;
   outroId = outro.id;
+  matrizId = matriz.id;
 
-  const role = await prisma.role.findUniqueOrThrow({
-    where: { slug: "ADMIN_FILIAL" },
-    select: { id: true },
-  });
+  const [role, matrizRole] = await Promise.all([
+    prisma.role.findUniqueOrThrow({ where: { slug: "ADMIN_FILIAL" }, select: { id: true } }),
+    prisma.role.findUniqueOrThrow({ where: { slug: "ADMIN_MATRIZ" }, select: { id: true } }),
+  ]);
 
-  // Aprovador na unidade do teste; o outro usuário fica em OUTRA unidade.
+  // Aprovador na unidade do teste; o outro usuário fica em OUTRA unidade; a
+  // matriz tem vínculo de escopo global.
   await prisma.membership.deleteMany({
-    where: { userId: { in: [aprovadorId, outroId] } },
+    where: { userId: { in: [aprovadorId, outroId, matrizId] } },
   });
 
   await prisma.membership.createMany({
     data: [
       { userId: aprovadorId, branchId, roleId: role.id, active: true },
       { userId: outroId, branchId: otherBranchId, roleId: role.id, active: true },
+      { userId: matrizId, branchId, roleId: matrizRole.id, active: true },
     ],
   });
 });
@@ -120,13 +131,13 @@ afterAll(async () => {
 
     await prisma.request.deleteMany({ where: { number: { startsWith: TEST_PREFIX } } });
     await prisma.membership.deleteMany({
-      where: { userId: { in: [aprovadorId, outroId] } },
+      where: { userId: { in: [aprovadorId, outroId, matrizId] } },
     });
     await prisma.auditLog.deleteMany({
-      where: { actorId: { in: [actorId, aprovadorId, outroId] } },
+      where: { actorId: { in: [actorId, aprovadorId, outroId, matrizId] } },
     });
     await prisma.user.deleteMany({
-      where: { email: { in: [ACTOR_EMAIL, APROVADOR_EMAIL, OUTRA_UNIDADE_EMAIL] } },
+      where: { email: { in: [ACTOR_EMAIL, APROVADOR_EMAIL, OUTRA_UNIDADE_EMAIL, MATRIZ_EMAIL] } },
     });
   }
 
@@ -156,6 +167,19 @@ describe.runIf(process.env["DATABASE_URL"])("fan-out", () => {
     });
 
     expect(recipients).not.toContain(outroId);
+  });
+
+  it("REQUEST_CREATED notifica a matriz (escopo de rede)", async () => {
+    const recipients = await resolveRecipients({
+      type: "REQUEST_CREATED",
+      actorId: null,
+      branchId: otherBranchId,
+      entityType: "Request",
+      entityId: "x",
+    });
+
+    // A matriz não tem vínculo na unidade, mas acompanha a rede.
+    expect(recipients).toContain(matrizId);
   });
 
   it("exclui o autor da ação dos destinatários", async () => {
