@@ -29,8 +29,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     ? (AUTH_ERROR_MESSAGES[params.error] ?? "Não foi possível entrar. Tente novamente.")
     : null;
 
+  // A raiz resolve a home correta pelo perfil de quem entrou.
   const redirectTo =
-    params.callbackUrl && params.callbackUrl.startsWith("/") ? params.callbackUrl : "/meu";
+    params.callbackUrl && params.callbackUrl.startsWith("/") ? params.callbackUrl : "/";
 
   return (
     <Card>

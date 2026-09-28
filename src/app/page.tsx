@@ -1,16 +1,16 @@
 import { redirect } from "next/navigation";
 
 import { getAuthContext } from "@/server/auth/context";
+import { resolveHomeRoute } from "@/server/auth/home-route";
 
 /**
  * Entrada do sistema.
  *
- * Com sessão válida vai para a home do usuário; sem sessão, para o login.
- * O roteamento por perfil (matriz → dashboard, admin de filial → dashboard da
- * unidade) é implementado na FASE 10.
+ * Com sessão válida, cada perfil vai para a sua home: matriz → dashboard da
+ * rede; quem aprova → dashboard da unidade; demais → minhas solicitações.
  */
 export default async function HomePage() {
   const context = await getAuthContext();
 
-  redirect(context ? "/meu" : "/login");
+  redirect(context ? resolveHomeRoute(context) : "/login");
 }

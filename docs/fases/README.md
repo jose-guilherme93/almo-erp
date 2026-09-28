@@ -43,7 +43,7 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 07 — Transferências
 - [x] FASE 08 — Solicitações
 - [x] FASE 09 — Notificações
-- [ ] FASE 10 — Dashboards
+- [x] FASE 10 — Dashboards
 - [ ] FASE 11 — Inventário
 - [ ] FASE 12 — Relatórios
 - [ ] FASE 13 — Hardening

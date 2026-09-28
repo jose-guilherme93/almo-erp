@@ -36,8 +36,7 @@ export async function loginE2EAction(formData: FormData): Promise<void> {
     return;
   }
 
-  const redirectTo =
-    typeof requested === "string" && requested.startsWith("/") ? requested : "/meu";
+  const redirectTo = typeof requested === "string" && requested.startsWith("/") ? requested : "/";
 
   await signIn("e2e", { email: email.trim().toLowerCase(), redirectTo });
 }
