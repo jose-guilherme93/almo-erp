@@ -4,6 +4,7 @@ import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { FormError, FormField } from "@/components/domain/form-field";
+import { ImageInput } from "@/components/domain/image-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,6 +27,12 @@ export type MaintenanceBranchOption = {
   city: string | null;
 };
 
+export type MaintenanceSectorOption = {
+  id: string;
+  code: string;
+  name: string;
+};
+
 /**
  * Abertura de chamado de reparo.
  *
@@ -35,12 +42,19 @@ export type MaintenanceBranchOption = {
 export function MaintenanceForm({
   branches,
   defaultBranchId,
+  sectors,
+  defaultSectorId,
+  defaultCategory = "",
 }: {
   branches: MaintenanceBranchOption[];
   defaultBranchId: string;
+  sectors: MaintenanceSectorOption[];
+  defaultSectorId: string;
+  defaultCategory?: string;
 }) {
   const [branchId, setBranchId] = useState(defaultBranchId);
-  const [category, setCategory] = useState("");
+  const [sectorId, setSectorId] = useState(defaultSectorId);
+  const [category, setCategory] = useState(defaultCategory);
 
   const [state, formAction, isPending] = useActionState<ActionResult<unknown> | null, FormData>(
     abrirReparoAction,
@@ -56,6 +70,7 @@ export function MaintenanceForm({
   return (
     <form action={formAction} className="space-y-5">
       <input type="hidden" name="branchId" value={branchId} />
+      <input type="hidden" name="sectorId" value={sectorId} />
       <input type="hidden" name="category" value={category} />
 
       {state && !state.ok ? <FormError message={state.error} /> : null}
@@ -63,9 +78,8 @@ export function MaintenanceForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           id="maintenance-branch"
-          label="Onde fica o problema?"
+          label="Unidade"
           required
-          hint="A equipe de manutenção desta unidade assume o chamado."
           errors={fieldErrors["branchId"]}
         >
           <Select value={branchId} onValueChange={setBranchId}>
@@ -84,27 +98,42 @@ export function MaintenanceForm({
           </Select>
         </FormField>
 
-        <FormField
-          id="maintenance-category"
-          label="Tipo de problema"
-          required
-          errors={fieldErrors["category"]}
-          hint={MAINTENANCE_CATEGORIES.find((entry) => entry.value === category)?.hint}
-        >
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger id="maintenance-category" className="w-full">
-              <SelectValue placeholder="Escolha o tipo" />
+        <FormField id="maintenance-sector" label="Setor" errors={fieldErrors["sectorId"]}>
+          <Select value={sectorId} onValueChange={setSectorId}>
+            <SelectTrigger id="maintenance-sector" className="w-full">
+              <SelectValue placeholder="Seu setor" />
             </SelectTrigger>
             <SelectContent>
-              {MAINTENANCE_CATEGORIES.map((entry) => (
-                <SelectItem key={entry.value} value={entry.value}>
-                  {entry.label}
+              {sectors.map((sector) => (
+                <SelectItem key={sector.id} value={sector.id}>
+                  {sector.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </FormField>
       </div>
+
+      <FormField
+        id="maintenance-category"
+        label="Tipo de problema"
+        required
+        errors={fieldErrors["category"]}
+        hint={MAINTENANCE_CATEGORIES.find((entry) => entry.value === category)?.hint}
+      >
+        <Select value={category} onValueChange={setCategory}>
+          <SelectTrigger id="maintenance-category" className="w-full">
+            <SelectValue placeholder="Escolha o tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            {MAINTENANCE_CATEGORIES.map((entry) => (
+              <SelectItem key={entry.value} value={entry.value}>
+                {entry.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
 
       <FormField
         id="maintenance-title"
@@ -165,14 +194,15 @@ export function MaintenanceForm({
         />
       </FormField>
 
-      <Button type="submit" disabled={isPending || !branchId || category === ""}>
+      <ImageInput />
+
+      <Button
+        type="submit"
+        className="w-full sm:w-auto"
+        disabled={isPending || !branchId || category === ""}
+      >
         {isPending ? "Abrindo…" : "Abrir chamado"}
       </Button>
-
-      <p className="text-muted-foreground text-xs">
-        O chamado vai direto para a manutenção da unidade. A prioridade é definida por quem recebe —
-        você não precisa classificá-la.
-      </p>
     </form>
   );
 }

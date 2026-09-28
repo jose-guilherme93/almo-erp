@@ -3,6 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MapPin, Tag } from "lucide-react";
 
+import { AttachmentGallery } from "@/components/domain/attachment-gallery";
+import { EncaminharEtapaForm } from "@/components/domain/delegation-actions";
+import { DelegationList } from "@/components/domain/delegation-list";
 import { MaintenanceActions } from "@/components/domain/maintenance-actions";
 import { SuccessCallout, successMessageFrom } from "@/components/domain/success-callout";
 import {
@@ -18,14 +21,16 @@ import { formatDateTime, formatDuration } from "@/lib/format";
 import type { RawSearchParams } from "@/lib/pagination";
 import { isAppError } from "@/lib/errors";
 import { requirePagePermission } from "@/server/auth/guards";
+import { listDelegationsForEntity } from "@/server/services/delegation";
 import {
   MAINTENANCE_CATEGORY_LABELS,
   getMaintenanceRequest,
   listMaintenanceAssignees,
 } from "@/server/services/maintenance";
+import { listActiveSectors } from "@/server/services/sector";
 
 export const metadata: Metadata = {
-  title: "Chamado de reparo",
+  title: "Chamado",
 };
 
 type ReparoPageProps = {
@@ -48,9 +53,16 @@ export default async function ReparoDetalhePage({ params, searchParams }: Reparo
   }
 
   const canAttend = context.hasPermission("manutencao:atender", request.branch.id);
+  const canDelegate = context.hasPermission("manutencao:delegar", request.branch.id);
   const isOwner = request.requester.id === context.user.id;
 
-  const assignees = canAttend ? await listMaintenanceAssignees(context, request.branch.id) : [];
+  const [assignees, delegations, sectors] = await Promise.all([
+    canAttend ? listMaintenanceAssignees(context, request.branch.id) : Promise.resolve([]),
+    listDelegationsForEntity(context, "MAINTENANCE", request.id),
+    canDelegate ? listActiveSectors() : Promise.resolve([]),
+  ]);
+
+  const canDelegateNow = canDelegate && !["DONE", "CANCELLED", "REJECTED"].includes(request.status);
 
   const successMessage = successMessageFrom(query, {
     criado: "Chamado aberto. A manutenção da unidade foi avisada.",
@@ -122,9 +134,53 @@ export default async function ReparoDetalhePage({ params, searchParams }: Reparo
               </span>
             ) : null}
             <span>Unidade: {request.branch.name}</span>
+            {request.sector ? <span>Setor: {request.sector.name}</span> : null}
+            {request.serviceSector ? <span>Atende: {request.serviceSector.name}</span> : null}
           </div>
         </CardContent>
       </Card>
+
+      {request.attachments.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Fotos</CardTitle>
+            <CardDescription>Imagens anexadas ao chamado.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AttachmentGallery
+              items={request.attachments.map((attachment) => ({
+                id: attachment.id,
+                fileName: attachment.fileName,
+                mimeType: attachment.mimeType,
+                createdAt: attachment.createdAt,
+              }))}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {delegations.length > 0 || canDelegateNow ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Etapas com outros setores</CardTitle>
+            <CardDescription>
+              Enquanto uma etapa está aberta, quem responde por ela é o setor de destino.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <DelegationList items={delegations} sectorIds={context.sectorIds} />
+
+            {canDelegateNow ? (
+              <EncaminharEtapaForm
+                key={`encaminhar-${delegations.length}`}
+                entityType="MAINTENANCE"
+                entityId={request.id}
+                sectors={sectors.map((sector) => ({ id: sector.id, name: sector.name }))}
+              />
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

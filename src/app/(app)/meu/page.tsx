@@ -4,10 +4,9 @@ import { Bell, ClipboardList, PackageSearch, Plus, Wrench } from "lucide-react";
 
 import { REQUEST_PRIORITY, REQUEST_STATUS, statusBadge } from "@/components/domain/status-badge";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDate, formatDateTime, formatRelative } from "@/lib/format";
+import { formatDate, formatRelative } from "@/lib/format";
 import { requirePageSession } from "@/server/auth/guards";
 import { dashboardRoutes, describeProfile } from "@/server/auth/home-route";
 import { listMyRequests, listPendingDeliveries } from "@/server/services/request";
@@ -230,45 +229,6 @@ export default async function MeuPage() {
           </CardContent>
         </Card>
       ) : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Meus acessos</CardTitle>
-          <CardDescription>Unidades e perfis vinculados à sua conta.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {context.memberships.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              Você ainda não está vinculado a nenhuma unidade. Peça a um administrador para
-              configurar seu acesso.
-            </p>
-          ) : (
-            <ul className="divide-y text-sm">
-              {context.memberships.map((membership) => (
-                <li
-                  key={`${membership.branchId}-${membership.roleSlug}`}
-                  className="flex flex-wrap items-center justify-between gap-2 py-2"
-                >
-                  <span>
-                    <span className="font-medium">{membership.branchName}</span>
-                    <span className="text-muted-foreground"> · {membership.branchCode}</span>
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <span className="text-muted-foreground">{membership.roleName}</span>
-                    {membership.roleScope === "ALL_BRANCHES" ? (
-                      <Badge variant="outline">rede</Badge>
-                    ) : null}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <p className="text-muted-foreground mt-3 text-xs">
-            Última visita: {formatDateTime(new Date())}
-          </p>
-        </CardContent>
-      </Card>
     </PageBody>
   );
 }

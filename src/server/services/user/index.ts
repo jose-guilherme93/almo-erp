@@ -508,6 +508,31 @@ export async function removeMembership(
   });
 }
 
+/**
+ * Usuários ativos vinculados a qualquer um dos setores informados.
+ *
+ * Usado pelo fan-out das notificações de encaminhamento: quem recebe é sempre
+ * o setor de destino, e não uma pessoa.
+ */
+export async function usersInSectors(
+  sectorIds: readonly string[],
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<string[]> {
+  if (sectorIds.length === 0) return [];
+
+  const memberships = await client.membership.findMany({
+    where: {
+      sectorId: { in: [...sectorIds] },
+      active: true,
+      user: { status: "ACTIVE", active: true },
+      role: { active: true },
+    },
+    select: { userId: true },
+  });
+
+  return [...new Set(memberships.map((membership) => membership.userId))];
+}
+
 /** Usuários com uma permissão específica em uma filial (usado por notificações). */
 export async function usersWithPermission(branchId: string, permission: string): Promise<string[]> {
   const memberships = await prisma.membership.findMany({

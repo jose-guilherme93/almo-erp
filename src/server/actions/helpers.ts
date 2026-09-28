@@ -16,8 +16,7 @@ export function formDataToValues(formData: FormData): FormValues {
   const values: FormValues = {};
 
   for (const [key, value] of formData.entries()) {
-    // Uploads (File) são ignorados: nenhum formulário deste projeto envia
-    // arquivo pelo FormData nativo.
+    // Uploads (File) são lidos à parte, por `readFiles`.
     if (typeof value !== "string") continue;
 
     const current = values[key];
@@ -61,6 +60,11 @@ export function readList(values: FormValues, key: string): string[] {
   if (raw === undefined) return [];
 
   return (Array.isArray(raw) ? raw : [raw]).map((item) => item.trim()).filter(Boolean);
+}
+
+/** Lê arquivos enviados em um campo do formulário (ex.: anexos de imagem). */
+export function readFiles(formData: FormData, key: string): FormDataEntryValue[] {
+  return formData.getAll(key);
 }
 
 export function readNumber(values: FormValues, key: string): number | undefined {

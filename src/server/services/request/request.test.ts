@@ -17,6 +17,7 @@ import {
   createRequest,
   deliverRequest,
   getRequestDetail,
+  listRequests,
   rejectRequest,
 } from "@/server/services/request";
 
@@ -669,5 +670,37 @@ describe.runIf(process.env["DATABASE_URL"])("escopo", () => {
     await expect(getRequestDetail(outroContexto, request.id)).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+
+  it("o solicitante vê apenas as próprias solicitações, mesmo na mesma unidade", async () => {
+    const minha = await newRequest(5);
+    const deOutro = await createRequest(aprovadorContext(), {
+      branchId,
+      lines: [{ itemId, quantity: "5" }],
+    });
+
+    const list = await listRequests(solicitanteContext(), {});
+
+    expect(list.items.map((item) => item.id)).toContain(minha.id);
+    expect(list.items.map((item) => item.id)).not.toContain(deOutro.id);
+  });
+
+  it("com visão geral do almoxarifado, enxerga as solicitações da filial", async () => {
+    const deOutro = await createRequest(aprovadorContext(), {
+      branchId,
+      lines: [{ itemId, quantity: "5" }],
+    });
+
+    const overviewContext = makeAuthContext({
+      userId: aprovadorId,
+      email: APROVADOR_EMAIL,
+      memberships: [{ branchId, roleSlug: "ALMOXARIFE" }],
+      permissions: ["solicitacao:read", "solicitacao:overview"],
+      activeBranchId: branchId,
+    });
+
+    const list = await listRequests(overviewContext, {});
+
+    expect(list.items.map((item) => item.id)).toContain(deOutro.id);
   });
 });

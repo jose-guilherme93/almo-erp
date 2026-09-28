@@ -255,6 +255,15 @@ const ITEMS = [
   },
 ] as const;
 
+const SECTORS = [
+  { code: "FINANCEIRO", name: "Financeiro", kind: "REQUESTER" as const },
+  { code: "PEDAGOGICO", name: "Pedagógico", kind: "REQUESTER" as const },
+  { code: "RH", name: "Recursos Humanos", kind: "REQUESTER" as const },
+  { code: "ALMOXARIFADO", name: "Almoxarifado", kind: "SERVICE" as const },
+  { code: "MANUTENCAO", name: "Manutenção", kind: "SERVICE" as const },
+  { code: "TI", name: "Tecnologia da Informação", kind: "BOTH" as const },
+] as const;
+
 const BRANCHES = [
   {
     code: "MATRIZ",
@@ -381,6 +390,24 @@ async function seedPermissionsAndRoles(): Promise<void> {
   }
 
   console.log(`  papéis: ${ROLES.length}`);
+}
+
+async function seedSectors(): Promise<Record<string, string>> {
+  const ids: Record<string, string> = {};
+
+  for (const sector of SECTORS) {
+    const saved = await prisma.sector.upsert({
+      where: { code: sector.code },
+      update: { name: sector.name, kind: sector.kind, active: true },
+      create: { code: sector.code, name: sector.name, kind: sector.kind },
+    });
+
+    ids[sector.code] = saved.id;
+  }
+
+  console.log(`  setores: ${SECTORS.length}`);
+
+  return ids;
 }
 
 async function seedCompany(): Promise<void> {
@@ -653,7 +680,10 @@ async function seedAdmin(branchIds: Record<string, string>): Promise<void> {
   console.log(`  administrador: ${email} (SUPER_ADMIN na matriz)`);
 }
 
-async function seedDemoUsers(branchIds: Record<string, string>): Promise<void> {
+async function seedDemoUsers(
+  branchIds: Record<string, string>,
+  sectorIds: Record<string, string>,
+): Promise<void> {
   if (isProduction) {
     console.log("  usuários de demonstração: ignorados em produção");
     return;
@@ -669,22 +699,50 @@ async function seedDemoUsers(branchIds: Record<string, string>): Promise<void> {
       name: "Administrador da Unidade SP",
       role: "ADMIN_FILIAL",
       branch: "FIL-SP",
+      sector: "FINANCEIRO",
     },
-    { local: "gestor", name: "Gestor de Aprovações", role: "GESTOR", branch: "FIL-SP" },
-    { local: "almoxarife", name: "Almoxarife SP", role: "ALMOXARIFE", branch: "FIL-SP" },
+    {
+      local: "gestor",
+      name: "Gestor de Aprovações",
+      role: "GESTOR",
+      branch: "FIL-SP",
+      sector: "RH",
+    },
+    {
+      local: "almoxarife",
+      name: "Almoxarife SP",
+      role: "ALMOXARIFE",
+      branch: "FIL-SP",
+      sector: "ALMOXARIFADO",
+    },
+    {
+      local: "ti",
+      name: "Técnico de TI",
+      role: "TI",
+      branch: "FIL-SP",
+      sector: "TI",
+    },
     {
       local: "solicitante",
       name: "Colaborador Solicitante",
       role: "SOLICITANTE",
       branch: "FIL-SP",
+      sector: "PEDAGOGICO",
     },
-    { local: "consulta", name: "Usuário Consulta", role: "CONSULTA", branch: "FIL-RJ" },
+    {
+      local: "consulta",
+      name: "Usuário Consulta",
+      role: "CONSULTA",
+      branch: "FIL-RJ",
+      sector: "RH",
+    },
   ] as const;
 
   for (const entry of demo) {
     const email = `${entry.local}@${domain}`;
     const role = await prisma.role.findUniqueOrThrow({ where: { slug: entry.role } });
     const branchId = branchIds[entry.branch];
+    const sectorId = sectorIds[entry.sector];
 
     if (!branchId) continue;
 
@@ -698,8 +756,15 @@ async function seedDemoUsers(branchIds: Record<string, string>): Promise<void> {
       where: {
         userId_branchId_roleId: { userId: user.id, branchId, roleId: role.id },
       },
-      update: { active: true, isDefault: true },
-      create: { userId: user.id, branchId, roleId: role.id, isDefault: true, active: true },
+      update: { active: true, isDefault: true, sectorId },
+      create: {
+        userId: user.id,
+        branchId,
+        roleId: role.id,
+        sectorId,
+        isDefault: true,
+        active: true,
+      },
     });
   }
 
@@ -727,9 +792,10 @@ async function main(): Promise<void> {
   const unitIds = await seedUnits();
   const categoryIds = await seedCategories();
   await seedItems(categoryIds, unitIds, branchIds);
+  const sectorIds = await seedSectors();
   await seedEmailPolicy(branchIds);
   await seedAdmin(branchIds);
-  await seedDemoUsers(branchIds);
+  await seedDemoUsers(branchIds, sectorIds);
   await seedConfigs();
 
   // Atualiza o responsável do almoxarifado e o aprovador padrão das filiais.

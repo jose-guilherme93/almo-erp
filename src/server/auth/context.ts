@@ -16,6 +16,9 @@ export type BranchMembership = {
   roleName: string;
   roleScope: RoleScope;
   isDefault: boolean;
+  /** Setor do colaborador neste vínculo (Financeiro, RH, TI…). */
+  sectorId: string | null;
+  sectorName: string | null;
 };
 
 export type AuthContext = {
@@ -28,11 +31,15 @@ export type AuthContext = {
   };
   /** Todos os vínculos ativos do usuário. */
   memberships: BranchMembership[];
+  /** Setores dos vínculos ativos, sem repetição. */
+  sectorIds: string[];
   /** Filiais que o usuário pode acessar (rede → todas as ativas). */
   branchIds: string[];
   /** Verdadeiro quando o usuário tem algum papel de escopo global. */
   isNetworkScope: boolean;
   activeBranchId: string | null;
+  /** Setor do vínculo da filial ativa, quando houver. */
+  activeSectorId: string | null;
   /** Permissões concedidas por papéis de escopo global (valem em qualquer filial). */
   networkPermissions: ReadonlySet<string>;
 
@@ -79,6 +86,7 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
           branch: {
             select: { id: true, code: true, name: true, type: true },
           },
+          sector: { select: { id: true, name: true } },
           role: {
             select: {
               slug: true,
@@ -105,6 +113,8 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
     roleName: membership.role.name,
     roleScope: membership.role.scope,
     isDefault: membership.isDefault,
+    sectorId: membership.sector?.id ?? null,
+    sectorName: membership.sector?.name ?? null,
   }));
 
   const networkMemberships = memberships.filter(
@@ -154,9 +164,11 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
       status: user.status,
     },
     memberships,
+    sectorIds: [...new Set(memberships.map((m) => m.sectorId).filter((id): id is string => !!id))],
     branchIds,
     isNetworkScope,
     activeBranchId: null,
+    activeSectorId: null,
     networkPermissions,
 
     hasPermission(permission, branchId) {
@@ -182,6 +194,9 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
   };
 
   context.activeBranchId = await resolveActiveBranchId(context);
+  context.activeSectorId =
+    memberships.find((membership) => membership.branchId === context.activeBranchId)?.sectorId ??
+    null;
 
   return context;
 });

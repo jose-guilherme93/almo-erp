@@ -12,7 +12,9 @@ import {
   reserveStock,
 } from "@/server/services/stock/reservation";
 import { writeAuditLog } from "@/server/services/audit";
+import { createAttachmentRows, type AttachmentInput } from "@/server/services/attachment";
 import { notify } from "@/server/services/notification";
+import { getAlmoxarifadoSectorId } from "@/server/services/sector";
 import {
   AWAITING_DELIVERY_STATUSES,
   PENDING_APPROVAL_STATUSES,
@@ -92,10 +94,18 @@ function visibilityFilter(context: AuthContext, options?: { branchId?: string | 
     return { branchId };
   }
 
-  // O solicitante enxerga o que ele pediu mesmo se escolheu outra unidade:
-  // a solicitação é dele antes de ser da filial.
+  // Visão geral (almoxarifado e matriz): tudo do escopo de filiais.
+  if (context.hasPermission("solicitacao:overview")) {
+    return { branchId: { in: visibleBranchIds(context) } };
+  }
+
+  // Sem visão geral, a pessoa só enxerga o que ela mesma pediu ou o que foi
+  // encaminhado ao setor dela (ex.: a TI analisando uma solicitação).
   return {
-    OR: [{ branchId: { in: visibleBranchIds(context) } }, { requesterId: context.user.id }],
+    OR: [
+      { requesterId: context.user.id },
+      { delegations: { some: { toSectorId: { in: context.sectorIds } } } },
+    ],
   };
 }
 
@@ -117,10 +127,24 @@ export async function getRequestDetail(context: AuthContext, requestId: string) 
       decidedAt: true,
       deliveredAt: true,
       branch: { select: { id: true, code: true, name: true } },
+      sector: { select: { id: true, code: true, name: true } },
+      serviceSector: { select: { id: true, code: true, name: true } },
       requester: { select: { id: true, name: true, email: true } },
       responsible: { select: { id: true, name: true } },
       claimedBy: { select: { id: true, name: true } },
       decidedBy: { select: { id: true, name: true } },
+      attachments: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          fileName: true,
+          mimeType: true,
+          sizeBytes: true,
+          width: true,
+          height: true,
+          createdAt: true,
+        },
+      },
       lines: {
         orderBy: { createdAt: "asc" },
         select: {
@@ -186,12 +210,22 @@ export async function getRequestDetail(context: AuthContext, requestId: string) 
   return request;
 }
 
+/** O usuário enxerga esta solicitação? Usado para liberar os anexos. */
+export async function canViewRequest(context: AuthContext, requestId: string): Promise<boolean> {
+  const count = await prisma.request.count({
+    where: { id: requestId, ...visibilityFilter(context) },
+  });
+
+  return count > 0;
+}
+
 export type RequestListFilters = {
   search?: string;
   status?: string | null;
   priority?: string | null;
   requesterId?: string | null;
   branchId?: string | null;
+  sectorId?: string | null;
   from?: string | null;
   to?: string | null;
   page?: number;
@@ -209,6 +243,7 @@ export async function listRequests(context: AuthContext, filters: RequestListFil
       ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
       : {}),
     ...(filters.requesterId ? { requesterId: filters.requesterId } : {}),
+    ...(filters.sectorId ? { sectorId: filters.sectorId } : {}),
     ...(filters.search
       ? {
           OR: [
@@ -241,6 +276,7 @@ export async function listRequests(context: AuthContext, filters: RequestListFil
         createdAt: true,
         neededAt: true,
         branch: { select: { code: true, name: true } },
+        sector: { select: { id: true, code: true, name: true } },
         requester: { select: { name: true } },
         responsible: { select: { name: true } },
         _count: { select: { lines: true } },
@@ -409,9 +445,11 @@ export async function createRequest(
   context: AuthContext,
   input: {
     branchId: string;
+    sectorId?: string | null;
     neededAt?: string;
     notes?: string;
     lines: RequestLineInput[];
+    attachments?: AttachmentInput[];
   },
   metadata?: { ip?: string | null; userAgent?: string | null },
 ): Promise<{ id: string; number: string }> {
@@ -461,11 +499,18 @@ export async function createRequest(
 
       const responsibleId = branch.defaultApproverId ?? branch.notificationResponsibleId;
 
+      // O setor do solicitante vem do vínculo; o setor que atende é o
+      // almoxarifado por padrão (a etapa pode depois ser encaminhada à TI).
+      const sectorId = input.sectorId ?? context.activeSectorId ?? null;
+      const serviceSectorId = await getAlmoxarifadoSectorId(tx);
+
       const request = await tx.request.create({
         data: {
           number,
           branchId: input.branchId,
           requesterId: context.user.id,
+          sectorId,
+          serviceSectorId,
           // Já entra na fila de aprovação.
           status: "SUBMITTED",
           priority: "NORMAL",
@@ -483,6 +528,12 @@ export async function createRequest(
           },
         },
         select: { id: true, number: true },
+      });
+
+      await createAttachmentRows(tx, {
+        attachments: input.attachments ?? [],
+        uploadedById: context.user.id,
+        requestId: request.id,
       });
 
       await tx.requestEvent.create({

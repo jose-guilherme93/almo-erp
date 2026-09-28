@@ -22,6 +22,7 @@ export const requestLineSchema = z.object({
  */
 export const requestCreateSchema = z.object({
   branchId: z.string().trim().min(1, "Escolha a unidade."),
+  sectorId: z.string().trim().optional(),
   neededAt: z
     .string()
     .trim()

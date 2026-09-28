@@ -15,6 +15,7 @@ export const ROLE_SLUGS = [
   "ADMIN_FILIAL",
   "GESTOR",
   "ALMOXARIFE",
+  "TI",
   "SOLICITANTE",
   "CONSULTA",
 ] as const;
@@ -56,6 +57,7 @@ const ADMIN_FILIAL: readonly PermissionKey[] = [
   "estoque:saida",
   "estoque:ajuste",
   "solicitacao:read",
+  "solicitacao:overview",
   "solicitacao:create",
   "solicitacao:approve",
   "solicitacao:entregar",
@@ -66,10 +68,14 @@ const ADMIN_FILIAL: readonly PermissionKey[] = [
   "inventario:read",
   "inventario:manage",
   "manutencao:read",
+  "manutencao:overview",
   "manutencao:create",
   "manutencao:atender",
+  "manutencao:delegar",
   "manutencao:manage",
   "relatorio:read",
+  "setor:read",
+  "setor:manage",
   "usuario:read",
   "usuario:manage",
   "notificacao:read",
@@ -89,9 +95,12 @@ const GESTOR: readonly PermissionKey[] = [
   "transferencia:receber",
   "inventario:read",
   "manutencao:read",
+  "manutencao:overview",
   "manutencao:create",
   "manutencao:atender",
+  "manutencao:delegar",
   "relatorio:read",
+  "setor:read",
   "usuario:read",
   "notificacao:read",
 ];
@@ -108,6 +117,7 @@ const ALMOXARIFE: readonly PermissionKey[] = [
   "estoque:saida",
   "estoque:ajuste",
   "solicitacao:read",
+  "solicitacao:overview",
   "solicitacao:create",
   "solicitacao:entregar",
   "transferencia:read",
@@ -117,20 +127,38 @@ const ALMOXARIFE: readonly PermissionKey[] = [
   "inventario:read",
   "inventario:manage",
   "manutencao:read",
+  "manutencao:overview",
   "manutencao:create",
   "manutencao:atender",
+  "manutencao:delegar",
   "relatorio:read",
+  "setor:read",
   "notificacao:read",
 ];
 
-const SOLICITANTE: readonly PermissionKey[] = [
-  "categoria:read",
-  "unidade-medida:read",
+/// Técnico de TI: atende os chamados do setor e enxerga as demandas
+/// encaminhadas a ele. Não tem visão geral do almoxarifado.
+const TI: readonly PermissionKey[] = [
+  "filial:read",
+  "local:read",
   "item:read",
-  "estoque:read",
   "solicitacao:read",
   "solicitacao:create",
-  "transferencia:read",
+  "manutencao:read",
+  "manutencao:create",
+  "manutencao:atender",
+  "manutencao:delegar",
+  "relatorio:read",
+  "setor:read",
+  "notificacao:read",
+];
+
+/// Solicitante puro: só pede e acompanha o que pediu. Sem acesso a estoque,
+/// catálogo de gestão nem transferências — a interface mostra apenas a visão
+/// geral e as solicitações.
+const SOLICITANTE: readonly PermissionKey[] = [
+  "solicitacao:read",
+  "solicitacao:create",
   "manutencao:read",
   "manutencao:create",
   "notificacao:read",
@@ -148,6 +176,7 @@ const CONSULTA: readonly PermissionKey[] = [
   "inventario:read",
   "manutencao:read",
   "relatorio:read",
+  "setor:read",
   "notificacao:read",
 ];
 
@@ -193,9 +222,18 @@ export const ROLES: readonly RoleDefinition[] = [
     permissions: ALMOXARIFE,
   },
   {
+    slug: "TI",
+    name: "Técnico de TI",
+    description:
+      "Atende os chamados de TI e as etapas encaminhadas ao setor. Não tem a visão geral do almoxarifado.",
+    scope: "OWN_BRANCHES",
+    permissions: TI,
+  },
+  {
     slug: "SOLICITANTE",
     name: "Solicitante",
-    description: "Cria e acompanha as próprias solicitações de material.",
+    description:
+      "Cria e acompanha as próprias solicitações de material e chamados. Não vê os pedidos de terceiros.",
     scope: "OWN_BRANCHES",
     permissions: SOLICITANTE,
   },

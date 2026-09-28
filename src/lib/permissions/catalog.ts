@@ -69,7 +69,13 @@ export const PERMISSIONS = [
   define("estoque", "ajuste", "Estoque", "Lançar ajustes de estoque com justificativa"),
 
   // --- Solicitações ---
-  define("solicitacao", "read", "Solicitações", "Ver solicitações da filial"),
+  define("solicitacao", "read", "Solicitações", "Ver as próprias solicitações"),
+  define(
+    "solicitacao",
+    "overview",
+    "Solicitações",
+    "Ver todas as solicitações de material do escopo (visão geral do almoxarifado)",
+  ),
   define("solicitacao", "create", "Solicitações", "Criar solicitações de material"),
   define(
     "solicitacao",
@@ -91,9 +97,16 @@ export const PERMISSIONS = [
   ),
 
   // --- Manutenção ---
-  define("manutencao", "read", "Manutenção", "Ver os chamados de reparo"),
+  define("manutencao", "read", "Manutenção", "Ver os próprios chamados e os atribuídos a você"),
+  define(
+    "manutencao",
+    "overview",
+    "Manutenção",
+    "Ver todos os chamados do escopo (visão geral do setor)",
+  ),
   define("manutencao", "create", "Manutenção", "Abrir chamados de reparo"),
   define("manutencao", "atender", "Manutenção", "Assumir, priorizar, atribuir e concluir chamados"),
+  define("manutencao", "delegar", "Manutenção", "Encaminhar uma etapa da demanda para outro setor"),
   define("manutencao", "manage", "Manutenção", "Gerenciar o fluxo completo de manutenção"),
 
   // --- Inventário ---
@@ -104,6 +117,8 @@ export const PERMISSIONS = [
   define("relatorio", "read", "Relatórios", "Acessar relatórios e indicadores"),
 
   // --- Administração ---
+  define("setor", "read", "Administração", "Ver os setores da organização"),
+  define("setor", "manage", "Administração", "Criar e editar setores"),
   define("usuario", "read", "Administração", "Ver usuários e seus vínculos"),
   define("usuario", "manage", "Administração", "Criar, editar, vincular e suspender usuários"),
   define("papel", "read", "Administração", "Ver papéis e suas permissões"),

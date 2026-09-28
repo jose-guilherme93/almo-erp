@@ -59,5 +59,8 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
+# Anexos enviados em desenvolvimento (o volume de produção é externo)
+/var/uploads/
+
 # Prisma Client gerado (recriado por `pnpm prisma generate`)
 src/generated/

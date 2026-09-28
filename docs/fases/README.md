@@ -21,6 +21,11 @@ Não pule fase e não "adiante" parte de fase futura.
 | [11](FASE-11-inventario.md) | Inventário | contagem e ajuste por divergência |
 | [12](FASE-12-relatorios.md) | Relatórios | consumo, cobertura, valor de estoque |
 | [13](FASE-13-hardening.md) | Hardening, testes e deploy | auditoria, SLA, e2e, produção |
+| [14](FASE-14-setores-e-delegacao.md) | Setores, encaminhamento e visibilidade | todo usuário é solicitante; etapa entre setores |
+| [15](FASE-15-mobile-solicitante.md) | Experiência mobile do solicitante | 3 canais, defaults, menos tela |
+| [16](FASE-16-anexos-imagem.md) | Anexos de imagem com compressão | foto do problema leve e segura |
+| [17](FASE-17-ti-e-pecas.md) | TI como setor prestador | chamado de TI, laudo e peças |
+| [18](FASE-18-duracao-e-relatorios.md) | Duração e observabilidade | demanda por setor e tempo por mês |
 
 ## Regras de execução das fases
 
@@ -47,6 +52,11 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 11 — Inventário
 - [x] FASE 12 — Relatórios
 - [x] FASE 13 — Hardening
+- [x] FASE 14 — Setores e delegação
+- [x] FASE 15 — Mobile do solicitante
+- [x] FASE 16 — Anexos de imagem
+- [x] FASE 17 — TI e peças
+- [x] FASE 18 — Duração e relatórios
 
 ## Dependências entre fases
 
@@ -56,7 +66,11 @@ Não pule fase e não "adiante" parte de fase futura.
                     └───────────────▶ 08 ◀─────────────┘
                                       │
                                       ▼
-                                      09 ──▶ 10 ──▶ 11 ──▶ 12 ──▶ 13
+                                      09 ──▶ 10 ──▶ 11 ──▶ 12 ──▶ 13 ──▶ 14
+                                                                        │
+                                              ┌─────────────┬───────────┼───────────┐
+                                              ▼             ▼           ▼           ▼
+                                             15            16          17          18
 ```
 
 Observações:

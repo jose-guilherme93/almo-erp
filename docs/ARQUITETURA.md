@@ -84,7 +84,8 @@ A sessão carrega o **contexto ativo** (filial + papel) e permite trocar por um 
 | `ADMIN_FILIAL` | filial | itens locais, usuários da filial, aprova/entrega, inventário |
 | `GESTOR` | filial | aprova/rejeita solicitações, aprova transferências recebidas, relatórios da filial |
 | `ALMOXARIFE` | filial | entradas, saídas, ajustes, cria/envia transferências, recebe, entrega, inventário |
-| `SOLICITANTE` | filial | cria e acompanha solicitações próprias |
+| `TI` | filial | atende os chamados de TI e as etapas encaminhadas ao setor; sem visão geral do almoxarifado |
+| `SOLICITANTE` | filial | cria e acompanha **apenas** solicitações próprias; sem estoque, transferências nem catálogo |
 | `CONSULTA` | filial | leitura |
 
 ### 3.3 Catálogo de permissões
@@ -99,15 +100,22 @@ unidade-medida:read    unidade-medida:manage
 item:read              item:create           item:update          item:manage
 estoque:read           estoque:entrada       estoque:ajuste       estoque:saida
 transferencia:read     transferencia:create  transferencia:enviar transferencia:receber
-solicitacao:read       solicitacao:create    solicitacao:approve  solicitacao:entregar
+solicitacao:read       solicitacao:overview  solicitacao:create   solicitacao:approve
+solicitacao:entregar
+manutencao:read        manutencao:overview   manutencao:create    manutencao:atender
+manutencao:delegar     manutencao:manage
 inventario:read        inventario:manage
 relatorio:read
+setor:read             setor:manage
 usuario:read           usuario:manage
 papel:read             papel:manage
 politica-email:read    politica-email:manage
 notificacao:read
 configuracao:manage
 ```
+
+`*:overview` significa "ver todo o escopo de filiais". Sem ela, o usuário só
+enxerga o que é dele ou o que foi encaminhado ao seu setor (ver §3.5).
 
 Papéis são **dados**, editáveis na tela de administração. Adicionar papel novo não exige deploy.
 
@@ -117,6 +125,33 @@ Papéis são **dados**, editáveis na tela de administração. Adicionar papel n
 - Os demais têm `scope = OWN_BRANCHES` e só acessam `branchId ∈ ctx.branchIds`.
 - Toda verificação passa por `requireBranch(branchId)`, que compara com `ctx.branchIds`.
 - Ações destrutivas exigem permissão de `manage` **e** re-autenticação só na Fase 13 (opcional).
+
+### 3.5 Setores, visibilidade e encaminhamento de etapas
+
+**Setor** (`Sector`) é a dimensão organizacional: Financeiro, Pedagógico, RH
+(pedem), Almoxarifado, Manutenção, TI (atendem; a TI também pede). O setor mora
+no vínculo do usuário (`Membership.sectorId`), pré-seleciona o setor na abertura
+e viaja na demanda (`Request.sectorId`, `MaintenanceRequest.sectorId`).
+
+Regra de visibilidade (a barreira anti-vazamento do §3.2 aplicada à demanda):
+
+| Quem | O que enxerga |
+|---|---|
+| Solicitante puro | **só** o que ele mesmo pediu |
+| Setor de atendimento sem `*:overview` | o próprio, o atribuído e o **encaminhado ao seu setor** |
+| Com `solicitacao:overview` / `manutencao:overview` | todo o escopo de filiais do fluxo |
+| Matriz / `SUPER_ADMIN` | rede inteira |
+
+**Encaminhamento de etapa** (`Delegation`): o almoxarifado pode delegar uma fase
+de uma demanda a outro setor ("analisar se o defeito é de fabricação ou mau
+uso") e a TI responde com um **laudo**. Enquanto a etapa está aberta
+(`PENDING → ACCEPTED → IN_PROGRESS`), quem responde é o setor de destino; ao
+concluir (`COMPLETED`) com laudo, o comando **volta** para o setor de origem, que
+encerra a etapa (`RETURNED`) e segue até fechar a demanda. Uma delegação aponta
+para **uma** solicitação **ou** um chamado, nunca os dois.
+
+Toda transição gera `DelegationEvent`, `AuditLog` e notificação endereçada ao
+**setor** (não à pessoa), na mesma transação.
 
 ---
 
@@ -272,6 +307,18 @@ Regras:
   a indisponibilidade é resolvida na aprovação (parcial) ou por transferência.
 - `Delivery`: uma por request, com `deliveredAt`, `deliveredById`, `receivedByName`,
   `receivedByDocument`, `signature` (canvas ou aceite por nome), e `StockDocument` de saída gerado.
+- `sectorId` (setor de quem pediu) e `serviceSectorId` (almoxarifado por padrão).
+  O **encaminhamento de uma etapa** para outro setor está em §3.5.
+- `Attachment`: imagens do pedido. Compressão no navegador (WebP, ≤1600px), arquivo
+  em disco, download por route handler autenticado com a visibilidade da demanda.
+
+### Chamados de reparo (`MaintenanceRequest`)
+
+O mesmo modelo atende **manutenção** e **TI**: `category = IT` roteia para o setor
+TI, as demais categorias para a Manutenção (`serviceSectorId`). O ciclo é
+`OPEN → IN_REVIEW → IN_PROGRESS → WAITING_PARTS → DONE` (mais `REJECTED`/`CANCELLED`),
+e a pessoa que atende pode ser de qualquer setor de serviço. A prioridade continua
+sendo definida por quem recebe (`AGENTS.md` §3.7).
 
 ### Aprovação e responsabilidades
 
@@ -372,6 +419,9 @@ diferentes.
 | `/catalogo/itens` | `item:read` | todos com membership |
 | `/filiais` | `filial:read` | matriz (leitura), ADMIN_FILIAL (a sua) |
 | `/notificacoes` | `notificacao:read` | qualquer logado |
+| `/reparos`, `/reparos/[id]` | `manutencao:read` | dono, setor de atendimento, matriz |
+| `/encaminhamentos`, `/encaminhamentos/[id]` | `manutencao:atender` | setor de origem e de destino |
+| `/api/anexos/[id]` | visibilidade da demanda pai | quem enxerga a solicitação/chamado |
 | `/relatorios` | `relatorio:read` | GESTOR+ |
 | `/admin/usuarios` | `usuario:manage` | SUPER_ADMIN, ADMIN_FILIAL (escopo) |
 | `/admin/papeis` | `papel:manage` | SUPER_ADMIN |

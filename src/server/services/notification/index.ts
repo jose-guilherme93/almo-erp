@@ -2,7 +2,7 @@ import type { NotificationType } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
-import { usersWithPermission } from "@/server/services/user";
+import { usersInSectors, usersWithPermission } from "@/server/services/user";
 
 const log = logger.with({ service: "notification" });
 
@@ -129,6 +129,30 @@ const TEMPLATES: Record<
     title: (data) => `Chamado ${data["number"] ?? ""} concluído`,
     body: (data) => `${data["actorName"] ?? "A manutenção"} concluiu o reparo.`,
     link: (_e, _i, data) => `/reparos/${data["maintenanceId"] ?? ""}`,
+  },
+  DELEGATION_REQUESTED: {
+    title: (data) =>
+      `Etapa encaminhada ao seu setor${data["toSectorName"] ? ` — ${data["toSectorName"]}` : ""}`,
+    body: (data) =>
+      `${data["fromSectorName"] ?? "Outro setor"} pediu: ${data["reason"] ?? "análise"}. Registre o laudo quando concluir.`,
+    link: (_e, _i, data) => `/encaminhamentos/${data["delegationId"] ?? ""}`,
+  },
+  DELEGATION_ACCEPTED: {
+    title: () => "Sua etapa foi assumida",
+    body: (data) => `${data["accepterName"] ?? "O setor de destino"} assumiu a etapa encaminhada.`,
+    link: (_e, _i, data) => `/encaminhamentos/${data["delegationId"] ?? ""}`,
+  },
+  DELEGATION_COMPLETED: {
+    title: () => "Etapa concluída — laudo disponível",
+    body: (data) =>
+      `${data["toSectorName"] ?? "O setor"} concluiu a etapa. ${data["report"] ?? ""}`.trim(),
+    link: (_e, _i, data) => `/encaminhamentos/${data["delegationId"] ?? ""}`,
+  },
+  DELEGATION_RETURNED: {
+    title: () => "Etapa devolvida ao seu setor",
+    body: (data) =>
+      `${data["toSectorName"] ?? "O setor"} devolveu a etapa${data["report"] ? `: ${data["report"]}` : "."}`,
+    link: (_e, _i, data) => `/encaminhamentos/${data["delegationId"] ?? ""}`,
   },
 };
 
@@ -303,6 +327,26 @@ export async function resolveRecipients(
     case "MAINTENANCE_DONE": {
       const requesterId = payload.data?.["requesterId"];
       return requesterId && !exclude.has(requesterId) ? [requesterId] : [];
+    }
+
+    case "DELEGATION_REQUESTED": {
+      const toSectorId = payload.data?.["toSectorId"];
+      if (!toSectorId) return [];
+
+      const recipients = await usersInSectors([toSectorId], client);
+
+      return recipients.filter((id) => !exclude.has(id));
+    }
+
+    case "DELEGATION_ACCEPTED":
+    case "DELEGATION_COMPLETED":
+    case "DELEGATION_RETURNED": {
+      const fromSectorId = payload.data?.["fromSectorId"];
+      if (!fromSectorId) return [];
+
+      const recipients = await usersInSectors([fromSectorId], client);
+
+      return recipients.filter((id) => !exclude.has(id));
     }
 
     default:

@@ -27,8 +27,14 @@ Cada unidade tem seu próprio almoxarifado, seus próprios usuários e seus pró
 | Comentários de código | **português**, apenas para regra de negócio não óbvia |
 
 `Item` (código) = "material" (na UI). `Branch` = "filial"/"unidade" (na UI).
-`Request` = "solicitação" (material). `MaintenanceRequest` = "chamado de reparo".
+`Request` = "solicitação" (material). `MaintenanceRequest` = "chamado" (reparo ou TI).
+`Delegation` = "encaminhamento" (etapa de uma demanda em outro setor).
+`Sector` = "setor" (Financeiro, Pedagógico, RH, Almoxarifado, Manutenção, TI).
 `StockDocument` = "movimentação de estoque".
+
+**Todo usuário é solicitante.** Um usuário novo nasce `SOLICITANTE` e enxerga
+apenas o que ele mesmo pediu. Ver mais do que isso é uma permissão explícita
+(`solicitacao:overview` / `manutencao:overview`), nunca o padrão.
 
 ---
 
@@ -161,6 +167,7 @@ almo-erp/
 │  │  │  ├─ dashboard/         # dashboards por perfil (ver §7)
 │  │  │  ├─ solicitacoes/      # nova, listar, [id], aprovar
 │  │  │  ├─ entregas/
+│  │  │  ├─ encaminhamentos/   # etapas de demanda em outros setores
 │  │  │  ├─ estoque/           # saldos, movimentacoes, entradas, ajustes
 │  │  │  ├─ transferencias/
 │  │  │  ├─ inventario/
@@ -273,7 +280,9 @@ Regras:
 - Tipos (`NotificationType`): `REQUEST_CREATED`, `REQUEST_CLAIMED`, `REQUEST_APPROVED`,
   `REQUEST_PARTIALLY_APPROVED`, `REQUEST_REJECTED`, `REQUEST_DELIVERED`,
   `TRANSFER_SENT`, `TRANSFER_RECEIVED`, `STOCK_BELOW_MIN`, `INVENTORY_DIVERGENCE`,
-  `ACCESS_REQUESTED`, `ACCESS_GRANTED`.
+  `ACCESS_REQUESTED`, `ACCESS_GRANTED`, `MAINTENANCE_CREATED`, `MAINTENANCE_ASSIGNED`,
+  `MAINTENANCE_PRIORITY_SET`, `MAINTENANCE_DONE`, `DELEGATION_REQUESTED`,
+  `DELEGATION_ACCEPTED`, `DELEGATION_COMPLETED`, `DELEGATION_RETURNED`.
 - Cada notificação guarda `actorId` (quem disparou), `entityType`, `entityId`, `branchId`,
   `title`, `body`, `link`, `readAt`, `createdAt`.
 - A caixa de entrada fica em `/notificacoes`; o sino na topbar mostra o total não lidas.

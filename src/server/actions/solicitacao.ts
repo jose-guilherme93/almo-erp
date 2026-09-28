@@ -11,11 +11,13 @@ import { availableQuantity } from "@/server/services/stock/average-cost";
 import { requirePermission } from "@/server/auth/guards";
 import {
   formDataToValues,
+  readFiles,
   readList,
   readText,
   requestMetadata,
   validationFailure,
 } from "@/server/actions/helpers";
+import { discardStoredImages, storeUploadedImages } from "@/server/services/attachment";
 import {
   requestApprovalSchema,
   requestCreateSchema,
@@ -71,6 +73,7 @@ export async function criarSolicitacaoAction(
 
     const parsed = requestCreateSchema.safeParse({
       branchId: readText(values, "branchId"),
+      sectorId: readText(values, "sectorId"),
       neededAt: readText(values, "neededAt"),
       notes: readText(values, "notes"),
       lines: readRequestLines(values),
@@ -79,7 +82,16 @@ export async function criarSolicitacaoAction(
     if (!parsed.success) return validationFailure(parsed.error);
 
     const metadata = await requestMetadata();
-    const request = await createRequest(context, parsed.data, metadata);
+    const attachments = await storeUploadedImages(readFiles(formData, "fotos"));
+
+    let request: { id: string; number: string };
+
+    try {
+      request = await createRequest(context, { ...parsed.data, attachments }, metadata);
+    } catch (error) {
+      await discardStoredImages(attachments);
+      throw error;
+    }
 
     revalidateRequestViews(request.id);
 

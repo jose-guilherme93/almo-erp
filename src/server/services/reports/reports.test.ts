@@ -318,6 +318,8 @@ describe("metadados dos relatórios", () => {
       "movimentacoes",
       "sem-movimento",
       "sem-politica",
+      "demanda-por-setor",
+      "duracao-demandas",
     ] as const) {
       const result = await runReport(reportId, scopeFor());
 
