@@ -10,7 +10,7 @@ import {
   itemStockPolicySchema,
   itemUpdateSchema,
 } from "@/lib/validation/catalog";
-import { requirePermission } from "@/server/auth/guards";
+import { requireAnyPermission, requirePermission } from "@/server/auth/guards";
 import {
   formDataToValues,
   readBoolean,
@@ -244,10 +244,25 @@ export async function removerPoliticaEstoqueAction(
 /* Consultas usadas pelo formulário e pelo leitor                              */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Permissões que dão direito ao seletor de material.
+ *
+ * O `SOLICITANTE` não tem `item:read` (não enxerga o catálogo), mas precisa
+ * buscar material para montar o pedido — sem isto, o fluxo central de
+ * solicitação fica impossível pela interface.
+ */
+const ITEM_PICKER_PERMISSIONS = [
+  "item:read",
+  "solicitacao:create",
+  "transferencia:create",
+  "estoque:entrada",
+  "estoque:ajuste",
+] as const;
+
 /** Busca por código de barras — chamada pelo leitor da câmera. */
 export async function buscarPorCodigoBarrasAction(barcode: string) {
   return runAction(async () => {
-    await requirePermission("item:read");
+    await requireAnyPermission(ITEM_PICKER_PERMISSIONS);
 
     const item = await findItemByBarcode(barcode);
 
@@ -262,7 +277,7 @@ export async function buscarPorCodigoBarrasAction(barcode: string) {
 /** Autocomplete de material. */
 export async function buscarItensAction(term: string) {
   return runAction(async () => {
-    await requirePermission("item:read");
+    await requireAnyPermission(ITEM_PICKER_PERMISSIONS);
 
     const items = await searchItems(term);
 

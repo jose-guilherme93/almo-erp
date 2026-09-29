@@ -94,21 +94,18 @@ export function RequestForm({
   };
 
   const addItem = (item: ItemOption) => {
-    setLines((current) => {
-      if (current.some((line) => line.item.id === item.id)) {
-        toast.error("Este material já está na solicitação. Ajuste a quantidade na linha.");
-        return current;
-      }
+    if (lines.some((line) => line.item.id === item.id)) {
+      toast.error("Este material já está na solicitação. Ajuste a quantidade na linha.");
+      return;
+    }
 
-      const next = [
-        ...current,
-        { key: `${item.id}-${Date.now()}`, item, quantity: "1", notes: "" },
-      ];
+    // Calcula fora do updater de `setLines`: disparar ação/atualizar estado
+    // durante a renderização faz o React reclamar e pode perder a resposta.
+    // O `item.id` basta como chave porque item repetido é bloqueado acima.
+    const next = [...lines, { key: item.id, item, quantity: "1", notes: "" }];
 
-      void refreshAvailability(next.map((line) => line.item.id));
-
-      return next;
-    });
+    setLines(next);
+    void refreshAvailability(next.map((line) => line.item.id));
   };
 
   const removeItem = (key: string) => {
