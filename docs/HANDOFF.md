@@ -25,6 +25,28 @@ Entrega mais recente — **Onda 1 de integridade** (plano em `docs`/handoff; ver
   em `TransferLine` e no ajuste de inventário.
 - **Cancelamento de documento vinculado** (`REQUEST`/`TRANSFER`/`INVENTORY`) bloqueado.
 - Transição de recebimento de transferência passa pela máquina; atribuição de chamado idem.
+- **Bugs achados pelo E2E (corrigidos):** `buscarItensAction`/`buscarPorCodigoBarrasAction`
+  exigiam `item:read`, que o `SOLICITANTE` não tem — o fluxo central de pedido era impossível
+  pela interface; e `RequestForm`/`StockDocumentForm` disparavam ação dentro do updater do
+  `setLines` (setState durante render).
+- **E2E dos fluxos críticos:** `e2e/solicitacoes.spec.ts` (pedido → aprovação → entrega),
+  `e2e/estoque.spec.ts` (entrada, ajuste, transferência enviar/receber) e
+  `e2e/inventario.spec.ts` (contar → encerrar → ajustar). Suíte chromium: **80/80**.
+
+## E2E — como rodar
+
+O E2E é **local-first** (AGENTS §9.1). O bypass de autenticação de teste só existe fora de
+produção, então o servidor é o `pnpm dev` (padrão do `playwright.config.ts`):
+
+```bash
+E2E_AUTH_BYPASS=true pnpm e2e --project=chromium
+```
+
+- Se já houver um `pnpm dev` na 3000, o Playwright o reutiliza. **Importante:** depois de
+  alterar `prisma/schema.prisma`, reinicie o `pnpm dev` — ele mantém o Prisma Client antigo
+  em memória e o E2E falha com `Unknown argument`.
+- `pnpm build && pnpm start` **não** serve para E2E (o `env.ts` recusa o bypass em produção).
+- O `e2e.yml` do Actions é manual/opcional, capado em 5 min; não transformar em job longo.
 
 Entregue antes:
 

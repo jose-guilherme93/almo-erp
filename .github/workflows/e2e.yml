@@ -15,8 +15,12 @@ env:
   AUTH_ALLOWED_DOMAINS: exemplo.com.br
   NEXT_PUBLIC_APP_URL: http://localhost:3000
   AUTH_TRUST_HOST: "true"
-  # Servidor de produção no CI: evita a compilação sob demanda do `next dev`.
-  E2E_WEB_SERVER_COMMAND: "pnpm build && pnpm start"
+  # O bypass de autenticação de teste (`E2E_AUTH_BYPASS`) só existe fora de
+  # produção (`src/lib/env.ts`), então o E2E roda com `pnpm dev` (comando padrão
+  # do playwright.config). Nunca com `pnpm build && pnpm start`.
+  #
+  # E2E é local-first (AGENTS §9.1): este workflow é manual e opcional. Se um
+  # cenário não couber no teto de 5 minutos, rode local.
 
 jobs:
   e2e:

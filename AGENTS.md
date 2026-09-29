@@ -309,6 +309,10 @@ pnpm db:seed         # seed idempotente
 Definição de Pronto de uma fase: os comandos acima passam, a fase está marcada como concluída
 em `docs/fases/README.md`, e a doc correspondente foi atualizada se houve mudança de regra.
 
+**Ao fechar qualquer mudança de fluxo de usuário, rode também o E2E local** (§9.1). Ele é a
+única camada que prova o caminho de ponta a ponta pela interface; os testes de serviço não
+pegam erro de permissão de Server Action, locator quebrado ou ordem de tela.
+
 Cobertura mínima obrigatória de teste:
 
 - Toda função de transição de status (tabela de transições válidas e inválidas).
@@ -325,8 +329,19 @@ Cobertura mínima obrigatória de teste:
   pesadas, teto próprio). Um job que estouraria o teto deve **falhar rápido**, nunca
   pendurar meia hora.
 - O CI automático (`ci.yml`) é só: install, lint, typecheck, migrations, seed, test e build.
-- **E2E é manual** (`e2e.yml`, `workflow_dispatch`), também com teto de 5 minutos e cache
-  dos navegadores. Não roda em push nem em PR.
+- **O E2E é local e faz parte do fechamento do trabalho.** Rode ao final de toda mudança de
+  fluxo, com o servidor de desenvolvimento:
+
+  ```bash
+  E2E_AUTH_BYPASS=true pnpm e2e --project=chromium
+  ```
+
+  O bypass de autenticação de teste **só existe fora de produção** (`src/lib/env.ts`), por
+  isso o E2E nunca roda contra `pnpm build && pnpm start`.
+- **No GitHub Actions, o E2E é opcional e manual** (`e2e.yml`, `workflow_dispatch`), com teto
+  de 5 minutos e cache dos navegadores. Não roda em push nem em PR. E2E no Actions **nunca**
+  pode virar um job longo (o histórico era de 40 minutos): se um cenário não couber em 5
+  minutos, rode-o local.
 
 ---
 
