@@ -24,11 +24,14 @@ test.describe("roteamento por perfil", () => {
     await expect(page.getByText("Precisa da sua resposta")).toBeVisible();
   });
 
-  test("solicitante cai em minhas solicitações", async ({ page }) => {
+  // FASE 15: quem só pede cai direto na tela de escolha (material/reparo/TI),
+  // que é o ponto de partida mobile. O "Meu painel" fica na navegação.
+  test("solicitante cai na tela de escolha do pedido", async ({ page }) => {
     await loginAs(page, "solicitante");
 
-    await expect(page).toHaveURL(/\/meu$/);
-    await expect(page.getByRole("heading", { name: /Olá/ })).toBeVisible();
+    await expect(page).toHaveURL(/\/solicitar$/);
+    await expect(page.getByRole("heading", { name: "O que você precisa?" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Pedir material" })).toBeVisible();
   });
 });
 
