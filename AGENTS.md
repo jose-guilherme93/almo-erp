@@ -3,6 +3,8 @@
 > Contrato de trabalho para agentes de IA (e humanos) que implementam este repositório.
 > **Leia este arquivo inteiro antes de escrever qualquer código.** Ele tem precedência sobre
 > qualquer README, tutorial ou padrão do framework.
+>
+> **Estado atual do trabalho e pendências vivas: `docs/HANDOFF.md`.** Leia antes de retomar.
 
 ---
 
