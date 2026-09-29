@@ -62,5 +62,8 @@ Thumbs.db
 # Anexos enviados em desenvolvimento (o volume de produção é externo)
 /var/uploads/
 
+# Backups locais gerados por scripts/backup-db.sh
+/backups/
+
 # Prisma Client gerado (recriado por `pnpm prisma generate`)
 src/generated/

@@ -1,0 +1,6 @@
+# Caddy faz o TLS automático (Let's Encrypt) e o proxy para o app.
+# O domínio vem da variável DOMAIN (arquivo .env.production).
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

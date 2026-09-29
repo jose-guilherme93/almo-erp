@@ -23,10 +23,11 @@ export const config = {
     /*
      * Roda em tudo, exceto:
      *  - /api/auth/*           (endpoints do próprio Auth.js)
+     *  - /api/health           (healthcheck do container, sem sessão)
      *  - /login, /acesso-negado
      *  - /manifest.webmanifest (o navegador busca sem cookie: precisa passar)
      *  - arquivos estáticos do Next e assets públicos
      */
-    "/((?!api/auth|_next/static|_next/image|login|acesso-negado|manifest\\.webmanifest|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|webmanifest|woff2?)$).*)",
+    "/((?!api/auth|api/health|_next/static|_next/image|login|acesso-negado|manifest\\.webmanifest|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|webmanifest|woff2?)$).*)",
   ],
 };
