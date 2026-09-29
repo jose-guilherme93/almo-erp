@@ -33,6 +33,20 @@ Entrega mais recente — **Onda 1 de integridade** (plano em `docs`/handoff; ver
   `e2e/estoque.spec.ts` (entrada, ajuste, transferência enviar/receber) e
   `e2e/inventario.spec.ts` (contar → encerrar → ajustar). Suíte chromium: **80/80**.
 
+## Deploy
+
+Infra definida: **VPS única com Docker** (app + Postgres + Caddy). Artefatos criados:
+`Dockerfile`, `.dockerignore`, `docker-compose.prod.yml`, `Caddyfile`,
+`scripts/backup-db.sh`, `src/app/api/health/route.ts` (fora do gate do `proxy.ts`) e o
+runbook `docs/DEPLOY.md`. Sem `output: standalone` (runtime é `pnpm start`).
+
+Decisões registradas: app e banco no mesmo host (ponto único de falha mitigado por
+backup offsite); seed roda **uma vez** em produção como bootstrap (pula usuários de demo),
+divergindo conscientemente do item da FASE 13; E2E continua local.
+
+Pendências de produção (não bloqueiam o código): provisionar o host, DNS, credencial
+OAuth de produção, `AUTH_SECRET` novo, agendar o backup e testar a restauração.
+
 ## E2E — como rodar
 
 O E2E é **local-first** (AGENTS §9.1). O bypass de autenticação de teste só existe fora de

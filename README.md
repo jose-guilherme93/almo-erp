@@ -113,6 +113,17 @@ Para conhecer o sistema antes de criar as credenciais do Google, ligue
 passa a mostrar um campo de e-mail: entre com qualquer usuário da tabela abaixo.
 Em produção essa opção é recusada na inicialização.
 
+## Deploy (produção)
+
+O guia completo está em [`docs/DEPLOY.md`](docs/DEPLOY.md). Resumo:
+
+- **VPS única com Docker**: app (Next, `pnpm start`) + Postgres 17 + Caddy (TLS automático).
+- Anexos em volume persistente (`UPLOAD_DIR=/data/uploads`); banco em volume próprio.
+- Migrations com `pnpm db:deploy`; seed roda **uma vez** como bootstrap do 1º admin.
+- Backup diário com `scripts/backup-db.sh` (+ cópia offsite via `rclone`).
+- O E2E é **local** (`E2E_AUTH_BYPASS=true pnpm e2e --project=chromium`); o bypass de
+  login de teste é recusado em produção.
+
 ## Autenticação no Google
 
 1. Google Cloud Console → **APIs & Services → Credentials** → OAuth 2.0 Client ID (Web).
