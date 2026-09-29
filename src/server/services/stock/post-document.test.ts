@@ -411,6 +411,29 @@ describe.runIf(process.env["DATABASE_URL"])("estorno", () => {
     ).rejects.toMatchObject({ code: "BUSINESS_RULE" });
   });
 
+  it("recusa cancelar movimentação gerada por um fluxo de negócio", async () => {
+    await post([{ itemId, quantity: d(5), unitCost: d(1) }]);
+
+    const saida = await createAndPostStockDocument({
+      type: "ISSUE",
+      branchId,
+      storageLocationId: locationId,
+      createdById: actorId,
+      notes: "teste automatizado",
+      referenceType: "REQUEST",
+      referenceId: "solicitacao-qualquer",
+      lines: [{ itemId, quantity: d(-1) }],
+    });
+
+    await expect(
+      cancelStockDocument({
+        documentId: saida.documentId,
+        createdById: actorId,
+        reason: "cancelar por fora",
+      }),
+    ).rejects.toMatchObject({ code: "BUSINESS_RULE" });
+  });
+
   it("preserva as linhas originais (ledger append-only)", async () => {
     const entrada = await post([{ itemId, quantity: d(7), unitCost: d(3) }]);
 

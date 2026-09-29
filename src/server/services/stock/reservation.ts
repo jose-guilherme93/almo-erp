@@ -1,7 +1,9 @@
-import { Prisma } from "@/generated/prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import { BusinessRuleError, InsufficientStockError, NotFoundError } from "@/lib/errors";
 import { formatQuantity } from "@/lib/format";
 import { availableQuantity } from "@/server/services/stock/average-cost";
+import { lockItemLevels, lockStockLevelById } from "@/server/services/stock/lock";
+import { resolveLotForItem } from "@/server/services/stock/lots";
 
 /**
  * Reserva de estoque.
@@ -20,29 +22,30 @@ export type ReservationRequest = {
   quantity: Prisma.Decimal;
 };
 
-/** Local de onde o material será separado: o que tem mais disponível. */
-async function pickLocationForItem(
-  tx: Prisma.TransactionClient,
-  branchId: string,
-  itemId: string,
-): Promise<{ stockLevelId: string; available: Prisma.Decimal }> {
-  const levels = await tx.stockLevel.findMany({
-    where: { branchId, itemId, storageLocation: { active: true } },
-    select: {
-      id: true,
-      quantity: true,
-      reservedQuantity: true,
-      storageLocation: { select: { type: true } },
-    },
-  });
-
+/**
+ * Local de onde o material será separado: o que tem mais disponível.
+ *
+ * Recebe os níveis **já travados** (`lockItemLevels`), para que a escolha e a
+ * reserva aconteçam sob o mesmo lock — sem isso, duas aprovações simultâneas
+ * leem o mesmo disponível e super-reservam.
+ */
+function pickLocationForItem(levels: Awaited<ReturnType<typeof lockItemLevels>>): {
+  stockLevelId: string;
+  available: Prisma.Decimal;
+} {
   if (levels.length === 0) {
     throw new BusinessRuleError(
       "Este material não tem estoque nesta unidade. Solicite transferência antes de aprovar.",
     );
   }
 
-  const ranked = levels
+  const active = levels.filter((level) => level.storageLocation.active);
+
+  if (active.length === 0) {
+    throw new BusinessRuleError("Nenhum local ativo com estoque para este material.");
+  }
+
+  const ranked = active
     .map((level) => ({
       id: level.id,
       type: level.storageLocation.type,
@@ -88,7 +91,10 @@ export async function reserveStock(
     // Só reserva quantidade positiva: zero não reserva nada.
     if (!line.quantity.greaterThan(0)) continue;
 
-    const { stockLevelId, available } = await pickLocationForItem(tx, input.branchId, line.itemId);
+    // Trava todo o saldo do item na filial antes de escolher a prateleira: a
+    // escolha e o incremento precisam ser atômicos frente a outra aprovação.
+    const levels = await lockItemLevels(tx, { itemId: line.itemId, branchId: input.branchId });
+    const { stockLevelId, available } = pickLocationForItem(levels);
 
     if (line.quantity.greaterThan(available)) {
       const item = await tx.item.findUniqueOrThrow({
@@ -102,6 +108,14 @@ export async function reserveStock(
         formatQuantity(available),
       );
     }
+
+    // Material controlado por lote reserva um lote concreto (FEFO). A escolha
+    // acontece sob o lock do saldo para não super-alocar o mesmo lote.
+    const lotId = await resolveLotForItem(tx, {
+      branchId: input.branchId,
+      itemId: line.itemId,
+      quantity: line.quantity,
+    });
 
     const existing = await tx.stockReservation.findUnique({
       where: { requestLineId: line.requestLineId },
@@ -117,6 +131,7 @@ export async function reserveStock(
           where: { id: existing.id },
           data: {
             stockLevelId,
+            lotId,
             quantity: line.quantity,
             status: "ACTIVE",
             createdById: input.createdById,
@@ -127,6 +142,7 @@ export async function reserveStock(
           data: {
             requestLineId: line.requestLineId,
             stockLevelId,
+            lotId,
             quantity: line.quantity,
             status: "ACTIVE",
             createdById: input.createdById,
@@ -167,15 +183,25 @@ export async function releaseReservation(
     throw new BusinessRuleError("Não é possível liberar mais do que foi reservado.");
   }
 
+  // Trava a linha antes de ler/gravar: sem isso, liberar e consumir ao mesmo
+  // tempo no mesmo saldo deixa `reservedQuantity` inconsistente.
+  await lockStockLevelById(tx, reservation.stockLevelId);
+
   const level = await tx.stockLevel.findUniqueOrThrow({
     where: { id: reservation.stockLevelId },
     select: { reservedQuantity: true },
   });
 
+  if (toRelease.greaterThan(level.reservedQuantity)) {
+    throw new BusinessRuleError(
+      "Reserva inconsistente: a liberação é maior que o reservado neste saldo.",
+    );
+  }
+
   await tx.stockLevel.update({
     where: { id: reservation.stockLevelId },
     data: {
-      reservedQuantity: Prisma.Decimal.max(level.reservedQuantity.minus(toRelease), 0),
+      reservedQuantity: level.reservedQuantity.minus(toRelease),
     },
   });
 
@@ -199,7 +225,7 @@ export async function consumeReservation(
 ): Promise<void> {
   const reservation = await tx.stockReservation.findUnique({
     where: { requestLineId: input.requestLineId },
-    select: { id: true, quantity: true, status: true },
+    select: { id: true, quantity: true, status: true, stockLevelId: true },
   });
 
   if (!reservation || reservation.status !== "ACTIVE") {
@@ -209,6 +235,8 @@ export async function consumeReservation(
   if (input.quantity.greaterThan(reservation.quantity)) {
     throw new BusinessRuleError("A entrega não pode ser maior que o reservado.");
   }
+
+  await lockStockLevelById(tx, reservation.stockLevelId);
 
   await tx.stockReservation.update({
     where: { id: reservation.id },

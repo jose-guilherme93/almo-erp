@@ -675,8 +675,10 @@ model ItemLot {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  item       Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  stockLines StockLine[]
+  item               Item               @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  stockLines         StockLine[]
+  stockReservations  StockReservation[]
+  transferLines      TransferLine[]
 
   @@unique([itemId, code])
   @@index([itemId, expirationDate])
@@ -790,6 +792,8 @@ model StockReservation {
   id            String            @id @default(cuid())
   requestLineId String            @unique @map("request_line_id")
   stockLevelId  String            @map("stock_level_id")
+  /// Lote para o qual o saldo foi reservado (material controlado por lote).
+  lotId         String?           @map("item_lot_id")
   quantity      Decimal           @db.Decimal(18, 4)
   status        ReservationStatus @default(ACTIVE)
   createdById   String?           @map("created_by_id")
@@ -798,9 +802,11 @@ model StockReservation {
 
   requestLine RequestLine @relation(fields: [requestLineId], references: [id], onDelete: Cascade)
   stockLevel  StockLevel  @relation(fields: [stockLevelId], references: [id], onDelete: Restrict)
+  itemLot     ItemLot?    @relation(fields: [lotId], references: [id], onDelete: Restrict)
   createdBy   User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([stockLevelId, status])
+  @@index([lotId])
   @@map("stock_reservations")
 }
 
@@ -841,6 +847,8 @@ model TransferLine {
   id               String   @id @default(cuid())
   transferId       String   @map("transfer_id")
   itemId           String   @map("item_id")
+  /// Lote enviado (material controlado por lote). Preenchido no envio por FEFO.
+  itemLotId        String?  @map("item_lot_id")
   quantitySent     Decimal  @map("quantity_sent") @db.Decimal(18, 4)
   quantityReceived Decimal  @default(0) @map("quantity_received") @db.Decimal(18, 4)
   notes            String?
@@ -849,8 +857,10 @@ model TransferLine {
 
   transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
   item     Item     @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  itemLot  ItemLot? @relation(fields: [itemLotId], references: [id], onDelete: Restrict)
 
   @@index([transferId])
+  @@index([itemLotId])
   @@map("transfer_lines")
 }
 

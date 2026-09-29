@@ -11,7 +11,8 @@ import { InvalidTransitionError } from "@/lib/errors";
 
 const TRANSITIONS: Record<TransferStatus, readonly TransferStatus[]> = {
   DRAFT: ["SENT", "CANCELLED"],
-  SENT: ["IN_TRANSIT", "CANCELLED"],
+  // O despacho é opcional: dá para receber direto de SENT.
+  SENT: ["IN_TRANSIT", "RECEIVED", "CANCELLED"],
   IN_TRANSIT: ["RECEIVED", "RETURNED"],
   RECEIVED: [],
   RETURNED: [],

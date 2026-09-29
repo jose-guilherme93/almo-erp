@@ -12,10 +12,21 @@
 
 ## O que está pronto e verde
 
-Gates rodados na `develop`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (322), `pnpm build`,
+Gates rodados na `develop`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (330), `pnpm build`,
 `pnpm db:seed`. O CI do GitHub rodou o mesmo pipeline: **sucesso em 2m43s**.
 
-Entregue:
+Entrega mais recente — **Onda 1 de integridade** (plano em `docs`/handoff; ver abaixo):
+
+- **Busca não vaza escopo de filial.** `listRequests` e `listMaintenanceRequests` combinam
+  escopo e busca com `AND` (antes o `OR` da busca sobrescrevia o da visibilidade).
+- **Lock pessimista** em reserva (`lockItemLevels`/`lockStockLevelById`), transferência e
+  inventário (`lockFlowRow`), com testes de concorrência. `CHECK` de saldo/reserva no banco.
+- **Entrega multi-local**: um `ISSUE` por prateleira; **lote** na reserva (FEFO pelo ledger),
+  em `TransferLine` e no ajuste de inventário.
+- **Cancelamento de documento vinculado** (`REQUEST`/`TRANSFER`/`INVENTORY`) bloqueado.
+- Transição de recebimento de transferência passa pela máquina; atribuição de chamado idem.
+
+Entregue antes:
 
 - **FASE 14 — Setores e encaminhamento.** `Sector`, `Membership.sectorId`,
   `sectorId`/`serviceSectorId` em `Request`/`MaintenanceRequest`; `Delegation` +

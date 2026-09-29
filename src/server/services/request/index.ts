@@ -236,30 +236,37 @@ export async function listRequests(context: AuthContext, filters: RequestListFil
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
 
+  // Escopo e busca combinados com `AND`: se fossem espalhados no mesmo objeto, o
+  // `OR` da busca sobrescreveria o `OR` da visibilidade e o usuário enxergaria
+  // demanda de outra filial.
   const where: Prisma.RequestWhereInput = {
-    ...visibilityFilter(context, { branchId: filters.branchId ?? null }),
-    ...(filters.status ? { status: filters.status as RequestStatus } : {}),
-    ...(filters.priority
-      ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
-      : {}),
-    ...(filters.requesterId ? { requesterId: filters.requesterId } : {}),
-    ...(filters.sectorId ? { sectorId: filters.sectorId } : {}),
-    ...(filters.search
-      ? {
-          OR: [
-            { number: { contains: filters.search, mode: "insensitive" } },
-            { requester: { name: { contains: filters.search, mode: "insensitive" } } },
-          ],
-        }
-      : {}),
-    ...(filters.from || filters.to
-      ? {
-          createdAt: {
-            ...(filters.from ? { gte: new Date(filters.from) } : {}),
-            ...(filters.to ? { lte: new Date(`${filters.to}T23:59:59`) } : {}),
-          },
-        }
-      : {}),
+    AND: [
+      visibilityFilter(context, { branchId: filters.branchId ?? null }),
+      {
+        ...(filters.status ? { status: filters.status as RequestStatus } : {}),
+        ...(filters.priority
+          ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
+          : {}),
+        ...(filters.requesterId ? { requesterId: filters.requesterId } : {}),
+        ...(filters.sectorId ? { sectorId: filters.sectorId } : {}),
+        ...(filters.search
+          ? {
+              OR: [
+                { number: { contains: filters.search, mode: "insensitive" } },
+                { requester: { name: { contains: filters.search, mode: "insensitive" } } },
+              ],
+            }
+          : {}),
+        ...(filters.from || filters.to
+          ? {
+              createdAt: {
+                ...(filters.from ? { gte: new Date(filters.from) } : {}),
+                ...(filters.to ? { lte: new Date(`${filters.to}T23:59:59`) } : {}),
+              },
+            }
+          : {}),
+      },
+    ],
   };
 
   const [items, total] = await Promise.all([
@@ -1194,7 +1201,7 @@ export async function deliverRequest(
               approvedQuantity: true,
               deliveredQuantity: true,
               reservation: {
-                select: { id: true, quantity: true, status: true, stockLevelId: true },
+                select: { id: true, quantity: true, status: true, stockLevelId: true, lotId: true },
               },
             },
           },
@@ -1250,35 +1257,65 @@ export async function deliverRequest(
         }
       }
 
-      const locationId = toDeliver[0]?.line.reservation?.stockLevelId;
+      // Um documento de saída **por local**: itens da mesma solicitação podem
+      // ter sido reservados em prateleiras diferentes, e o saldo é por local.
+      const levelIds = [
+        ...new Set(
+          toDeliver
+            .map((delivery) => delivery.line.reservation?.stockLevelId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
 
-      if (!locationId) {
-        throw new BusinessRuleError(
-          "Não foi possível identificar o local de retirada do material.",
-        );
+      const levels = await tx.stockLevel.findMany({
+        where: { id: { in: levelIds } },
+        select: { id: true, storageLocationId: true },
+      });
+
+      const locationByLevel = new Map(levels.map((level) => [level.id, level.storageLocationId]));
+
+      const byLocation = new Map<string, typeof toDeliver>();
+
+      for (const delivery of toDeliver) {
+        const levelId = delivery.line.reservation?.stockLevelId;
+        const storageLocationId = levelId ? locationByLevel.get(levelId) : undefined;
+
+        if (!storageLocationId) {
+          throw new BusinessRuleError(
+            "Não foi possível identificar o local de retirada do material.",
+          );
+        }
+
+        const group = byLocation.get(storageLocationId) ?? [];
+        group.push(delivery);
+        byLocation.set(storageLocationId, group);
       }
 
-      const stockLevel = await tx.stockLevel.findUniqueOrThrow({
-        where: { id: locationId },
-        select: { storageLocationId: true },
-      });
+      const documents: Array<{ id: string; number: string }> = [];
 
-      // Um documento de saída para toda a entrega.
-      const document = await postStockDocument(tx, {
-        type: "ISSUE",
-        branchId: request.branchId,
-        storageLocationId: stockLevel.storageLocationId,
-        notes: `Entrega da solicitação ${request.number}`,
-        referenceType: "REQUEST",
-        referenceId: request.id,
-        createdById: context.user.id,
-        lines: toDeliver.map((delivery) => ({
-          itemId: delivery.line.itemId,
-          quantity: delivery.quantity.negated(),
-          // A reserva desta linha vira saída real.
-          releaseReserved: delivery.quantity,
-        })),
-      });
+      for (const [storageLocationId, group] of byLocation) {
+        const document = await postStockDocument(tx, {
+          type: "ISSUE",
+          branchId: request.branchId,
+          storageLocationId,
+          notes: `Entrega da solicitação ${request.number}`,
+          referenceType: "REQUEST",
+          referenceId: request.id,
+          createdById: context.user.id,
+          lines: group.map((delivery) => ({
+            itemId: delivery.line.itemId,
+            quantity: delivery.quantity.negated(),
+            // Material controlado por lote sai do lote reservado na aprovação.
+            itemLotId: delivery.line.reservation?.lotId ?? null,
+            // A reserva desta linha vira saída real.
+            releaseReserved: delivery.quantity,
+          })),
+        });
+
+        documents.push({ id: document.documentId, number: document.number });
+      }
+
+      const documentNumber = documents.map((doc) => doc.number).join(", ");
 
       for (const delivery of toDeliver) {
         await consumeReservation(tx, {
@@ -1319,7 +1356,9 @@ export async function deliverRequest(
           deliveredById: context.user.id,
           receivedByName: input.receivedByName,
           receivedByDocument: input.receivedByDocument,
-          stockDocumentId: document.documentId,
+          // A entrega aponta para o primeiro documento; os demais ficam
+          // vinculados à solicitação por `referenceType`/`referenceId`.
+          stockDocumentId: documents[0]?.id ?? null,
           notes: input.notes,
         },
         select: { id: true },
@@ -1339,7 +1378,7 @@ export async function deliverRequest(
           toStatus: "DELIVERED",
           comment: input.notes,
           metadata: {
-            stockDocumentNumber: document.number,
+            stockDocumentNumber: documentNumber,
             receivedByName: input.receivedByName,
           },
         },
@@ -1354,7 +1393,7 @@ export async function deliverRequest(
           branchId: request.branchId,
           after: {
             status: "DELIVERED",
-            stockDocumentNumber: document.number,
+            stockDocumentNumber: documentNumber,
             receivedByName: input.receivedByName,
           },
           ip: metadata?.ip,
@@ -1380,10 +1419,10 @@ export async function deliverRequest(
       log.info("solicitação entregue", {
         requestId: request.id,
         number: request.number,
-        documentNumber: document.number,
+        documentNumber,
       });
 
-      return { deliveryId: delivery.id, documentNumber: document.number };
+      return { deliveryId: delivery.id, documentNumber };
     },
     { timeout: 20_000, maxWait: 10_000 },
   );

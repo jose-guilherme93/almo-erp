@@ -189,6 +189,78 @@ describe.runIf(process.env["DATABASE_URL"])("reserva", () => {
     expect(level.reservedQuantity.toString()).toBe("15");
   });
 
+  it("reserva o lote de validade mais próxima (FEFO)", async () => {
+    const lotItem = await prisma.item.create({
+      data: {
+        code: `${TEST_PREFIX}-LOT`,
+        name: "Material com Lote",
+        categoryId,
+        unitId,
+        referencePrice: d(10),
+        controlledByLot: true,
+      },
+      select: { id: true },
+    });
+
+    const near = await prisma.itemLot.create({
+      data: {
+        itemId: lotItem.id,
+        code: "VENCE-PRIMEIRO",
+        expirationDate: new Date(Date.now() + 5 * 24 * 3600 * 1000),
+      },
+      select: { id: true },
+    });
+
+    const far = await prisma.itemLot.create({
+      data: {
+        itemId: lotItem.id,
+        code: "VENCE-DEPOIS",
+        expirationDate: new Date(Date.now() + 60 * 24 * 3600 * 1000),
+      },
+      select: { id: true },
+    });
+
+    await createAndPostStockDocument({
+      type: "INBOUND",
+      branchId,
+      storageLocationId: locationId,
+      createdById: actorId,
+      referenceType: "TEST",
+      lines: [{ itemId: lotItem.id, itemLotId: near.id, quantity: d(2), unitCost: d(1) }],
+    });
+
+    await createAndPostStockDocument({
+      type: "INBOUND",
+      branchId,
+      storageLocationId: locationId,
+      createdById: actorId,
+      referenceType: "TEST",
+      lines: [{ itemId: lotItem.id, itemLotId: far.id, quantity: d(50), unitCost: d(1) }],
+    });
+
+    // Aponta a segunda linha de apoio para o material controlado por lote.
+    await prisma.requestLine.update({
+      where: { id: requestLineIds[1] ?? "" },
+      data: { itemId: lotItem.id },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      await reserveStock(tx, {
+        branchId,
+        createdById: actorId,
+        lines: [{ requestLineId: requestLineIds[1] ?? "", itemId: lotItem.id, quantity: d(2) }],
+      });
+    });
+
+    const reservation = await prisma.stockReservation.findUniqueOrThrow({
+      where: { requestLineId: requestLineIds[1] ?? "" },
+      select: { lotId: true },
+    });
+
+    // FEFO: sai antes o lote que vence primeiro, apesar de o outro ter mais saldo.
+    expect(reservation.lotId).toBe(near.id);
+  });
+
   it("recusa reserva maior que o disponível", async () => {
     await expect(
       prisma.$transaction(async (tx) => {
@@ -249,6 +321,42 @@ describe.runIf(process.env["DATABASE_URL"])("reserva", () => {
 
     expect(reservation.status).toBe("CONSUMED");
     expect(reservation.quantity.toString()).toBe("0");
+  });
+
+  it("não super-reserva sob aprovações simultâneas", async () => {
+    // Saldo de 100. Duas reservas de 60 correm ao mesmo tempo: só uma pode
+    // passar, e o reservado nunca pode ultrapassar o saldo.
+    const results = await Promise.allSettled([
+      prisma.$transaction(async (tx) => {
+        await reserveStock(tx, {
+          branchId,
+          createdById: actorId,
+          lines: [{ requestLineId: requestLineIds[0] ?? "", itemId, quantity: d(60) }],
+        });
+      }),
+      prisma.$transaction(async (tx) => {
+        await reserveStock(tx, {
+          branchId,
+          createdById: actorId,
+          lines: [{ requestLineId: requestLineIds[1] ?? "", itemId, quantity: d(60) }],
+        });
+      }),
+    ]);
+
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
+
+    expect(fulfilled).toHaveLength(1);
+
+    const level = await prisma.stockLevel.findFirstOrThrow({ where: { itemId, branchId } });
+
+    expect(level.reservedQuantity.toString()).toBe("60");
+    expect(level.reservedQuantity.lessThanOrEqualTo(level.quantity)).toBe(true);
+  });
+
+  it("o banco recusa saldo negativo", async () => {
+    await expect(
+      prisma.$executeRaw`UPDATE stock_levels SET quantity = -1 WHERE item_id = ${itemId} AND branch_id = ${branchId}`,
+    ).rejects.toBeTruthy();
   });
 
   it("não libera mais do que foi reservado", async () => {

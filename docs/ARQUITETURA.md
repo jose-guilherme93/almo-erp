@@ -222,6 +222,19 @@ Campos do cabeçalho: `number` (sequencial por filial, ex. `MV-2026-000123`), `t
 (`DRAFT` | `POSTED` | `CANCELLED`), `postedAt`, `createdById`.
 
 Regra: documento `POSTED` é **imutável**. `CANCELLED` gera documento inverso, nunca delete.
+Documento gerado por um fluxo de negócio (`referenceType` em `REQUEST`/`TRANSFER`/`INVENTORY`)
+**não** pode ser cancelado por fora: o estorno precisa reconciliar a entidade de origem e
+por isso acontece no fluxo dela. Só lançamentos avulsos (entrada/ajuste sem vínculo) são
+canceláveis diretamente.
+
+### 5.1.1 Concorrência
+
+Toda alteração de saldo passa por `lockStockLevels`/`lockItemLevels` (`SELECT … FOR UPDATE`,
+ordem determinística). Além disso, as transições de `Transfer` e `InventorySession` travam a
+própria linha antes de decidir (`lockFlowRow`), e a reserva trava o saldo do item antes de
+escolher a prateleira — sem isso, duas operações simultâneas super-reservam ou movimentam o
+estoque duas vezes. O banco reforça com `CHECK (quantity >= 0)`, `CHECK (reserved_quantity >= 0)`
+e `CHECK (reserved_quantity <= quantity)` em `stock_levels`.
 
 ### 5.2 Saldo
 
@@ -245,9 +258,13 @@ transaction:
 
 ### 5.3 Reserva
 
-`StockReservation` liga `requestLineId` a `stockLevelId` com `quantity` e `status`
-(`ACTIVE` | `RELEASED` | `CONSUMED`). Criada na **aprovação**, consumida na **entrega**,
-liberada em rejeição/cancelamento. Impede aprovar o que não existe.
+`StockReservation` liga `requestLineId` a `stockLevelId` com `quantity`, `lotId` (material
+controlado por lote) e `status` (`ACTIVE` | `RELEASED` | `CONSUMED`). Criada na **aprovação**,
+consumida na **entrega**, liberada em rejeição/cancelamento. Impede aprovar o que não existe.
+
+Para material **controlado por lote**, a reserva escolhe o lote por **FEFO** (vence primeiro
+sai primeiro) e confere a quantidade do lote contra o próprio `StockLine`. A entrega usa o
+lote reservado; não há saldo por lote em `StockLevel` (dívida técnica registrada).
 
 ### 5.4 Mínimo e alerta
 
@@ -260,16 +277,20 @@ Ao `POSTED` um documento, verifica-se o mínimo e dispara `STOCK_BELOW_MIN` (com
 `Transfer` + `TransferLine`.
 
 ```
-DRAFT ──enviar──▶ SENT ──sai da origem──▶ IN_TRANSIT
-                        (gera TRANSFER_OUT na origem)
-        ◀──rejeitar──┘
-IN_TRANSIT ──receber──▶ RECEIVED        (gera TRANSFER_IN no destino)
-        ──devolver───▶ RETURNED
-dRAFT/SENT/IN_TRANSIT ──cancelar──▶ CANCELLED
+DRAFT ──enviar──▶ SENT ──despachar(opcional)──▶ IN_TRANSIT
+                  │  (gera TRANSFER_OUT na origem)
+                  └──receber direto──▶ RECEIVED   (gera TRANSFER_IN no destino)
+IN_TRANSIT ──receber──▶ RECEIVED
+           ──devolver─▶ RETURNED
+DRAFT/SENT ──cancelar─▶ CANCELLED
 ```
 
-- `quantityReceived` pode ser menor que `quantitySent` → **recebimento parcial**, com o
-  excedente gerando `RETURNED` automático.
+- `quantityReceived` pode ser menor que `quantitySent` → **recebimento parcial**: o material
+  que chegou entra no destino e a transferência permanece `IN_TRANSIT`; o pendente pode ser
+  recebido depois ou devolvido (`RETURNED`) manualmente.
+- O despacho (`IN_TRANSIT`) é opcional: dá para receber direto de `SENT`.
+- Material controlado por lote: o envio escolhe o lote por FEFO e o registra na
+  `TransferLine`; recebimento, devolução e cancelamento usam o mesmo lote.
 - Bloqueia saldo na origem ao `SENT` (reserva de transferência) ou baixa imediata:
   escolha **baixa imediata** em `SENT` e registre o documento; a reserva de estoque da
   solicitação é outro conceito e não se mistura.
@@ -307,8 +328,12 @@ Regras:
   a indisponibilidade é resolvida na aprovação (parcial) ou por transferência.
 - `Delivery`: uma por request, com `deliveredAt`, `deliveredById`, `receivedByName`,
   `receivedByDocument`, `signature` (canvas ou aceite por nome), e `StockDocument` de saída gerado.
+  Itens reservados em prateleiras diferentes geram **um `ISSUE` por local** (o saldo é por
+  local); material controlado por lote sai do lote reservado na aprovação.
 - `sectorId` (setor de quem pediu) e `serviceSectorId` (almoxarifado por padrão).
   O **encaminhamento de uma etapa** para outro setor está em §3.5.
+- Busca e escopo de filial são combinados com `AND`; o termo buscado nunca amplia o
+  escopo visível (a barreira anti-vazamento do §3.2 vale também para a busca).
 - `Attachment`: imagens do pedido. Compressão no navegador (WebP, ≤1600px), arquivo
   em disco, download por route handler autenticado com a visibilidade da demanda.
 

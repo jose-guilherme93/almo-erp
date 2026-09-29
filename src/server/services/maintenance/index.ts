@@ -117,25 +117,32 @@ export async function listMaintenanceRequests(
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
 
+  // Escopo e busca combinados com `AND`: se fossem espalhados no mesmo objeto, o
+  // `OR` da busca sobrescreveria o `OR` da visibilidade e o usuário enxergaria
+  // chamado de outra filial.
   const where: Prisma.MaintenanceRequestWhereInput = {
-    ...visibilityFilter(context, filters.branchId ?? null),
-    ...(filters.status ? { status: filters.status as MaintenanceStatus } : {}),
-    ...(filters.category ? { category: filters.category as MaintenanceCategory } : {}),
-    ...(filters.priority
-      ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
-      : {}),
-    ...(filters.sectorId ? { sectorId: filters.sectorId } : {}),
-    ...(filters.mineOnly ? { requesterId: context.user.id } : {}),
-    ...(filters.assignedToMe ? { assignedToId: context.user.id } : {}),
-    ...(filters.search
-      ? {
-          OR: [
-            { number: { contains: filters.search, mode: "insensitive" } },
-            { title: { contains: filters.search, mode: "insensitive" } },
-            { location: { contains: filters.search, mode: "insensitive" } },
-          ],
-        }
-      : {}),
+    AND: [
+      visibilityFilter(context, filters.branchId ?? null),
+      {
+        ...(filters.status ? { status: filters.status as MaintenanceStatus } : {}),
+        ...(filters.category ? { category: filters.category as MaintenanceCategory } : {}),
+        ...(filters.priority
+          ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
+          : {}),
+        ...(filters.sectorId ? { sectorId: filters.sectorId } : {}),
+        ...(filters.mineOnly ? { requesterId: context.user.id } : {}),
+        ...(filters.assignedToMe ? { assignedToId: context.user.id } : {}),
+        ...(filters.search
+          ? {
+              OR: [
+                { number: { contains: filters.search, mode: "insensitive" } },
+                { title: { contains: filters.search, mode: "insensitive" } },
+                { location: { contains: filters.search, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+    ],
   };
 
   const [items, total] = await Promise.all([
@@ -630,6 +637,12 @@ export async function assignMaintenanceRequest(
       request.status === "REJECTED"
     ) {
       throw new BusinessRuleError("Este chamado já foi encerrado.");
+    }
+
+    // Reatribuir um chamado já em andamento não é transição de status; nos
+    // demais casos, o avanço para IN_PROGRESS passa pela máquina de estados.
+    if (request.status !== "IN_PROGRESS") {
+      assertTransition(request.status, "IN_PROGRESS");
     }
 
     const assignee = await tx.user.findFirst({

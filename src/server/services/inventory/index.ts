@@ -4,6 +4,8 @@ import { BusinessRuleError, NotFoundError } from "@/lib/errors";
 import { prisma } from "@/lib/db";
 import { InvalidTransitionError } from "@/lib/errors";
 import { postStockDocument } from "@/server/services/stock/post-document";
+import { lockFlowRow } from "@/server/services/stock/lock";
+import { resolveLotForItem } from "@/server/services/stock/lots";
 import { nextInventoryNumber } from "@/server/services/stock/numbering";
 import { writeAuditLog } from "@/server/services/audit";
 import { notify } from "@/server/services/notification";
@@ -310,6 +312,9 @@ export async function closeInventoryCounting(
   metadata?: { ip?: string | null; userAgent?: string | null },
 ) {
   return prisma.$transaction(async (tx) => {
+    // Serializa fechamentos concorrentes da mesma sessão.
+    await lockFlowRow(tx, "inventory_sessions", input.sessionId);
+
     const session = await tx.inventorySession.findUnique({
       where: { id: input.sessionId },
       select: { id: true, number: true, status: true, branchId: true },
@@ -375,6 +380,10 @@ export async function applyInventoryAdjustment(
 ) {
   return prisma.$transaction(
     async (tx) => {
+      // Serializa aplicações concorrentes: sem isso o mesmo ajuste poderia ser
+      // lançado duas vezes.
+      await lockFlowRow(tx, "inventory_sessions", input.sessionId);
+
       const session = await tx.inventorySession.findUnique({
         where: { id: input.sessionId },
         select: {
@@ -424,6 +433,23 @@ export async function applyInventoryAdjustment(
         }
       }
 
+      // Material controlado por lote precisa de um lote no ajuste: sobra entra
+      // no lote de validade mais próxima; falta sai do lote com saldo.
+      const lotByLine = new Map<string, string | null>();
+
+      for (const line of divergent) {
+        const delta = (line.countedQuantity as Prisma.Decimal).minus(line.systemQuantity);
+
+        const itemLotId = await resolveLotForItem(tx, {
+          branchId: session.branchId,
+          itemId: line.itemId,
+          quantity: delta.abs(),
+          fallbackToFirstLot: delta.greaterThan(0),
+        });
+
+        lotByLine.set(line.id, itemLotId);
+      }
+
       // Um documento de estoque tem UM local: divergências de locais
       // diferentes precisam de documentos separados, senão o saldo seria
       // lançado na prateleira errada.
@@ -449,6 +475,7 @@ export async function applyInventoryAdjustment(
           lines: lines.map((line) => ({
             itemId: line.itemId,
             quantity: (line.countedQuantity as Prisma.Decimal).minus(line.systemQuantity),
+            itemLotId: lotByLine.get(line.id) ?? null,
           })),
         });
 
@@ -522,6 +549,8 @@ export async function cancelInventorySession(
   metadata?: { ip?: string | null; userAgent?: string | null },
 ) {
   return prisma.$transaction(async (tx) => {
+    await lockFlowRow(tx, "inventory_sessions", input.sessionId);
+
     const session = await tx.inventorySession.findUnique({
       where: { id: input.sessionId },
       select: { id: true, number: true, status: true, branchId: true },

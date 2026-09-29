@@ -17,6 +17,7 @@ import {
   createMaintenanceRequest,
   getMaintenanceRequest,
   listMaintenanceQueue,
+  listMaintenanceRequests,
   maintenanceSummary,
   rejectMaintenanceRequest,
   setMaintenancePriority,
@@ -415,6 +416,30 @@ describe.runIf(process.env["DATABASE_URL"])("fila e indicadores", () => {
     const visible = await getMaintenanceRequest(other, list[0]?.id ?? "").catch(() => null);
 
     expect(visible).toBeNull();
+  });
+
+  it("a busca não escapa do escopo de filial", async () => {
+    // Chamado de outra unidade, aberto por outra pessoa. A busca do solicitante
+    // não pode devolvê-lo só porque o número casa.
+    const deOutraUnidade = await createMaintenanceRequest(atendenteContext(), {
+      branchId: otherBranchId,
+      category: "HVAC",
+      title: "Chamado de outra unidade",
+      description: "Aberto para provar que a busca respeita o escopo de filial.",
+      location: "Outra unidade",
+    });
+
+    const saved = await prisma.maintenanceRequest.findUniqueOrThrow({
+      where: { id: deOutraUnidade.id },
+      select: { number: true },
+    });
+
+    const list = await listMaintenanceRequests(solicitanteContext(), {
+      search: saved.number,
+    });
+
+    expect(list.items).toHaveLength(0);
+    expect(list.total).toBe(0);
   });
 });
 
