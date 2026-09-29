@@ -100,11 +100,19 @@ function visibilityFilter(context: AuthContext, options?: { branchId?: string | 
   }
 
   // Sem visão geral, a pessoa só enxerga o que ela mesma pediu ou o que foi
-  // encaminhado ao setor dela (ex.: a TI analisando uma solicitação).
+  // encaminhado/roteado ao setor dela (ex.: a TI analisando uma solicitação).
+  // A filial restringe o que não é pedido próprio — quem abriu vê mesmo em
+  // outra unidade (§3.7).
   return {
     OR: [
       { requesterId: context.user.id },
-      { delegations: { some: { toSectorId: { in: context.sectorIds } } } },
+      {
+        branchId: { in: visibleBranchIds(context) },
+        OR: [
+          { delegations: { some: { toSectorId: { in: context.sectorIds } } } },
+          { serviceSectorId: { in: context.sectorIds } },
+        ],
+      },
     ],
   };
 }

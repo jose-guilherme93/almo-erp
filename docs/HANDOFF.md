@@ -15,6 +15,39 @@
 Gates rodados na `develop`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (330), `pnpm build`,
 `pnpm db:seed`. O CI do GitHub rodou o mesmo pipeline: **sucesso em 2m43s**.
 
+Entrega mais recente — **Exportação de relatórios (PDF + Google Drive) com auditoria**:
+
+- **Snapshot imutável**: consolidar grava `ReportSnapshot` (dados, filtro, autor,
+  hash SHA-256). Trigger no banco recusa `UPDATE`/`DELETE`; a tela reconstrói do
+  snapshot, nunca reconsulta.
+- **Registro de exportação**: `ReportExport` (CSV/PRINT/DRIVE, destino, data) +
+  `AuditLog`. Histórico em `/relatorios/consolidados`.
+- **PDF** via impressão do navegador; **Google Drive** via Google Identity
+  Services com escopo mínimo `drive.file` (sem token no servidor). Requer
+  `NEXT_PUBLIC_GOOGLE_CLIENT_ID` + Drive API/escopo no Google Cloud Console —
+  sem isso o botão fica desabilitado (pré-requisito não configurado ainda).
+- Testes: `report-snapshot.test.ts` (imutabilidade no banco, hash, auditoria,
+  escopo), `drive.test.ts` (multipart/nome), E2E `relatorios.spec.ts`.
+
+Entrega mais recente — **Fluxo de atendimento de chamados (TI/Manutenção)**:
+
+- **Setor no vínculo**: `Membership.sectorId` editável na administração (criar
+  usuário, adicionar e editar vínculo). É o que liga a pessoa ao setor de
+  atendimento.
+- **Visibilidade por setor de atendimento**: quem não tem `*:overview` enxerga o
+  chamado/solicitação roteado ao seu setor (`serviceSectorId`) dentro das filiais
+  a que tem acesso — antes disso um chamado de TI era invisível para o técnico
+  até ser atribuído.
+- **Fan-out por setor**: `MAINTENANCE_CREATED` vai para o setor de atendimento da
+  filial (+ rede + responsável), com fallback para `manutencao:atender`; as
+  notificações de encaminhamento passaram a filtrar por filial.
+- **Home de quem atende**: técnico de TI cai em `/reparos`, com abertos por padrão
+  e alternância para concluídos.
+- **Dados**: `ti@batistaonline.com.br` (FILIAL-3) com setor TI. Obs.: o seed de
+  demonstração também vincula esse e-mail a **FIL-SP** (setor TI); rodar
+  `pnpm db:seed` recria esse vínculo. Remova-o ou ajuste o seed se o técnico
+  deve atender só João Paulo.
+
 Entrega mais recente — **Onda 1 de integridade** (plano em `docs`/handoff; ver abaixo):
 
 - **Busca não vaza escopo de filial.** `listRequests` e `listMaintenanceRequests` combinam
@@ -89,7 +122,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm db:seed
 
 ## Pendências conhecidas (escopo, não bug)
 
-- CRUD de setores na administração; editar setor do vínculo na tela de usuário.
+- CRUD de setores na administração.
 - Criar a solicitação de peça **a partir** do laudo da TI (`Request.spawnedFromDelegationId`
   já existe no schema, falta a ação/tela).
 - Mostrar "veio do chamado TI-xxxx" na solicitação originada de um encaminhamento.

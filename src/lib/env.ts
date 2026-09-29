@@ -48,6 +48,12 @@ const serverSchema = z.object({
   AUTH_TRUST_HOST: booleanish.default(true),
   AUTH_GOOGLE_ID: optionalString,
   AUTH_GOOGLE_SECRET: optionalString,
+  /**
+   * Client ID público do Google, usado no navegador para pedir acesso ao Drive
+   * (Google Identity Services). Opcional: sem ele, o botão "Enviar ao Google
+   * Drive" fica desabilitado.
+   */
+  NEXT_PUBLIC_GOOGLE_CLIENT_ID: optionalString,
   AUTH_ALLOWED_DOMAINS: csvDomains,
   /**
    * Habilita um provider de credenciais para testes end-to-end.

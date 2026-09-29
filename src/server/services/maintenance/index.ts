@@ -49,6 +49,13 @@ export const OPEN_MAINTENANCE_STATUSES: readonly MaintenanceStatus[] = [
   "WAITING_PARTS",
 ];
 
+/** Estados terminais: chamados encerrados, recusados ou cancelados. */
+export const CLOSED_MAINTENANCE_STATUSES: readonly MaintenanceStatus[] = [
+  "DONE",
+  "REJECTED",
+  "CANCELLED",
+];
+
 export const MAINTENANCE_CATEGORY_LABELS: Record<string, string> = {
   ELECTRICAL: "Elétrica",
   PLUMBING: "Hidráulica",
@@ -86,13 +93,22 @@ function visibilityFilter(context: AuthContext, branchId?: string | null) {
     return { branchId: { in: visibleBranchIds(context) } };
   }
 
-  // Sem visão geral, a pessoa vê o que abriu, o que foi atribuído a ela e o
-  // que foi encaminhado ao setor dela.
+  // Sem visão geral, a pessoa vê:
+  //  - o que ela mesma abriu (mesmo em outra unidade — §3.7);
+  //  - o que foi atribuído a ela, encaminhado ao seu setor, ou roteado ao
+  //    setor de atendimento dela (ex.: chamado de TI com serviceSectorId = TI),
+  //    sempre dentro das filiais a que tem acesso.
   return {
     OR: [
       { requesterId: context.user.id },
-      { assignedToId: context.user.id },
-      { delegations: { some: { toSectorId: { in: context.sectorIds } } } },
+      {
+        branchId: { in: visibleBranchIds(context) },
+        OR: [
+          { assignedToId: context.user.id },
+          { delegations: { some: { toSectorId: { in: context.sectorIds } } } },
+          { serviceSectorId: { in: context.sectorIds } },
+        ],
+      },
     ],
   };
 }
@@ -100,6 +116,8 @@ function visibilityFilter(context: AuthContext, branchId?: string | null) {
 export type MaintenanceListFilters = {
   search?: string;
   status?: string | null;
+  /** Lista de status (visão "em aberto" / "concluídos"). Tem precedência sobre `status`. */
+  statuses?: readonly MaintenanceStatus[] | null;
   category?: string | null;
   priority?: string | null;
   branchId?: string | null;
@@ -124,7 +142,11 @@ export async function listMaintenanceRequests(
     AND: [
       visibilityFilter(context, filters.branchId ?? null),
       {
-        ...(filters.status ? { status: filters.status as MaintenanceStatus } : {}),
+        ...(filters.statuses && filters.statuses.length > 0
+          ? { status: { in: [...filters.statuses] } }
+          : filters.status
+            ? { status: filters.status as MaintenanceStatus }
+            : {}),
         ...(filters.category ? { category: filters.category as MaintenanceCategory } : {}),
         ...(filters.priority
           ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
@@ -452,6 +474,7 @@ export async function createMaintenanceRequest(
           requesterName: context.user.name,
           title: input.title,
           location: input.location,
+          serviceSectorId,
         },
       });
 

@@ -128,3 +128,39 @@
     @apply font-sans;
   }
 }
+
+/*
+ * Impressão do relatório consolidado (Exportar PDF).
+ * O shell (sidebar/topbar) já leva `print:hidden`; aqui garantimos que a tabela
+ * saia com bordas e que o tema escuro não borre a impressão.
+ */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 10px;
+  }
+
+  th,
+  td {
+    border: 1px solid #999 !important;
+    padding: 2px 4px !important;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+}

@@ -33,6 +33,12 @@ export type BranchOption = {
   type: string;
 };
 
+export type SectorOption = {
+  id: string;
+  code: string;
+  name: string;
+};
+
 /**
  * Formulário de cadastro de usuário.
  *
@@ -42,10 +48,12 @@ export type BranchOption = {
 export function UserForm({
   roles,
   branches,
+  sectors,
   canActivateDirectly,
 }: {
   roles: RoleOption[];
   branches: BranchOption[];
+  sectors: SectorOption[];
   canActivateDirectly: boolean;
 }) {
   const [state, formAction, isPending] = useActionState<
@@ -54,6 +62,7 @@ export function UserForm({
   >(criarUsuarioAction, null);
 
   const [roleId, setRoleId] = useState<string>("");
+  const [sectorId, setSectorId] = useState<string>("");
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [activateNow, setActivateNow] = useState(false);
   const router = useRouter();
@@ -131,6 +140,27 @@ export function UserForm({
               <SelectItem key={role.id} value={role.id}>
                 {role.name}
                 {role.scope === "ALL_BRANCHES" ? " (rede)" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      <FormField
+        id="sectorId"
+        label="Setor"
+        errors={fieldErrors["sectorId"]}
+        hint="Setor de atuação na unidade. É o que roteia os chamados de atendimento (ex.: TI) e as etapas encaminhadas."
+      >
+        <input type="hidden" name="sectorId" value={sectorId} />
+        <Select value={sectorId} onValueChange={setSectorId}>
+          <SelectTrigger id="sectorId" className="w-full">
+            <SelectValue placeholder="Sem setor definido" />
+          </SelectTrigger>
+          <SelectContent>
+            {sectors.map((sector) => (
+              <SelectItem key={sector.id} value={sector.id}>
+                {sector.name}
               </SelectItem>
             ))}
           </SelectContent>

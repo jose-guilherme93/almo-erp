@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
 import {
   usersInSectors,
+  usersInSectorsWithPermission,
   usersWithNetworkPermission,
   usersWithPermission,
 } from "@/server/services/user";
@@ -311,9 +312,21 @@ export async function resolveRecipients(
     case "MAINTENANCE_CREATED": {
       if (!payload.branchId) return [];
 
-      // Quem atende manutenção na unidade + o responsável padrão + a rede.
-      const [attendants, networkAttendants, branch] = await Promise.all([
-        usersWithPermission(payload.branchId, "manutencao:atender"),
+      // O chamado tem um setor de atendimento definido pela categoria (TI para
+      // `IT`, Manutenção para o resto). Quem responde é esse setor, na unidade
+      // do chamado — não todo mundo com `manutencao:atender` (o almoxarifado
+      // também tem a permissão e seria avisado de um chamado que não é dele).
+      const serviceSectorId = payload.data?.["serviceSectorId"] ?? null;
+
+      const [sectorAttendants, networkAttendants, branch] = await Promise.all([
+        serviceSectorId
+          ? usersInSectorsWithPermission(
+              payload.branchId,
+              "manutencao:atender",
+              [serviceSectorId],
+              client,
+            )
+          : Promise.resolve([]),
         usersWithNetworkPermission("manutencao:atender", client),
         client.branch.findUnique({
           where: { id: payload.branchId },
@@ -321,7 +334,15 @@ export async function resolveRecipients(
         }),
       ]);
 
-      const recipients = new Set<string>([...attendants, ...networkAttendants]);
+      const recipients = new Set<string>([...sectorAttendants, ...networkAttendants]);
+
+      // Fallback: se o setor de atendimento não tem ninguém na unidade, avisa
+      // quem atende manutenção na filial para o chamado não ficar órfão.
+      if (sectorAttendants.length === 0) {
+        for (const id of await usersWithPermission(payload.branchId, "manutencao:atender")) {
+          recipients.add(id);
+        }
+      }
 
       if (branch?.notificationResponsibleId) recipients.add(branch.notificationResponsibleId);
 
@@ -343,7 +364,7 @@ export async function resolveRecipients(
       const toSectorId = payload.data?.["toSectorId"];
       if (!toSectorId) return [];
 
-      const recipients = await usersInSectors([toSectorId], client);
+      const recipients = await usersInSectors([toSectorId], { branchId: payload.branchId }, client);
 
       return recipients.filter((id) => !exclude.has(id));
     }
@@ -354,7 +375,11 @@ export async function resolveRecipients(
       const fromSectorId = payload.data?.["fromSectorId"];
       if (!fromSectorId) return [];
 
-      const recipients = await usersInSectors([fromSectorId], client);
+      const recipients = await usersInSectors(
+        [fromSectorId],
+        { branchId: payload.branchId },
+        client,
+      );
 
       return recipients.filter((id) => !exclude.has(id));
     }

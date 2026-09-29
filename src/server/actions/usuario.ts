@@ -9,6 +9,7 @@ import {
   changeUserStatusSchema,
   createUserSchema,
   removeMembershipSchema,
+  updateMembershipSchema,
   updateUserSchema,
 } from "@/lib/validation/user";
 import { requirePermission } from "@/server/auth/guards";
@@ -26,6 +27,7 @@ import {
   createUser,
   getUserDetail,
   removeMembership,
+  updateMembership,
   updateUser,
 } from "@/server/services/user";
 
@@ -54,6 +56,7 @@ export async function criarUsuarioAction(
       email: readText(values, "email"),
       roleId: readText(values, "roleId"),
       branchIds: readList(values, "branchIds"),
+      sectorId: readText(values, "sectorId"),
       activateNow: readBoolean(values, "activateNow"),
     });
 
@@ -148,6 +151,7 @@ export async function adicionarVinculoAction(
       userId: readText(values, "userId"),
       branchId: readText(values, "branchId"),
       roleId: readText(values, "roleId"),
+      sectorId: readText(values, "sectorId"),
       isDefault: readBoolean(values, "isDefault"),
     });
 
@@ -159,6 +163,34 @@ export async function adicionarVinculoAction(
     revalidateUserViews(parsed.data.userId);
 
     return actionSuccess({ membershipId: membership.id }, "Vínculo adicionado.");
+  });
+}
+
+export async function editarVinculoAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<{ membershipId: string }>> {
+  return runAction(async () => {
+    const context = await requirePermission("usuario:manage");
+    const values = formDataToValues(formData);
+
+    const parsed = updateMembershipSchema.safeParse({
+      membershipId: readText(values, "membershipId"),
+      roleId: readText(values, "roleId"),
+      sectorId: readText(values, "sectorId"),
+      isDefault: readBoolean(values, "isDefault"),
+    });
+
+    if (!parsed.success) return validationFailure(parsed.error);
+
+    const userId = readText(values, "userId");
+    const metadata = await requestMetadata();
+
+    await updateMembership(context, parsed.data, metadata);
+
+    revalidateUserViews(userId);
+
+    return actionSuccess({ membershipId: parsed.data.membershipId }, "Vínculo atualizado.");
   });
 }
 

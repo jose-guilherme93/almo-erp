@@ -453,6 +453,9 @@ model User {
   delegationEvents     DelegationEvent[]
   attachmentsUploaded  Attachment[]
 
+  reportSnapshotsGenerated ReportSnapshot[] @relation("ReportSnapshotGeneratedBy")
+  reportExports            ReportExport[]     @relation("ReportExportActor")
+
   @@index([status])
   @@index([active])
   @@map("users")
@@ -1280,4 +1283,72 @@ model Attachment {
   @@index([requestId])
   @@index([maintenanceRequestId])
   @@map("attachments")
+}
+
+// -----------------------------------------------------------------------------
+// Relatórios consolidados (append-only)
+// -----------------------------------------------------------------------------
+
+/// Formato de saída de um relatório consolidado.
+enum ReportExportFormat {
+  CSV
+  PDF
+  DRIVE
+  PRINT
+}
+
+/// Fotografia imutável de um relatório consolidado.
+///
+/// Guarda exatamente o que foi gerado (dados, filtros e escopo) com hash de
+/// conteúdo. **Não existe update nem delete**: um relatório consolidado é
+/// evidência, não rascunho. O banco reforça isso com um trigger que recusa
+/// `UPDATE`/`DELETE` nesta tabela (ver migration `report_snapshots`).
+model ReportSnapshot {
+  id           String   @id @default(cuid())
+  reportId     String   @map("report_id")
+  reportLabel  String   @map("report_label")
+  /// Filtros usados na geração (período, filial, categoria) — JSON congelado.
+  params       Json
+  periodFrom   DateTime @map("period_from")
+  periodTo     DateTime @map("period_to")
+  /// Filiais do escopo no momento da consolidação.
+  branchIds    String[] @map("branch_ids") @default([])
+  headers      Json
+  rows         Json
+  rowCount     Int      @map("row_count")
+  summary      String
+  /// SHA-256 canônico de (relatório + período + escopo + conteúdo).
+  contentHash  String   @map("content_hash")
+
+  generatedById String   @map("generated_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  generatedBy User           @relation("ReportSnapshotGeneratedBy", fields: [generatedById], references: [id], onDelete: Restrict)
+  exports     ReportExport[]
+
+  @@index([reportId, createdAt])
+  @@index([generatedById, createdAt])
+  @@map("report_snapshots")
+}
+
+/// Cada saída de um relatório consolidado (CSV, PDF, Drive…): trilha de
+/// auditoria de exportação de dado.
+model ReportExport {
+  id             String              @id @default(cuid())
+  snapshotId     String              @map("snapshot_id")
+  format         ReportExportFormat
+  actorId        String              @map("actor_id")
+  /// Destino externo quando houver (ex.: id do arquivo no Google Drive).
+  destination    String?
+  destinationUrl String?             @map("destination_url")
+  ip             String?
+  userAgent      String?             @map("user_agent")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  snapshot ReportSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  actor    User           @relation("ReportExportActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([snapshotId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("report_exports")
 }

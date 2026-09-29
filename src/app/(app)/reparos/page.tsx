@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatRelative } from "@/lib/format";
 import {
+  buildQueryString,
   firstParam,
   readPage,
   readPageSize,
@@ -27,7 +28,9 @@ import {
 import { requirePagePermission } from "@/server/auth/guards";
 import { readRequestedBranchId } from "@/server/auth/scope";
 import {
+  CLOSED_MAINTENANCE_STATUSES,
   MAINTENANCE_CATEGORY_LABELS,
+  OPEN_MAINTENANCE_STATUSES,
   listMaintenanceRequests,
   listRequestableBranchesForMaintenance,
 } from "@/server/services/maintenance";
@@ -47,15 +50,26 @@ export default async function ReparosPage({
   const context = await requirePagePermission("manutencao:read");
 
   const canOverview = context.hasPermission("manutencao:overview");
+  const canAttend = context.hasPermission("manutencao:atender");
   const mineOnly = firstParam(params, "meus") === "1";
 
   const showBranchFilter = context.isNetworkScope;
   const branchId = readRequestedBranchId(context, firstParam(params, "filial"));
 
+  // Visão padrão: chamados em aberto. "Concluídos" mostra os encerrados.
+  const situacao = firstParam(params, "situacao") ?? null;
+  const vista = firstParam(params, "vista") === "concluidos" ? "concluidos" : "abertos";
+  const statuses = situacao
+    ? null
+    : vista === "concluidos"
+      ? CLOSED_MAINTENANCE_STATUSES
+      : OPEN_MAINTENANCE_STATUSES;
+
   const [result, branches] = await Promise.all([
     listMaintenanceRequests(context, {
       search: readSearch(params),
-      status: firstParam(params, "situacao") ?? null,
+      status: situacao,
+      statuses,
       category: firstParam(params, "tipo") ?? null,
       priority: firstParam(params, "prioridade") ?? null,
       branchId,
@@ -128,11 +142,13 @@ export default async function ReparosPage({
   return (
     <PageBody>
       <PageHeader
-        title={canOverview ? "Chamados" : "Meus chamados"}
+        title={canOverview ? "Chamados" : canAttend ? "Chamados do setor" : "Meus chamados"}
         description={
           canOverview
             ? "Manutenção, TI e demais setores de atendimento."
-            : "Reparos e chamados que você abriu."
+            : canAttend
+              ? "Chamados roteados ao seu setor, encaminhados a ele ou atribuídos a você."
+              : "Reparos e chamados que você abriu."
         }
         action={
           context.hasPermission("manutencao:create") ? (
@@ -147,6 +163,35 @@ export default async function ReparosPage({
       />
 
       <div className="flex flex-wrap items-center gap-2">
+        <div
+          className="border-input inline-flex h-8 items-center rounded-md border p-0.5"
+          role="group"
+          aria-label="Situação dos chamados"
+        >
+          <Link
+            href={`/reparos${buildQueryString(params, { vista: null, situacao: null, pagina: null })}`}
+            aria-current={vista === "abertos" && !situacao ? "page" : undefined}
+            className={
+              vista === "abertos" && !situacao
+                ? "bg-primary text-primary-foreground inline-flex h-7 items-center rounded px-3 text-sm"
+                : "text-muted-foreground hover:text-foreground inline-flex h-7 items-center rounded px-3 text-sm"
+            }
+          >
+            Em aberto
+          </Link>
+          <Link
+            href={`/reparos${buildQueryString(params, { vista: "concluidos", situacao: null, pagina: null })}`}
+            aria-current={vista === "concluidos" && !situacao ? "page" : undefined}
+            className={
+              vista === "concluidos" && !situacao
+                ? "bg-primary text-primary-foreground inline-flex h-7 items-center rounded px-3 text-sm"
+                : "text-muted-foreground hover:text-foreground inline-flex h-7 items-center rounded px-3 text-sm"
+            }
+          >
+            Concluídos
+          </Link>
+        </div>
+
         <TableSearch placeholder="Buscar por número, título ou local…" />
 
         <TableFilterSelect

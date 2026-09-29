@@ -138,7 +138,7 @@ Regra de visibilidade (a barreira anti-vazamento do §3.2 aplicada à demanda):
 | Quem | O que enxerga |
 |---|---|
 | Solicitante puro | **só** o que ele mesmo pediu |
-| Setor de atendimento sem `*:overview` | o próprio, o atribuído e o **encaminhado ao seu setor** |
+| Setor de atendimento sem `*:overview` | o próprio, o atribuído, o **encaminhado ao seu setor** e o **roteado ao seu setor de atendimento** (`serviceSectorId`), sempre dentro das filiais a que tem acesso |
 | Com `solicitacao:overview` / `manutencao:overview` | todo o escopo de filiais do fluxo |
 | Matriz / `SUPER_ADMIN` | rede inteira |
 
@@ -345,6 +345,12 @@ TI, as demais categorias para a Manutenção (`serviceSectorId`). O ciclo é
 e a pessoa que atende pode ser de qualquer setor de serviço. A prioridade continua
 sendo definida por quem recebe (`AGENTS.md` §3.7).
 
+O chamado nasce com o `serviceSectorId` do setor que atende e a notificação de
+abertura vai para **esse setor na filial** (não para todo `manutencao:atender`).
+Quem atende enxerga o chamado roteado ao seu setor mesmo antes de ser atribuído.
+A home de quem atende um setor de serviço (tem `manutencao:atender`, não aprova
+nem entrega) é a fila `/reparos`, com os abertos por padrão.
+
 ### Aprovação e responsabilidades
 
 - Ao enviar, `resolveRecipients(REQUEST_CREATED)` notifica o `defaultApproverId` da filial e
@@ -362,7 +368,9 @@ Fonte única: `src/server/services/notificacao/rules.ts`. Cada tipo declara o re
 |---|---|
 | `REQUEST_CREATED` | `defaultApproverId` + todos com `solicitacao:approve` na filial + papéis de **escopo de rede** com `solicitacao:approve` (exceto o autor) |
 | `REQUEST_CLAIMED` | demais aprovadores da filial + papéis de escopo de rede (saiu da fila) |
-| `MAINTENANCE_CREATED` | quem atende (`manutencao:atender`) na filial + rede + responsável da filial |
+| `MAINTENANCE_CREATED` | setor de atendimento do chamado (`serviceSectorId`, resolvido pela categoria) que tem `manutencao:atender` **na filial** + papéis de rede + responsável por notificações da filial; se o setor não tiver ninguém na unidade, cai em quem tem `manutencao:atender` na filial |
+| `MAINTENANCE_ASSIGNED` | `assignedToId` |
+| `MAINTENANCE_PRIORITY_SET` / `MAINTENANCE_DONE` | `requesterId` |
 | `REQUEST_APPROVED` / `PARTIALLY_APPROVED` / `REJECTED` | `requesterId` |
 | `REQUEST_DELIVERED` | `requesterId` + `responsibleId` |
 | `TRANSFER_SENT` | `ALMOXARIFE`/`GESTOR`/`ADMIN_FILIAL` do destino |
@@ -371,12 +379,16 @@ Fonte única: `src/server/services/notificacao/rules.ts`. Cada tipo declara o re
 | `INVENTORY_DIVERGENCE` | `ADMIN_FILIAL` + `ADMIN_MATRIZ` |
 | `ACCESS_REQUESTED` | todos `SUPER_ADMIN` |
 | `ACCESS_GRANTED` | o próprio usuário |
+| `DELEGATION_REQUESTED` | usuários do setor de destino **na filial da demanda** |
+| `DELEGATION_ACCEPTED` / `COMPLETED` / `RETURNED` | usuários do setor de origem **na filial da demanda** |
 
 Regras comuns:
 
 - Criadas na **mesma transação** do evento.
 - Excluem o `actorId` quando o ator é o alvo natural.
 - Sempre com `entityType` + `entityId` + `link` para deep link.
+- Notificação por setor é sempre **restrita à filial da demanda** — o setor é
+  global, mas a demanda não.
 - `STOCK_BELOW_MIN` deduplicado (7 dias).
 
 ---
@@ -456,6 +468,10 @@ link.
 | `/encaminhamentos`, `/encaminhamentos/[id]` | `manutencao:atender` | setor de origem e de destino |
 | `/api/anexos/[id]` | visibilidade da demanda pai | quem enxerga a solicitação/chamado |
 | `/relatorios` | `relatorio:read` | GESTOR+ |
+| `/relatorios/consolidados` | `relatorio:read` | GESTOR+ (histórico de consolidações) |
+| `/relatorios/consolidados/[id]` | `relatorio:read` | quem enxerga o snapshot |
+| `/api/relatorios/[relatorio]/csv` | `relatorio:read` | GESTOR+ |
+| `/api/relatorios/consolidados/[id]/csv` | `relatorio:read` | quem enxerga o snapshot |
 | `/admin/usuarios` | `usuario:manage` | SUPER_ADMIN, ADMIN_FILIAL (escopo) |
 | `/admin/papeis` | `papel:manage` | SUPER_ADMIN |
 | `/admin/politicas-email` | `politica-email:manage` | SUPER_ADMIN |
@@ -489,3 +505,41 @@ Aparece no dashboard da unidade junto com a fila de aprovação, e no sino de qu
 `AuditLog`: `actorId`, `action`, `entityType`, `entityId`, `branchId`, `before` (json),
 `after` (json), `ip`, `userAgent`, `createdAt`. Escrita em toda ação de escrita
 (atributo `createdById` nas entidades já é obrigatório).
+
+---
+
+## 11. Relatórios consolidados e exportação
+
+`runReport(reportId, scope)` devolve `{ headers, rows, summary }` — a **mesma**
+consulta alimenta a tela, o CSV e a consolidação, sem duas implementações que
+possam divergir. Todo relatório respeita o escopo de filial do usuário.
+
+### 11.1 Consolidação é congelamento
+
+Consolidar (`/relatorios` → *Consolidar e imprimir (PDF)*) grava um
+`ReportSnapshot`: os dados, o filtro, o escopo, o autor e um `contentHash`
+(SHA-256 canônico). O snapshot é **append-only**:
+
+- a aplicação não expõe update/delete de snapshot;
+- o banco recusa `UPDATE`/`DELETE` em `report_snapshots` (trigger na migration);
+- a tela de consolidado renderiza os dados **do snapshot**, nunca refaz a
+  consulta — provando que o que foi entregue não muda.
+
+Cada saída vira um `ReportExport` (formato `CSV` | `PRINT` | `PDF` | `DRIVE`,
+destino e data) e gera `AuditLog` (`report.snapshot_created`, `report.exported`).
+Quem gerou enxerga o próprio snapshot; quem tem acesso à filial enxerga o da
+filial; a rede enxerga tudo.
+
+### 11.2 Formatos
+
+- **CSV**: rota `/api/relatorios/[relatorio]/csv` (mesma query, escopo do
+  usuário, BOM/`;` para Excel pt-BR) e `/api/relatorios/consolidados/[id]/csv`
+  para baixar o snapshot congelado.
+- **PDF**: pela impressão do navegador na tela do consolidado (*Imprimir / Salvar
+  PDF*). Sem geração de PDF no servidor.
+- **Google Drive**: o usuário já está logado no Workspace; o navegador pede, na
+  hora, um token com o escopo mínimo `drive.file` (Google Identity Services) e
+  envia o CSV. **Nenhum token fica no servidor** — o servidor só registra a
+  exportação. Requer `NEXT_PUBLIC_GOOGLE_CLIENT_ID` e, no Google Cloud Console,
+  a Drive API habilitada e o escopo `drive.file` na tela de consentimento; sem
+  isso o botão fica desabilitado.

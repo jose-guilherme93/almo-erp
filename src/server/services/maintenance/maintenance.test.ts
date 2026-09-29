@@ -25,10 +25,13 @@ import {
 
 const SOLICITANTE_EMAIL = "autor.reparo@ator.teste.local";
 const ATENDENTE_EMAIL = "atendente.reparo@ator.teste.local";
+const TI_EMAIL = "ti.reparo@ator.teste.local";
 
 let databaseAvailable = false;
 let solicitanteId = "";
 let atendenteId = "";
+let tiId = "";
+let tiSectorId = "";
 let branchId = "";
 let otherBranchId = "";
 
@@ -49,6 +52,18 @@ function atendenteContext() {
     email: ATENDENTE_EMAIL,
     name: "Atendente Reparo",
     memberships: [{ branchId, roleSlug: "ADMIN_FILIAL" }],
+    permissions: ["manutencao:read", "manutencao:create", "manutencao:atender"],
+    activeBranchId: branchId,
+  });
+}
+
+/** Técnico de TI da unidade: enxerga o que foi roteado ao setor TI. */
+function tiContext() {
+  return makeAuthContext({
+    userId: tiId,
+    email: TI_EMAIL,
+    name: "Técnico de TI",
+    memberships: [{ branchId, roleSlug: "TI", sectorId: tiSectorId }],
     permissions: ["manutencao:read", "manutencao:create", "manutencao:atender"],
     activeBranchId: branchId,
   });
@@ -133,6 +148,41 @@ beforeAll(async () => {
   await prisma.membership.create({
     data: { userId: atendente.id, branchId, roleId: role.id, active: true },
   });
+
+  // Técnico de TI da unidade, com setor TI: quem deve receber/ver IT.
+  const tiSector = await prisma.sector.findUnique({ where: { code: "TI" }, select: { id: true } });
+
+  if (!tiSector) {
+    databaseAvailable = false;
+    return;
+  }
+
+  tiSectorId = tiSector.id;
+
+  const tiRole = await prisma.role.findUniqueOrThrow({
+    where: { slug: "TI" },
+    select: { id: true },
+  });
+
+  const ti = await prisma.user.upsert({
+    where: { email: TI_EMAIL },
+    update: { status: "ACTIVE" },
+    create: { email: TI_EMAIL, name: "Técnico de TI", status: "ACTIVE" },
+    select: { id: true },
+  });
+
+  tiId = ti.id;
+
+  await prisma.membership.deleteMany({ where: { userId: ti.id } });
+  await prisma.membership.create({
+    data: {
+      userId: ti.id,
+      branchId,
+      roleId: tiRole.id,
+      sectorId: tiSector.id,
+      active: true,
+    },
+  });
 });
 
 beforeEach(async () => {
@@ -143,12 +193,12 @@ beforeEach(async () => {
 afterAll(async () => {
   if (databaseAvailable) {
     await cleanup();
-    await prisma.membership.deleteMany({ where: { userId: atendenteId } });
+    await prisma.membership.deleteMany({ where: { userId: { in: [atendenteId, tiId] } } });
     await prisma.auditLog.deleteMany({
-      where: { actorId: { in: [solicitanteId, atendenteId] } },
+      where: { actorId: { in: [solicitanteId, atendenteId, tiId] } },
     });
     await prisma.user.deleteMany({
-      where: { email: { in: [SOLICITANTE_EMAIL, ATENDENTE_EMAIL] } },
+      where: { email: { in: [SOLICITANTE_EMAIL, ATENDENTE_EMAIL, TI_EMAIL] } },
     });
   }
 
@@ -440,6 +490,73 @@ describe.runIf(process.env["DATABASE_URL"])("fila e indicadores", () => {
 
     expect(list.items).toHaveLength(0);
     expect(list.total).toBe(0);
+  });
+});
+
+describe.runIf(process.env["DATABASE_URL"])("roteamento por setor de atendimento", () => {
+  async function newItRepair(branch = branchId) {
+    return createMaintenanceRequest(solicitanteContext(), {
+      branchId: branch,
+      category: "IT",
+      title: "Notebook não liga",
+      description: "O notebook da recepção parou de ligar depois da queda de energia.",
+      location: "Recepção",
+    });
+  }
+
+  it("avisa o setor de atendimento (TI) e não o almoxarifado", async () => {
+    const request = await newItRepair();
+
+    const tiNotifications = await prisma.notification.findMany({
+      where: { entityId: request.id, userId: tiId, type: "MAINTENANCE_CREATED" },
+    });
+
+    expect(tiNotifications.length).toBeGreaterThan(0);
+
+    // O ADMIN_FILIAL tem `manutencao:atender`, mas não é do setor TI: não
+    // deve receber o chamado de TI enquanto o setor tem gente na unidade.
+    const adminNotifications = await prisma.notification.findMany({
+      where: { entityId: request.id, userId: atendenteId, type: "MAINTENANCE_CREATED" },
+    });
+
+    expect(adminNotifications).toHaveLength(0);
+  });
+
+  it("o técnico do setor vê o chamado roteado ao seu setor", async () => {
+    const request = await newItRepair();
+
+    const detail = await getMaintenanceRequest(tiContext(), request.id);
+
+    expect(detail.id).toBe(request.id);
+  });
+
+  it("não vê chamado de outro setor nem de outra unidade", async () => {
+    const hvac = await newRepair();
+    const outraUnidade = await newItRepair(otherBranchId);
+
+    await expect(getMaintenanceRequest(tiContext(), hvac.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    await expect(getMaintenanceRequest(tiContext(), outraUnidade.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("sem ninguém no setor, cai no fallback de quem atende manutenção", async () => {
+    await prisma.membership.updateMany({ where: { userId: tiId }, data: { active: false } });
+
+    try {
+      const request = await newItRepair();
+
+      const adminNotifications = await prisma.notification.findMany({
+        where: { entityId: request.id, userId: atendenteId, type: "MAINTENANCE_CREATED" },
+      });
+
+      expect(adminNotifications.length).toBeGreaterThan(0);
+    } finally {
+      await prisma.membership.updateMany({ where: { userId: tiId }, data: { active: true } });
+    }
   });
 });
 

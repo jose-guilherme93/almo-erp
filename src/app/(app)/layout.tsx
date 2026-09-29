@@ -51,7 +51,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-svh">
       {/* Sidebar fixa no desktop */}
-      <aside className="bg-sidebar hidden w-64 shrink-0 border-r lg:block">
+      <aside className="bg-sidebar hidden w-64 shrink-0 border-r lg:block print:hidden">
         <div className="flex h-14 items-center border-b px-4">
           <Link href="/meu" className="font-semibold tracking-tight">
             {APP_NAME}
@@ -63,7 +63,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="bg-background sticky top-0 z-30 border-b">
+        <header className="bg-background sticky top-0 z-30 border-b print:hidden">
           <div className="flex h-14 items-center gap-2 px-3 sm:gap-3 sm:px-4">
             <MobileNav sections={sections} />
 
