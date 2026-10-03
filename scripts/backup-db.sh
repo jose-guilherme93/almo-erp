@@ -2,28 +2,28 @@
 #
 # Backup do Postgres do almo-erp.
 #
-# Roda no host, via cron. Gera um dump custom (`-Fc`) no diretório de backups,
-# aplica retenção local e — se `RCLONE_REMOTE` estiver definido — copia o
-# arquivo para um destino remoto (Cloudflare R2, Backblaze B2, S3...).
+# Gera um dump custom (`-Fc`) a partir de uma URL de conexão — serve tanto para
+# o Neon (produção) quanto para um Postgres local. O deploy automático já usa o
+# workflow `.github/workflows/backup.yml`; este script é para uso manual.
 #
-# Exemplo de crontab (todo dia às 3h):
-#   0 3 * * * cd /opt/almo-erp && ./scripts/backup-db.sh >> /var/log/almo-erp-backup.log 2>&1
+# Uso:
+#   DATABASE_URL="postgresql://..." ./scripts/backup-db.sh
+#   # ou, se `DIRECT_URL` estiver no ambiente, ele tem preferência:
+#   DIRECT_URL="postgresql://..." ./scripts/backup-db.sh
 #
-# Restauração (testada? sempre teste):
-#   docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres \
-#     pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists < backups/almo_erp-<data>.dump
+# Restauração (sempre teste num banco descartável):
+#   pg_restore -d "postgresql://.../destino" --clean --if-exists backups/almo_erp-<data>.dump
 
 set -euo pipefail
 
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
-ENV_FILE="${ENV_FILE:-.env.production}"
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 
-cd "$(dirname "$0")/.."
+# Migrations/seed preferem a conexão direta; o dump também.
+URL="${DIRECT_URL:-${DATABASE_URL:-}}"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Arquivo de ambiente não encontrado: $ENV_FILE" >&2
+if [[ -z "$URL" ]]; then
+  echo "Defina DATABASE_URL (ou DIRECT_URL) com a string de conexão do Postgres." >&2
   exit 1
 fi
 
@@ -32,16 +32,13 @@ mkdir -p "$BACKUP_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 FILE="$BACKUP_DIR/almo_erp-$STAMP.dump"
 
-# O `pg_dump` roda dentro do container, então herda POSTGRES_USER/POSTGRES_DB.
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
-  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$FILE"
+# Roda o pg_dump num container para não depender do cliente instalado no host.
+docker run --rm -e PGURL="$URL" postgres:17-alpine sh -c 'pg_dump "$PGURL" -Fc' > "$FILE"
 
 echo "backup: $FILE"
 
 # Retenção local.
 find "$BACKUP_DIR" -name 'almo_erp-*.dump' -type f -mtime "+$RETENTION_DAYS" -delete
 
-if [[ -n "${RCLONE_REMOTE:-}" ]]; then
-  rclone copy "$FILE" "$RCLONE_REMOTE"
-  echo "backup copiado para $RCLONE_REMOTE"
-fi
+# Quando o object storage (R2) entrar, suba o dump para lá aqui — backup que
+# mora só numa máquina não é backup.

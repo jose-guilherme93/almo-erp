@@ -103,8 +103,7 @@ Só implementar se houver provedor de e-mail definido.
 - [ ] Domínio próprio + certificado automático.
 - [ ] Callback do Google registrado com a URI de produção.
 - [ ] DNS do domínio corporativo para a política de e-mail.
-- [ ] `docker-compose.prod.yml` como alternativa self-host (Postgres + app),
-      com backup diário configurado.
+- [ ] Dokploy na VPS configurado (decisão final da v1; Vercel/Neon descartados). Ver `docs/DEPLOY.md`.
 - [ ] Backup e **teste de restauração** do banco.
 - [ ] Monitoramento de uptime e alerta de erro de aplicação.
 - [ ] `.env.example` conferido e completo; `.env` fora do repositório.

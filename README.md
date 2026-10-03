@@ -117,10 +117,10 @@ Em produção essa opção é recusada na inicialização.
 
 O guia completo está em [`docs/DEPLOY.md`](docs/DEPLOY.md). Resumo:
 
-- **VPS única com Docker**: app (Next, `pnpm start`) + Postgres 17 + Caddy (TLS automático).
-- Anexos em volume persistente (`UPLOAD_DIR=/data/uploads`); banco em volume próprio.
-- Migrations com `pnpm db:deploy`; seed roda **uma vez** como bootstrap do 1º admin.
-- Backup diário com `scripts/backup-db.sh` (+ cópia offsite via `rclone`).
+- **Uma VPS com Dokploy**: app (build pelo `Dockerfile`) + Postgres como serviço do Dokploy + Traefik.
+- No merge da `main`: CI verde → webhook do Dokploy → as migrations rodam no entrypoint do container.
+- Backup: Dokploy → S3 (principal) + cópia **cifrada** no GitHub Actions (secundária).
+- Anexos de imagem ficam no volume (`UPLOAD_DIR=/data/uploads`).
 - O E2E é **local** (`E2E_AUTH_BYPASS=true pnpm e2e --project=chromium`); o bypass de
   login de teste é recusado em produção.
 

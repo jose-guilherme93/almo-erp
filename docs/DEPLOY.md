@@ -1,154 +1,138 @@
-# Deploy — almo-erp em produção
+# Deploy — almo-erp em produção (Dokploy)
 
-> VPS única com Docker: **app (Next) + Postgres 17 + Caddy no mesmo host**.
-> Os anexos ficam num volume (`UPLOAD_DIR=/data/uploads`) e o banco em outro;
-> o TLS é automático pelo Caddy. Este é o encaixe que o projeto já assume
-> (`.gitignore` reserva `/var/uploads/` para o volume externo).
+> **Uma VPS com Dokploy**: aplicação (build pelo `Dockerfile`), Postgres como
+> serviço do próprio Dokploy, Traefik fazendo TLS e domínio. As migrations rodam
+> **no entrypoint do container**; o seed roda **uma vez** pelo Run Command.
 
-## 1. Pré-requisitos
+## 1. Como o deploy funciona
 
-- VPS com Docker + Docker Compose v2. Dimensionamento sugerido: **2 vCPU / 4 GB** (o
-  Postgres e o Next dividem o host).
-- Firewall liberando apenas **80** e **443**. O Postgres **não** publica porta.
-- Domínio com registro `A` apontando para o IP.
-- Credencial OAuth do Google com redirect
-  `https://<dominio>/api/auth/callback/google`.
-
-## 2. Arquivos de deploy
-
-| Arquivo | Função |
+| Peça | O que é |
 |---|---|
-| `Dockerfile` | Build multi-stage; runtime roda `pnpm start` como usuário `node` |
-| `.dockerignore` | Mantém segredos e artefatos fora da imagem |
-| `docker-compose.prod.yml` | `postgres` + `app` + `caddy`, com healthchecks e volumes |
-| `Caddyfile` | TLS automático e proxy para `app:3000` |
-| `scripts/backup-db.sh` | Dump diário + retenção + cópia offsite |
+| **CI** (`ci.yml`) | lint, typecheck, testes e build a cada push/PR na `main` |
+| **Deploy** (`deploy.yml`) | quando o CI passa, chama o **webhook do Dokploy** |
+| **Dokploy** | builda a imagem (Dockerfile) e sobe o container |
+| **Migrations** | `prisma migrate deploy` no entrypoint, antes do Next servir |
+| **Backup principal** | Dokploy → S3 (agendado, retenção longa) |
+| **Backup secundário** | `backup.yml`: SSH → dump dentro do container → **cifrado** → artefato (14 dias) |
 
-## 3. Segredos (`.env.production`)
-
-Fica no servidor, **fora do git**, com `chmod 600`. O Compose interpola as
-variáveis a partir dele (`--env-file .env.production`), então ele serve tanto
-para o build quanto para o container.
-
-```dotenv
-# ---------- Domínio / build ----------
-DOMAIN="erp.suaempresa.com.br"
-NEXT_PUBLIC_APP_NAME="almo-erp"
-NEXT_PUBLIC_APP_URL="https://erp.suaempresa.com.br"
-
-# ---------- Banco ----------
-POSTGRES_USER="almo"
-POSTGRES_PASSWORD="<senha-forte>"
-POSTGRES_DB="almo_erp"
-DATABASE_URL="postgresql://almo:<senha-forte>@postgres:5432/almo_erp?schema=public"
-
-# ---------- Autenticação ----------
-AUTH_SECRET="<openssl rand -base64 32>"
-AUTH_URL="https://erp.suaempresa.com.br"
-AUTH_TRUST_HOST="true"
-AUTH_GOOGLE_ID="<client id>"
-AUTH_GOOGLE_SECRET="<client secret>"
-AUTH_ALLOWED_DOMAINS="suaempresa.com.br"
-
-# ---------- Anexos ----------
-UPLOAD_DIR="/data/uploads"
-
-# ---------- Bootstrap do 1º admin ----------
-SEED_ADMIN_EMAIL="admin@suaempresa.com.br"
-SEED_ADMIN_NAME="Administrador da Matriz"
-
-# ---------- Regras de negócio (opcionais) ----------
-SLA_APPROVAL_HOURS="24"
-STOCK_BELOW_MIN_DEDUP_DAYS="7"
-MATRIX_APPROVAL_THRESHOLD="1000.00"
-
-# ---------- Testes: SEMPRE desligado em produção ----------
-# A aplicação recusa subir com E2E_AUTH_BYPASS=true em produção (src/lib/env.ts).
-E2E_AUTH_BYPASS="false"
+```
+merge na main
+  → CI verde
+  → deploy.yml chama o webhook do Dokploy
+  → Dokploy builda e sobe
+  → entrypoint: pnpm db:deploy && pnpm start
 ```
 
-> O `SEED_ADMIN_EMAIL` precisa ser de um domínio permitido em
-> `AUTH_ALLOWED_DOMAINS` **e** ter uma conta Google real — o login é por Google.
+O seed **não** roda a cada deploy: é um passo único (ver §5).
 
-## 4. Primeira subida
+## 2. Pré-requisitos (uma vez)
+
+1. **Dokploy instalado** na VPS, com um domínio próprio do painel.
+2. **DNS**: registro `A` de `colegiobatista.josetilabs.com` → IP da VPS (o
+   Traefik emite o certificado sozinho).
+3. **Serviço Postgres** criado no Dokploy (aba *Databases*). Anote usuário, senha,
+   banco e o **nome do serviço** na rede interna.
+4. **S3 Destination** criada no Dokploy (para o backup principal).
+5. **Application** criada apontando para o repositório, com build type
+   **Dockerfile**.
+
+## 3. Serviços e configuração no Dokploy
+
+### Application (o app)
+
+- **Build type**: Dockerfile (raiz do repo).
+- **Domains**: adicione `colegiobatista.josetilabs.com` (porta 3000).
+- **Environment**: preencha conforme `.env.production.example`.
+- **Volume**: monte um volume em **`/data/uploads`** (precisa bater com a env
+  `UPLOAD_DIR`). É onde os anexos de imagem ficam.
+- **Health check**: `http://localhost:3000/api/health`.
+- **Replicas**: **1**. **Zero-downtime: desligado.**
+
+> Por que 1 réplica e sem zero-downtime: as migrations rodam no entrypoint. Com
+> mais de um container subindo ao mesmo tempo, duas instâncias migrariam juntas.
+> **Quando escalar para mais de uma réplica, mova a migration para um serviço
+> separado** (`migrate` em Docker Compose) e tire do entrypoint.
+
+### Database (o Postgres)
+
+- **Backups**: agende para a **S3 Destination**, com retenção longa.
+- A app conecta pelo nome do serviço: `postgres://…@<servico>:5432/almo_erp`.
+
+## 4. Secrets no GitHub
+
+Settings → Secrets and variables → Actions.
+
+| Secret | Para que |
+|---|---|
+| `DOKPLOY_WEBHOOK_URL` | disparar o deploy (Dokploy → Application → Deployments → Webhook) |
+| `SSH_HOST` | host da VPS (backup por SSH) |
+| `SSH_USER` | usuário SSH do backup |
+| `SSH_PRIVATE_KEY` | chave privada SSH dedicada ao backup |
+| `POSTGRES_CONTAINER` | nome do container do Postgres (veja `docker ps` na VPS) |
+| `BACKUP_PASSPHRASE` | passphrase do `gpg` que cifra o dump |
+
+## 5. Primeira subida
+
+1. Deploy da aplicação (pelo pipeline ou pelo botão no Dokploy). O entrypoint
+   aplica as migrations e o app sobe.
+2. **Seed (uma vez só)** — Dokploy → Application → **Advanced → Run Command**:
+   ```bash
+   pnpm db:seed
+   ```
+   Isso cria permissões, papéis, unidades, setores, configurações, a filial
+   `MATRIZ` e o administrador. É idempotente e não reescreve a senha depois.
+3. Verifique `curl -fsS https://colegiobatista.josetilabs.com/api/health` →
+   `{"status":"ok"}` e faça login em `/login` com o `SEED_ADMIN_EMAIL` +
+   `SEED_ADMIN_PASSWORD`.
+
+## 6. Backup
+
+- **Principal — Dokploy → S3**: agendado no serviço de banco do Dokploy, retenção
+  longa. É o backup de verdade.
+- **Secundário — GitHub (`backup.yml`)**: entra por SSH, tira o dump **de dentro**
+  do container (o banco nunca é exposto), **cifra com AES256** e guarda como
+  artefato por 14 dias. É uma segunda cópia, em outro provedor.
+
+**Restauração** (teste periodicamente num banco descartável):
 
 ```bash
-cd /opt/almo-erp
-git clone <repo> .            # ou copie o projeto
-vim .env.production           # preencha os segredos
-chmod 600 .env.production
+# do artefato cifrado:
+gpg --batch --yes --passphrase-file <arquivo-com-a-passphrase> \
+  -d almo_erp-<data>.dump.gpg > dump
 
-# Sobe só o banco para aplicar schema
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d postgres
-
-# Aplica migrations
-docker compose --env-file .env.production -f docker-compose.prod.yml run --rm app pnpm db:deploy
-
-# Bootstrap: papéis, filiais, catálogo, políticas e o 1º admin.
-# Em NODE_ENV=production o seed pula os usuários de demonstração.
-docker compose --env-file .env.production -f docker-compose.prod.yml run --rm app pnpm db:seed
-
-# Sobe a aplicação + proxy
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+pg_restore -d "postgresql://usuario:senha@host:porta/banco" --clean --if-exists dump
 ```
 
-Verifique:
+Guarde a passphrase fora do GitHub (gerenciador de senhas). Sem ela, o artefato
+cifrado é inútil — de propósito.
 
-```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml ps
-curl -fsS https://erp.suaempresa.com.br/api/health   # {"status":"ok"}
-```
+## 7. Anexos (imagens)
 
-## 5. Atualização
+Funcionam: a v1 tem os anexos ligados e o binário fica **no volume** em
+`/data/uploads`. O download passa pelo route `/api/anexos/[id]`, que revalida a
+visibilidade da solicitação/chamado antes de entregar o arquivo.
 
-```bash
-git pull
-docker compose --env-file .env.production -f docker-compose.prod.yml build app
-docker compose --env-file .env.production -f docker-compose.prod.yml run --rm app pnpm db:deploy
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d
-```
+> Se o dia chegar em que o volume não servir (múltiplas instâncias, por exemplo),
+> o caminho é mover o binário para object storage (Cloudflare R2) — o modelo
+> `Attachment` já existe e aceita essa troca.
 
-- **Nunca** use `prisma db push` em produção.
-- Trocar `NEXT_PUBLIC_APP_URL` exige **rebuild** (o valor é inlinado no bundle).
-- Rollback: versione a imagem por SHA (`docker build -t almo-erp:<sha>`) e suba a
-  tag anterior; a migration só volta com uma migration de reversão explícita.
+## 8. Rollback
 
-## 6. Backup e restauração
+- **Dokploy → Application → Deployments** permite reverter para uma implantação
+  anterior.
+- A migration **não** volta sozinha: reverter schema exige uma migration de
+  reversão explícita. Por isso prefira migrations **aditivas**.
 
-```bash
-# Dump manual
-./scripts/backup-db.sh
+## 9. Operação
 
-# Cron diário às 3h (exemplo)
-0 3 * * * cd /opt/almo-erp && ./scripts/backup-db.sh >> /var/log/almo-erp-backup.log 2>&1
-```
+- **Logs**: Dokploy → Application → Logs (ou o serviço de banco).
+- **Uptime**: aponte o monitor para `https://<dominio>/api/health`.
+- **Disco**: os volumes do Postgres e de uploads crescem — monitore.
+- **Firewall**: apenas 22, 80 e 443. O Postgres **não** é exposto.
 
-- Defina `RCLONE_REMOTE` no ambiente do cron para copiar o dump para fora do host
-  (Cloudflare R2 / Backblaze B2 / S3). Backup que mora só no host não é backup.
-- **Teste a restauração** periodicamente (ver comando comentado no topo de
-  `scripts/backup-db.sh`) num banco descartável.
-- O volume de uploads (`almo-erp-prod-uploads`) precisa entrar no mesmo ciclo de
-  backup (por exemplo, snapshot do provedor ou `rclone sync`).
+## 10. Observações
 
-## 7. Operação
-
-- **Logs**: `docker compose --env-file .env.production -f docker-compose.prod.yml logs -f app`.
-- **Healthcheck**: container bate em `/api/health` (fora do gate de sessão).
-  Aponte também um monitor externo de uptime para a mesma URL.
-- **Disco**: o volume de uploads e o `pgdata` crescem; monitore espaço.
-- **Segurança**: `AUTH_SECRET` novo, Postgres sem porta exposta, container não-root,
-  firewall só 80/443, HSTS já vem no `next.config.ts`.
-
-## 8. Decisões e armadilhas
-
-- **App e banco no mesmo host**: mais simples e barato, mas o host é ponto único de
-  falha. Mitigue com backup offsite + snapshot do provedor. Se um dia precisar de
-  HA, mova o Postgres para gerenciado (Neon/Supabase) e mantenha só o app no VPS.
-- **`pnpm start`, não `output: standalone`**: o standalone com Prisma 7 tem arestas
-  de tracing; a imagem é maior, mas previsível.
-- **Seed em produção**: roda **uma vez** como bootstrap (pula usuários de demo).
-  Divergência consciente do item da FASE 13 que dizia "seed não roda em produção".
-- **E2E**: é local-first. `E2E_AUTH_BYPASS` é recusado em produção, então o E2E nunca
-  roda contra este container de produção (ver `AGENTS.md §9.1`).
-- **Anexos em disco**: funcionam porque há volume persistente. Em serverless (Vercel)
-  seria preciso trocar por object storage.
+- **Traefik** já vem com o Dokploy; não há Nginx para configurar.
+- O `.dockerignore` garante que `.env` e artefatos de teste não entram na imagem.
+- A imagem roda `pnpm start` (sem `output: standalone`) para não depender do
+  tracing do Prisma.

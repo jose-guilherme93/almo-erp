@@ -15,6 +15,20 @@
 Gates rodados na `develop`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (330), `pnpm build`,
 `pnpm db:seed`. O CI do GitHub rodou o mesmo pipeline: **sucesso em 2m43s**.
 
+Entrega mais recente — **Login local (e-mail + senha), sem Google**:
+
+- Nova porta de acesso: provider `local` (Credentials) + `User.passwordHash`
+  (scrypt em `src/lib/password.ts`). **Não** auto-provisiona e **não** aplica a
+  regra de domínio — a conta é criada por admin/seed, então aceita e-mail pessoal.
+- Toggles em `/admin/configuracoes`: `auth.localLogin.enabled` e
+  `auth.google.enabled` (`Config` com `type: "boolean"`). Sem `AUTH_GOOGLE_ID`,
+  o Google fica desligado e o botão aparece inerte.
+- Freio de força bruta em `LoginThrottle` (5 falhas → 15 min), com a decisão pura
+  em `src/lib/login-throttle.ts`.
+- Seed: `SEED_ADMIN_PASSWORD` grava a senha do admin; `SEED_ADMIN_RESET_PASSWORD`
+  recupera o acesso. `jose-guilherme93@hotmail.com` é o admin do `.env.production`.
+- Testes: `password.test.ts`, `login-throttle.test.ts`, E2E `login-local.spec.ts`.
+
 Entrega mais recente — **Exportação de relatórios (PDF + Google Drive) com auditoria**:
 
 - **Snapshot imutável**: consolidar grava `ReportSnapshot` (dados, filtro, autor,
@@ -68,17 +82,28 @@ Entrega mais recente — **Onda 1 de integridade** (plano em `docs`/handoff; ver
 
 ## Deploy
 
-Infra definida: **VPS única com Docker** (app + Postgres + Caddy). Artefatos criados:
-`Dockerfile`, `.dockerignore`, `docker-compose.prod.yml`, `Caddyfile`,
-`scripts/backup-db.sh`, `src/app/api/health/route.ts` (fora do gate do `proxy.ts`) e o
-runbook `docs/DEPLOY.md`. Sem `output: standalone` (runtime é `pnpm start`).
+Infra: **uma VPS com Dokploy** (Traefik já incluído). A aplicação é buildada pelo
+`Dockerfile`; o Postgres é um serviço do próprio Dokploy; as migrations rodam no
+**entrypoint** do container (1 réplica, zero-downtime desligado). Artefatos:
+`Dockerfile` + `.dockerignore`, `.github/workflows/deploy.yml` (chama o webhook do
+Dokploy), `.github/workflows/backup.yml` (cópia cifrada via SSH),
+`src/app/api/health/route.ts`, `.env.production.example` (checklist) e o runbook
+`docs/DEPLOY.md`.
 
-Decisões registradas: app e banco no mesmo host (ponto único de falha mitigado por
-backup offsite); seed roda **uma vez** em produção como bootstrap (pula usuários de demo),
-divergindo conscientemente do item da FASE 13; E2E continua local.
+Fluxo: merge na `main` → `CI` verde → `deploy.yml` chama o webhook → Dokploy builda e
+sobe → o entrypoint roda `prisma migrate deploy` e depois `pnpm start`. O **seed** roda
+uma vez pelo *Run Command* do Dokploy (`pnpm db:seed`). Backup: Dokploy → S3 (principal,
+retenção longa) + `backup.yml` (secundária, **cifrada** com AES256, 14 dias).
 
-Pendências de produção (não bloqueiam o código): provisionar o host, DNS, credencial
-OAuth de produção, `AUTH_SECRET` novo, agendar o backup e testar a restauração.
+Decisões registradas: o seed é **consciente do ambiente** — em `NODE_ENV=production`
+cria apenas permissões, papéis, unidades, setores, configs, uma filial matriz e o admin,
+**sem** empresa, filial, catálogo ou usuários de demonstração; em dev/teste cria a
+demonstração completa. Divergência consciente do item da FASE 13. E2E continua local.
+
+Pendências de produção (não bloqueiam o código): configurar o Dokploy (serviço Postgres,
+S3 Destination, Application com domínio, volume `/data/uploads`, replicas=1 e env),
+preencher os secrets do GitHub, apontar o DNS e testar a restauração do backup. No
+primeiro deploy o acesso é pelo **login local** (sem Google).
 
 ## E2E — como rodar
 
@@ -104,8 +129,8 @@ Entregue antes:
   que foi encaminhado a ele; `solicitacao:overview`/`manutencao:overview` = escopo.
 - **FASE 15 — Mobile do solicitante.** `/solicitar` com 3 botões (material, reparo, TI),
   defaults preenchidos, `/meu` enxuto.
-- **FASE 16 — Anexos.** Compressão no cliente (WebP ≤1600px), arquivo em disco,
-  `/api/anexos/[id]` com a visibilidade da demanda pai.
+- **FASE 16 — Anexos.** Compressão no cliente (WebP ≤1600px), arquivo no volume
+  (`UPLOAD_DIR=/data/uploads`), `/api/anexos/[id]` com a visibilidade da demanda pai.
 - **FASE 17 — TI e peças.** Categoria `IT` roteia para a TI; `/encaminhamentos` com laudo.
 - **FASE 18 — Relatórios.** "Demanda por setor" e "Duração das demandas".
 - **Correções:** super admin/matriz enxergam e são notificados dos pedidos das unidades;
@@ -122,13 +147,15 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm db:seed
 
 ## Pendências conhecidas (escopo, não bug)
 
+- Senha de usuário local pela administração (`/admin/usuarios`): hoje só o seed grava
+  `passwordHash`. Sem uma tela para definir/trocar senha, usuários locais além do admin
+  do seed não têm como entrar. `createUser` também ainda exige domínio corporativo.
 - CRUD de setores na administração.
 - Criar a solicitação de peça **a partir** do laudo da TI (`Request.spawnedFromDelegationId`
   já existe no schema, falta a ação/tela).
 - Mostrar "veio do chamado TI-xxxx" na solicitação originada de um encaminhamento.
 - Ligar chegada da peça (`WAITING_PARTS → IN_PROGRESS`) ao recebimento da solicitação.
-- Upload de foto avulsa no detalhe (a ação `anexarImagemAction` existe; falta o componente).
-- Volume compartilhado de uploads para múltiplas instâncias (`UPLOAD_DIR`).
+- Anexos em object storage (Cloudflare R2) — só se um dia o volume não servir (múltiplas instâncias).
 - Gráfico de evolução mensal na tela de relatórios.
 
 ## Aviso não bloqueante
