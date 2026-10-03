@@ -25,6 +25,10 @@ merge na main
 
 O seed **não** roda a cada deploy: é um passo único (ver §5).
 
+**O portão**: o `deploy.yml` só dispara quando o CI **passa**. Se o CI falhar, nada
+sobe. Para isso valer de verdade, o **Auto Deploy do Dokploy fica DESLIGADO** — senão
+o push publicaria direto, por fora do CI. Quem publica é só o pipeline.
+
 ## 2. Pré-requisitos (uma vez)
 
 1. **Dokploy instalado** na VPS, com um domínio próprio do painel.
@@ -41,6 +45,8 @@ O seed **não** roda a cada deploy: é um passo único (ver §5).
 ### Application (o app)
 
 - **Build type**: Dockerfile (raiz do repo).
+- **Branch**: **`main`** (a `develop` é só para testes; produção acompanha a `main`).
+- **Auto Deploy**: **desligado** — quem dispara o deploy é o `deploy.yml`, depois do CI.
 - **Domains**: adicione `colegiobatista.josetilabs.com` (porta 3000).
 - **Environment**: preencha conforme `.env.production.example`.
 - **Volume**: monte um volume em **`/data/uploads`** (precisa bater com a env
