@@ -6,6 +6,13 @@ import { toast } from "sonner";
 import { FormError, FormField } from "@/components/domain/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { ActionResult } from "@/lib/action-result";
 import { salvarConfiguracoesAction } from "@/server/actions/configuracao";
 
@@ -13,7 +20,7 @@ export type ConfigField = {
   key: string;
   label: string;
   description: string;
-  type: "string" | "number";
+  type: "string" | "number" | "boolean";
   value: string;
   updatedByName: string | null;
 };
@@ -50,14 +57,26 @@ export function ConfigForm({ fields }: { fields: ConfigField[] }) {
               : field.description
           }
         >
-          <Input
-            id={field.key}
-            name={field.key}
-            type={field.type === "number" ? "number" : "text"}
-            step={field.type === "number" ? "1" : undefined}
-            defaultValue={field.value}
-            inputMode={field.type === "number" ? "numeric" : undefined}
-          />
+          {field.type === "boolean" ? (
+            <Select name={field.key} defaultValue={field.value === "true" ? "true" : "false"}>
+              <SelectTrigger id={field.key} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">Sim</SelectItem>
+                <SelectItem value="false">Não</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              id={field.key}
+              name={field.key}
+              type={field.type === "number" ? "number" : "text"}
+              step={field.type === "number" ? "1" : undefined}
+              defaultValue={field.value}
+              inputMode={field.type === "number" ? "numeric" : undefined}
+            />
+          )}
         </FormField>
       ))}
 

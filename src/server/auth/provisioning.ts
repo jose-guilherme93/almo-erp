@@ -237,3 +237,35 @@ export async function provisionUserOnLogin(input: {
       return { ok: true, userId: existing.id, created: false };
   }
 }
+
+/**
+ * Confirmação do login local (e-mail + senha).
+ *
+ * O provider já validou a senha no `authorize()`. Aqui só reafirmamos o estado
+ * da conta e registramos o acesso. **Não** passa pela regra de domínio de
+ * e-mail: quem entra por senha é conta criada por administrador, de qualquer
+ * domínio (é assim que o acesso sem Google funciona).
+ */
+export async function resolveLocalLogin(email: string): Promise<ProvisionResult> {
+  const normalized = email.trim().toLowerCase();
+
+  const user = await prisma.user.findUnique({
+    where: { email: normalized },
+    select: { id: true, status: true, active: true, passwordHash: true },
+  });
+
+  if (!user || !user.passwordHash || !user.active) {
+    return { ok: false, reason: "access-denied" };
+  }
+
+  if (user.status === "SUSPENDED") return { ok: false, reason: "suspended" };
+  if (user.status === "INACTIVE") return { ok: false, reason: "user-inactive" };
+  if (user.status === "PENDING") return { ok: false, reason: "pending-approval" };
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() },
+  });
+
+  return { ok: true, userId: user.id, created: false };
+}

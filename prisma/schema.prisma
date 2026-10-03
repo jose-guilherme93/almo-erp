@@ -392,6 +392,10 @@ model User {
   active      Boolean    @default(true)
   lastLoginAt DateTime?  @map("last_login_at")
 
+  /// Hash scrypt da senha (login local, e-mail + senha). `null` = o usuário
+  /// não tem senha e só entra por Google.
+  passwordHash String? @map("password_hash")
+
   approvedById String?   @map("approved_by_id")
   approvedAt   DateTime? @map("approved_at")
 
@@ -459,6 +463,23 @@ model User {
   @@index([status])
   @@index([active])
   @@map("users")
+}
+
+/// Contador de tentativas de login local por e-mail (proteção contra força bruta).
+///
+/// Vive no banco (e não em memória) para sobreviver a restart e ser auditável.
+/// Só o provider local (e-mail + senha) alimenta esta tabela; o Google não.
+model LoginThrottle {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  failedCount   Int       @default(0) @map("failed_count")
+  firstFailedAt DateTime? @map("first_failed_at")
+  lockedUntil   DateTime? @map("locked_until")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([lockedUntil])
+  @@map("login_throttles")
 }
 
 model Membership {

@@ -199,6 +199,37 @@ Suspensão é efetiva no próximo request porque `getAuthContext()` relê o stat
 O provider usa `hd` (hosted domain) quando o domínio vem do token. `hd` **não** é
 confiável como autorização — a checagem real é sempre a de `EmailPolicy`/tabela de usuários.
 
+### 4.5 Login local (e-mail + senha)
+
+Segunda porta de entrada, para operar o ERP **sem Google** (é o caminho de
+bootstrap de uma instalação nova).
+
+```
+Usuário informa e-mail + senha em /login
+  → provider `local` (Auth.js Credentials)
+      1. auth.localLogin.enabled está ligado?            (Config)
+      2. e-mail não está bloqueado por tentativas?        (LoginThrottle)
+      3. existe User ACTIVE e ativo, com passwordHash?
+      4. a senha confere?  (scrypt, tempo constante)
+  → signIn: resolveLocalLogin() reafirma status e grava lastLoginAt
+  → sessão JWT igual à do Google
+```
+
+Diferenças conscientes em relação ao Google:
+
+- **Não** aplica a regra de domínio corporativo. A conta é criada por um
+  administrador (ou pelo seed) — pode ser de qualquer domínio, inclusive pessoal.
+- **Não** auto-provisiona `User` nem `Membership`: quem cria é o administrador.
+- Freio de força bruta por e-mail em `LoginThrottle` (5 falhas → 15 min), com a
+  decisão pura em `src/lib/login-throttle.ts` e o acesso a dados em
+  `src/server/auth/throttle.ts`.
+- Mensagens de erro são genéricas ("E-mail ou senha inválidos"): não revelam se
+  a conta existe.
+
+O liga/desliga vive em `Config` (`auth.localLogin.enabled`, `auth.google.enabled`),
+editável em `/admin/configuracoes`. Sem credencial Google (`AUTH_GOOGLE_ID`/
+`AUTH_GOOGLE_SECRET`), o default do Google é desligado e o botão fica inerte.
+
 ---
 
 ## 5. Estoque

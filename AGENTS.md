@@ -151,6 +151,23 @@ pedir é um ato, não um rascunho.
 Se algo não está neste repositório (`AGENTS.md`, `docs/`, `docs/fases/`), **pergunte** —
 não invente regra de negócio. Se implementou algo, atualize a doc no mesmo commit.
 
+### 3.10 Autenticação: Google e login local
+
+O acesso tem **duas portas**, ligadas por configuração em `/admin/configuracoes`
+(permissão `configuracao:manage`, exclusiva do `SUPER_ADMIN`):
+
+- **Google** (`auth.google.enabled`) — só e-mail de domínio corporativo autorizado
+  (`AUTH_ALLOWED_DOMAINS` + `EmailPolicy`) e usuário pré-aprovado. É a porta de
+  autoatendimento.
+- **Login local** (`auth.localLogin.enabled`) — e-mail + senha. A conta é criada
+  por um administrador (ou pelo seed) e **não** passa pela regra de domínio: é o
+  caminho para operar o ERP sem Google, inclusive com e-mail pessoal.
+
+A senha é `scrypt` (`src/lib/password.ts`), verificação em tempo constante, e o
+provider tem freio de tentativas de força bruta (`src/server/auth/throttle.ts`).
+O login local **não** auto-provisiona usuário nem vínculo — quem cria é o
+administrador. As regras abaixo continuam valendo integralmente.
+
 ---
 
 ## 4. Estrutura de pastas
@@ -329,6 +346,10 @@ Cobertura mínima obrigatória de teste:
   pesadas, teto próprio). Um job que estouraria o teto deve **falhar rápido**, nunca
   pendurar meia hora.
 - O CI automático (`ci.yml`) é só: install, lint, typecheck, migrations, seed, test e build.
+- **Deploy automático** (`deploy.yml`): quando o `CI` passa na `main`, o workflow chama o
+  **webhook do Dokploy**, que builda a imagem e sobe o container. As migrations rodam no
+  **entrypoint** (1 réplica, zero-downtime desligado). Segredos e operação em `docs/DEPLOY.md`.
+  Backup: Dokploy → S3 (principal) + `backup.yml` (cópia cifrada, secundária).
 - **O E2E é local e faz parte do fechamento do trabalho.** Rode ao final de toda mudança de
   fluxo, com o servidor de desenvolvimento:
 
@@ -369,3 +390,13 @@ Cobertura mínima obrigatória de teste:
 - Criar biblioteca nova para algo que shadcn ou o Next já resolvem.
 - Implementar uma fase sem ler o arquivo da fase em `docs/fases/`.
 - Mexer em fase futura "adiantando" — respeite a ordem das fases.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
