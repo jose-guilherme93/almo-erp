@@ -323,6 +323,11 @@ pnpm build           # build de produção
 pnpm db:seed         # seed idempotente
 ```
 
+> O hook **`pre-push`** (`.husky/pre-push`) roda `lint + typecheck + test + build` antes de
+> **todo** push — se algo falhar, o push não sai. Ele exige o Postgres local de pé
+> (`docker compose up -d`) e pode ser pulado com `git push --no-verify`, mas o CI é a
+> barreira que ninguém pula.
+
 Definição de Pronto de uma fase: os comandos acima passam, a fase está marcada como concluída
 em `docs/fases/README.md`, e a doc correspondente foi atualizada se houve mudança de regra.
 

@@ -1,0 +1,8 @@
+# Verificação completa antes de TODO push — a mesma do CI.
+# Se qualquer passo falhar, o push não sai.
+#
+# Precisa do Postgres local de pé (os testes de integração usam o banco):
+#   docker compose up -d
+#
+# Para pular conscientemente (use com parcimônia): git push --no-verify
+pnpm lint && pnpm typecheck && pnpm test && pnpm build
