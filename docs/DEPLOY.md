@@ -47,6 +47,9 @@ O seed **não** roda a cada deploy: é um passo único (ver §5).
   `UPLOAD_DIR`). É onde os anexos de imagem ficam.
 - **Health check**: `http://localhost:3000/api/health`.
 - **Replicas**: **1**. **Zero-downtime: desligado.**
+- O entrypoint **espera o banco** (até ~60s, por `DB_WAIT_ATTEMPTS` ×
+  `DB_WAIT_DELAY_SECONDS`) antes de migrar — evita crash-loop quando a VPS
+  reinicia com o Postgres ainda subindo.
 
 > Por que 1 réplica e sem zero-downtime: as migrations rodam no entrypoint. Com
 > mais de um container subindo ao mesmo tempo, duas instâncias migrariam juntas.

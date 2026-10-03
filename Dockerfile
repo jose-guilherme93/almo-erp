@@ -51,9 +51,8 @@ RUN mkdir -p /data/uploads && chown -R node:node /app /data/uploads
 USER node
 EXPOSE 3000
 
-# Migrations ANTES de servir: `prisma migrate deploy` é idempotente e roda
-# dentro do container. Isso é seguro porque no Dokploy a aplicação tem **1
-# réplica** e o zero-downtime está **desligado** (ver docs/DEPLOY.md).
-# Se um dia houver mais de uma réplica, mova a migration para um passo separado
-# (serviço `migrate` no Docker Compose) — senão duas instâncias migram juntas.
-CMD ["sh", "-c", "pnpm db:deploy && pnpm start"]
+# O entrypoint espera o banco, aplica as migrations e então sobe o Next.
+# Migrar dentro do container é seguro porque a aplicação tem **1 réplica** e o
+# zero-downtime está **desligado** (ver docs/DEPLOY.md). Com mais de uma réplica,
+# mova a migration para um passo separado.
+CMD ["sh", "/app/docker-entrypoint.sh"]
