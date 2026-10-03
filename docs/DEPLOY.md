@@ -92,6 +92,8 @@ Settings → Secrets and variables → Actions.
    `{"status":"ok"}` e faça login em `/login` com o `SEED_ADMIN_EMAIL` +
    `SEED_ADMIN_PASSWORD`.
 
+> Quer um ambiente de **preview** com dados de demonstração? Veja §11.
+
 ## 6. Backup
 
 - **Principal — Dokploy → S3**: agendado no serviço de banco do Dokploy, retenção
@@ -143,3 +145,57 @@ visibilidade da solicitação/chamado antes de entregar o arquivo.
 - O `.dockerignore` garante que `.env` e artefatos de teste não entram na imagem.
 - A imagem roda `pnpm start` (sem `output: standalone`) para não depender do
   tracing do Prisma.
+
+## 11. Preview (ambiente de demonstração) × produção
+
+No Dokploy isso são **duas Applications** apontando para o mesmo repositório, cada
+uma com o seu banco. Uma nunca enxerga a outra.
+
+| | **Produção** | **Preview** |
+|---|---|---|
+| Branch | `main` | `develop` |
+| Banco | Postgres de produção | **outro** Postgres |
+| Volume | `/data/uploads` | outro volume |
+| Domínio | `colegiobatista.josetilabs.com` | domínio próprio **ou** o gerado pelo Dokploy (`traefik.me`) |
+| `AUTH_SECRET` | o de produção | **diferente** |
+| `SEED_DEMO_DATA` | **ausente** (nunca `true`) | **`true`** |
+| Conteúdo do banco | referência + matriz + admin | + empresa, filiais, catálogo e usuários de demonstração |
+
+### Como montar o preview
+
+1. Crie um **segundo serviço Postgres** (aba *Databases*) — separado da produção.
+2. Crie uma **segunda Application**, mesmo repo, build **Dockerfile**:
+   - **Branch**: `develop`
+   - **Domains**: um domínio de preview (o Dokploy gera um `traefik.me` se você não tiver DNS)
+   - **Volume**: um volume próprio montado em `/data/uploads`
+   - **Replicas**: 1 · **Zero-downtime**: desligado · **Health check**: `/api/health`
+3. Env do preview — o mesmo que produção, com **três diferenças**:
+   - `DATABASE_URL` → o Postgres do preview
+   - `AUTH_URL` e `NEXT_PUBLIC_APP_URL` → o domínio do preview
+   - `AUTH_SECRET` → um valor **diferente** do de produção
+   - **`SEED_DEMO_DATA="true"`** ← é isso que liga a demonstração
+   - `SEED_DEMO_PASSWORD="<senha-forte>"` (opcional; padrão `demo-senha-1234`)
+   - `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` (o admin do preview)
+4. Deploy. Depois, **uma vez**, o Run Command: `pnpm db:seed`.
+
+Isso cria a demonstração completa (empresa, 3 filiais, 6 categorias, 15 materiais e 6
+usuários) — **todos os usuários com senha**, então dá para entrar em cada papel.
+
+### Entrar no preview
+
+Os e-mails de demonstração usam o primeiro domínio de `AUTH_ALLOWED_DOMAINS`
+(padrão `exemplo.com.br`). A senha é a `SEED_DEMO_PASSWORD` (padrão `demo-senha-1234`).
+
+| E-mail | Papel |
+|---|---|
+| `admin.<local>@<dominio>` — veja `SEED_ADMIN_EMAIL` | SUPER_ADMIN |
+| `admin.filial@<dominio>` | ADMIN_FILIAL (FIL-SP) |
+| `gestor@<dominio>` | GESTOR |
+| `almoxarife@<dominio>` | ALMOXARIFE |
+| `ti@<dominio>` | TI |
+| `solicitante@<dominio>` | SOLICITANTE |
+| `consulta@<dominio>` | CONSULTA |
+
+> **Cuidado**: `SEED_DEMO_DATA=true` **jamais** vai na Application de produção — senão
+> a produção ganha empresa, filial e catálogo falsos. Em produção a variável fica
+> **ausente**.

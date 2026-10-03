@@ -95,10 +95,11 @@ espera o banco, roda `prisma migrate deploy` e depois `pnpm start`. O **seed** r
 pelo *Run Command* do Dokploy (`pnpm db:seed`). Backup: Dokploy → S3 (principal, retenção
 longa) + `backup.yml` (secundária, **cifrada** com AES256, 14 dias).
 
-Decisões registradas: o seed é **consciente do ambiente** — em `NODE_ENV=production`
-cria apenas permissões, papéis, unidades, setores, configs, uma filial matriz e o admin,
-**sem** empresa, filial, catálogo ou usuários de demonstração; em dev/teste cria a
-demonstração completa. Divergência consciente do item da FASE 13. E2E continua local.
+Decisões registradas: o seed decide pelo **ambiente explícito** — `SEED_DEMO_DATA=true`
+liga a demonstração (empresa, filiais, catálogo, usuários com senha), e sem a flag (ou
+`false`) ele cria apenas referência, uma filial matriz e o admin. É por isso que um
+**preview** no Dokploy consegue ter dados de demonstração mesmo com `NODE_ENV=production`.
+Divergência consciente do item da FASE 13. E2E continua local.
 
 Pendências de produção (não bloqueiam o código): configurar o Dokploy (serviço Postgres,
 S3 Destination, Application com domínio, volume `/data/uploads`, replicas=1 e env),

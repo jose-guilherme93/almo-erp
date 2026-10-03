@@ -26,7 +26,25 @@ if (!connectionString) {
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 
-const isProduction = process.env["NODE_ENV"] === "production";
+/**
+ * Decide se os dados de demonstração entram:
+ *   SEED_DEMO_DATA=true   → força (preview/staging)
+ *   SEED_DEMO_DATA=false  → nunca
+ *   ausente               → demo só fora de produção (padrão de dev e CI)
+ *
+ * É uma decisão **explícita**, e não o `NODE_ENV`: dentro do container o
+ * `NODE_ENV` é sempre `production`, então um preview com demo precisa pedir.
+ */
+function resolveSeedDemoData(): boolean {
+  const flag = (process.env["SEED_DEMO_DATA"] ?? "").trim().toLowerCase();
+
+  if (flag === "true") return true;
+  if (flag === "false") return false;
+
+  return process.env["NODE_ENV"] !== "production";
+}
+
+const seedDemoData = resolveSeedDemoData();
 
 // -----------------------------------------------------------------------------
 // Dados de referência
@@ -727,14 +745,26 @@ async function seedDemoUsers(
   branchIds: Record<string, string>,
   sectorIds: Record<string, string>,
 ): Promise<void> {
-  if (isProduction) {
-    console.log("  usuários de demonstração: ignorados em produção");
+  if (!seedDemoData) {
+    console.log("  usuários de demonstração: desligados (SEED_DEMO_DATA)");
     return;
   }
 
   const domain = (process.env["AUTH_ALLOWED_DOMAINS"] ?? "exemplo.com.br").split(",")[0]?.trim();
 
   if (!domain) return;
+
+  // Senha dos usuários de demonstração: sem ela eles não teriam como entrar no
+  // preview (o login é local, por e-mail + senha).
+  const demoPassword = (process.env["SEED_DEMO_PASSWORD"] ?? "demo-senha-1234").trim();
+
+  if (demoPassword.length > 0 && !isAcceptablePassword(demoPassword)) {
+    throw new Error(
+      `Seed: SEED_DEMO_PASSWORD precisa ter ao menos ${PASSWORD_MIN_LENGTH} caracteres.`,
+    );
+  }
+
+  const demoPasswordHash = demoPassword.length > 0 ? await hashPassword(demoPassword) : undefined;
 
   const demo = [
     {
@@ -791,8 +821,19 @@ async function seedDemoUsers(
 
     const user = await prisma.user.upsert({
       where: { email },
-      update: { name: entry.name, status: "ACTIVE", active: true },
-      create: { email, name: entry.name, status: "ACTIVE", approvedAt: new Date() },
+      update: {
+        name: entry.name,
+        status: "ACTIVE",
+        active: true,
+        ...(demoPasswordHash ? { passwordHash: demoPasswordHash } : {}),
+      },
+      create: {
+        email,
+        name: entry.name,
+        status: "ACTIVE",
+        approvedAt: new Date(),
+        ...(demoPasswordHash ? { passwordHash: demoPasswordHash } : {}),
+      },
     });
 
     await prisma.membership.upsert({
@@ -811,7 +852,9 @@ async function seedDemoUsers(
     });
   }
 
-  console.log(`  usuários de demonstração: ${demo.length}`);
+  console.log(
+    `  usuários de demonstração: ${demo.length}${demoPasswordHash ? " (com senha de demo)" : ""}`,
+  );
 }
 
 async function seedConfigs(): Promise<void> {
@@ -890,9 +933,9 @@ async function main(): Promise<void> {
   const sectorIds = await seedSectors();
   await seedConfigs();
 
-  if (isProduction) {
-    // Produção: só o essencial. Nada de empresa, filial, catálogo ou usuário de
-    // demonstração — isso é criado pelo administrador na interface.
+  if (!seedDemoData) {
+    // Sem demo (produção): só o essencial. Nada de empresa, filial, catálogo ou
+    // usuário de demonstração — isso é criado pelo administrador na interface.
     const branchIds = await seedProductionBootstrap();
     await seedEmailPolicy(branchIds);
     await seedAdmin(branchIds);
