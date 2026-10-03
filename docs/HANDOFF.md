@@ -83,17 +83,17 @@ Entrega mais recente — **Onda 1 de integridade** (plano em `docs`/handoff; ver
 ## Deploy
 
 Infra: **uma VPS com Dokploy** (Traefik já incluído). A aplicação é buildada pelo
-`Dockerfile`; o Postgres é um serviço do próprio Dokploy; as migrations rodam no
-**entrypoint** do container (1 réplica, zero-downtime desligado). Artefatos:
-`Dockerfile` + `.dockerignore`, `.github/workflows/deploy.yml` (chama o webhook do
-Dokploy), `.github/workflows/backup.yml` (cópia cifrada via SSH),
-`src/app/api/health/route.ts`, `.env.production.example` (checklist) e o runbook
-`docs/DEPLOY.md`.
+`Dockerfile` (**Auto Deploy** no push da `main`); o Postgres é um serviço do próprio
+Dokploy; as migrations rodam no **entrypoint** do container (1 réplica, zero-downtime
+desligado). Artefatos: `Dockerfile` + `docker-entrypoint.sh` + `.dockerignore`,
+`.github/workflows/backup.yml` (cópia cifrada via SSH), `src/app/api/health/route.ts`,
+`.env.production.example` (checklist) e o runbook `docs/DEPLOY.md`. O portão de qualidade
+é o hook `pre-push` + o CI no PR.
 
-Fluxo: merge na `main` → `CI` verde → `deploy.yml` chama o webhook → Dokploy builda e
-sobe → o entrypoint roda `prisma migrate deploy` e depois `pnpm start`. O **seed** roda
-uma vez pelo *Run Command* do Dokploy (`pnpm db:seed`). Backup: Dokploy → S3 (principal,
-retenção longa) + `backup.yml` (secundária, **cifrada** com AES256, 14 dias).
+Fluxo: push/merge na `main` → o **Auto Deploy do Dokploy** builda e sobe → o entrypoint
+espera o banco, roda `prisma migrate deploy` e depois `pnpm start`. O **seed** roda uma vez
+pelo *Run Command* do Dokploy (`pnpm db:seed`). Backup: Dokploy → S3 (principal, retenção
+longa) + `backup.yml` (secundária, **cifrada** com AES256, 14 dias).
 
 Decisões registradas: o seed é **consciente do ambiente** — em `NODE_ENV=production`
 cria apenas permissões, papéis, unidades, setores, configs, uma filial matriz e o admin,

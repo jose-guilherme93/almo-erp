@@ -351,10 +351,10 @@ Cobertura mínima obrigatória de teste:
   pesadas, teto próprio). Um job que estouraria o teto deve **falhar rápido**, nunca
   pendurar meia hora.
 - O CI automático (`ci.yml`) é só: install, lint, typecheck, migrations, seed, test e build.
-- **Deploy automático** (`deploy.yml`): quando o `CI` passa na `main`, o workflow chama o
-  **webhook do Dokploy**, que builda a imagem e sobe o container. As migrations rodam no
-  **entrypoint** (1 réplica, zero-downtime desligado). Segredos e operação em `docs/DEPLOY.md`.
-  Backup: Dokploy → S3 (principal) + `backup.yml` (cópia cifrada, secundária).
+- **Deploy automático**: o **Auto Deploy do Dokploy** publica todo push na `main` (build pelo
+  `Dockerfile`). As migrations rodam no **entrypoint** (1 réplica, zero-downtime desligado).
+  O portão de qualidade fica **antes do push**: hook `pre-push` + CI no PR. Segredos e operação
+  em `docs/DEPLOY.md`. Backup: Dokploy → S3 (principal) + `backup.yml` (cópia cifrada, secundária).
 - **O E2E é local e faz parte do fechamento do trabalho.** Rode ao final de toda mudança de
   fluxo, com o servidor de desenvolvimento:
 

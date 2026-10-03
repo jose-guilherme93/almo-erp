@@ -8,26 +8,25 @@
 
 | Peça | O que é |
 |---|---|
+| **Auto Deploy** (Dokploy) | push na `main` → Dokploy builda (Dockerfile) e sobe |
 | **CI** (`ci.yml`) | lint, typecheck, testes e build a cada push/PR na `main` |
-| **Deploy** (`deploy.yml`) | quando o CI passa, chama o **webhook do Dokploy** |
-| **Dokploy** | builda a imagem (Dockerfile) e sobe o container |
 | **Migrations** | `prisma migrate deploy` no entrypoint, antes do Next servir |
 | **Backup principal** | Dokploy → S3 (agendado, retenção longa) |
 | **Backup secundário** | `backup.yml`: SSH → dump dentro do container → **cifrado** → artefato (14 dias) |
 
 ```
-merge na main
-  → CI verde
-  → deploy.yml chama o webhook do Dokploy
-  → Dokploy builda e sobe
-  → entrypoint: pnpm db:deploy && pnpm start
+push na main
+  → Dokploy (Auto Deploy) builda e sobe
+  → entrypoint: espera o banco → pnpm db:deploy → pnpm start
+  → CI roda em paralelo (qualidade)
 ```
 
 O seed **não** roda a cada deploy: é um passo único (ver §5).
 
-**O portão**: o `deploy.yml` só dispara quando o CI **passa**. Se o CI falhar, nada
-sobe. Para isso valer de verdade, o **Auto Deploy do Dokploy fica DESLIGADO** — senão
-o push publicaria direto, por fora do CI. Quem publica é só o pipeline.
+**O portão de qualidade fica antes do push**, não no deploy: o hook `pre-push` roda
+`lint + typecheck + test + build` e o CI roda no PR para a `main`. O Auto Deploy publica
+o que chega na `main` — então o hábito é **abrir PR e mergear só com o CI verde**, em vez
+de empurrar direto.
 
 ## 2. Pré-requisitos (uma vez)
 
@@ -37,8 +36,8 @@ o push publicaria direto, por fora do CI. Quem publica é só o pipeline.
 3. **Serviço Postgres** criado no Dokploy (aba *Databases*). Anote usuário, senha,
    banco e o **nome do serviço** na rede interna.
 4. **S3 Destination** criada no Dokploy (para o backup principal).
-5. **Application** criada apontando para o repositório, com build type
-   **Dockerfile**.
+5. **Application** criada apontando para o repositório (build type **Dockerfile**),
+   branch **`main`** e **Auto Deploy ligado**.
 
 ## 3. Serviços e configuração no Dokploy
 
@@ -46,7 +45,7 @@ o push publicaria direto, por fora do CI. Quem publica é só o pipeline.
 
 - **Build type**: Dockerfile (raiz do repo).
 - **Branch**: **`main`** (a `develop` é só para testes; produção acompanha a `main`).
-- **Auto Deploy**: **desligado** — quem dispara o deploy é o `deploy.yml`, depois do CI.
+- **Auto Deploy**: **ligado** — todo push na `main` builda e sobe.
 - **Domains**: adicione `colegiobatista.josetilabs.com` (porta 3000).
 - **Environment**: preencha conforme `.env.production.example`.
 - **Volume**: monte um volume em **`/data/uploads`** (precisa bater com a env
@@ -73,7 +72,6 @@ Settings → Secrets and variables → Actions.
 
 | Secret | Para que |
 |---|---|
-| `DOKPLOY_WEBHOOK_URL` | disparar o deploy (Dokploy → Application → Deployments → Webhook) |
 | `SSH_HOST` | host da VPS (backup por SSH) |
 | `SSH_USER` | usuário SSH do backup |
 | `SSH_PRIVATE_KEY` | chave privada SSH dedicada ao backup |
@@ -82,8 +80,8 @@ Settings → Secrets and variables → Actions.
 
 ## 5. Primeira subida
 
-1. Deploy da aplicação (pelo pipeline ou pelo botão no Dokploy). O entrypoint
-   aplica as migrations e o app sobe.
+1. Deploy da aplicação (push na `main` ou pelo botão no Dokploy). O entrypoint
+   espera o banco, aplica as migrations e o app sobe.
 2. **Seed (uma vez só)** — Dokploy → Application → **Advanced → Run Command**:
    ```bash
    pnpm db:seed

@@ -118,7 +118,7 @@ Em produção essa opção é recusada na inicialização.
 O guia completo está em [`docs/DEPLOY.md`](docs/DEPLOY.md). Resumo:
 
 - **Uma VPS com Dokploy**: app (build pelo `Dockerfile`) + Postgres como serviço do Dokploy + Traefik.
-- No merge da `main`: CI verde → webhook do Dokploy → as migrations rodam no entrypoint do container.
+- No merge da `main`: o **Auto Deploy do Dokploy** builda e sobe (migrations no entrypoint).
 - Backup: Dokploy → S3 (principal) + cópia **cifrada** no GitHub Actions (secundária).
 - Anexos de imagem ficam no volume (`UPLOAD_DIR=/data/uploads`).
 - O E2E é **local** (`E2E_AUTH_BYPASS=true pnpm e2e --project=chromium`); o bypass de

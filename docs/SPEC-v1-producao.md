@@ -24,7 +24,8 @@ Publicar a aplicação numa **VPS com Dokploy**: o Dokploy builda o `Dockerfile`
 container atrás do Traefik (TLS automático) e hospeda o Postgres como serviço, com
 backup agendado para S3. As **migrations rodam no entrypoint** do container (1 réplica,
 zero-downtime desligado). O **seed** roda **uma vez**, pelo *Run Command* do Dokploy.
-O **deploy** é disparado pelo GitHub Actions (webhook do Dokploy) **depois** do CI passar.
+O **deploy** é o **Auto Deploy do Dokploy**: todo push na `main` builda e sobe. O portão de
+qualidade fica **antes do push** (hook `pre-push` + CI no PR).
 Há uma **segunda cópia de backup, cifrada (AES256)**, guardada como artefato do GitHub.
 Os **anexos** ficam num volume persistente.
 
@@ -65,7 +66,9 @@ Os **anexos** ficam num volume persistente.
 - **Seed uma vez**: pelo *Run Command* do Dokploy (`pnpm db:seed`). Em produção cria
   apenas referência (permissões, papéis, unidades, setores, configs), uma filial matriz
   e o admin — **sem** dados de demonstração. Idempotente; não reescreve a senha.
-- **Deploy**: o `deploy.yml` chama o **webhook do Dokploy** quando o CI passa na `main`.
+- **Deploy**: **Auto Deploy do Dokploy** — todo push na `main` builda (Dockerfile) e sobe.
+  O portão de qualidade é o hook `pre-push` + o CI no PR (proteção de branch exige plano pago
+  neste repo privado).
   O Dokploy **não** auto-deploya por push (para não competir com o pipeline).
 - **Backup**: principal = **Dokploy → S3** (retenção longa). Secundário = workflow que
   entra por **SSH**, tira o dump **de dentro do container do Postgres** (o banco não é
@@ -107,9 +110,9 @@ Os **anexos** ficam num volume persistente.
 ### Feito e verificado
 
 - Revertidos os anexos (upload, galeria, `/api/anexos/[id]`, compressão) via `git restore`.
-- `Dockerfile` restaurado com **entrypoint de migration** (`pnpm db:deploy && pnpm start`).
-- `deploy.yml` reescrito para chamar o **webhook do Dokploy**; `backup.yml` reescrito
-  (SSH + dump no container + **gpg AES256** + artefato).
+- `Dockerfile` restaurado + `docker-entrypoint.sh`: espera o banco, roda as migrations e sobe.
+- `backup.yml` reescrito (SSH + dump no container + **gpg AES256** + artefato).
+- deploy pelo **Auto Deploy do Dokploy** (o `deploy.yml` foi removido por ser redundante).
 - `.env.production.example` reescrito para Dokploy; doc de deploy reescrita.
 - `README`, `AGENTS §9.1`, `HANDOFF`, `ARQUITETURA`, `FASE-13`, `FASE-16` atualizados.
 
@@ -117,10 +120,10 @@ Os **anexos** ficam num volume persistente.
 
 1. Dokploy instalado + domínio do painel; DNS `A` de `colegiobatista.josetilabs.com`.
 2. Serviço **Postgres** no Dokploy + **S3 Destination** + backup agendado.
-3. **Application**: repo, build Dockerfile, domínio, volume `/data/uploads`, env (ver
-   `.env.production.example`), **replicas=1**, **zero-downtime off**, healthcheck
-   `/api/health`.
-4. Segredos no GitHub: `DOKPLOY_WEBHOOK_URL`, `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`,
+3. **Application**: repo, build Dockerfile, **branch `main`**, **Auto Deploy ligado**,
+   domínio, volume `/data/uploads`, env (ver `.env.production.example`), **replicas=1**,
+   **zero-downtime off**, healthcheck `/api/health`.
+4. Segredos no GitHub (para o backup): `SSH_HOST`, `SSH_USER`, `SSH_PRIVATE_KEY`,
    `POSTGRES_CONTAINER`, `BACKUP_PASSPHRASE`.
 5. Primeiro deploy → **Run Command** `pnpm db:seed` (uma vez).
 6. Testar a restauração do backup.
