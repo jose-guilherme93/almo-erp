@@ -115,7 +115,7 @@ src/app/{(auth),(app)}/**
 
 - [ ] `node -v` retorna v22.x e `pnpm -v` funciona.
 - [ ] `docker compose up -d` sobe o Postgres e `pnpm prisma db:push` conclui.
-- [ ] `pnpm dev` abre a aplicação em `http://localhost:3000` sem erro de hydration.
+- [ ] `pnpm dev` abre a aplicação em `http://localhost:3001` sem erro de hydration.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` e `pnpm build` passam.
 - [ ] `pnpm db:seed` roda sem erro (ainda vazio de domínio).
 - [ ] CI verde no PR.

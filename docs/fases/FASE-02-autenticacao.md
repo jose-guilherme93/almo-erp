@@ -16,9 +16,9 @@ Esta fase entrega a parte real do "só corporativo" e cria a estrutura
 - FASE 01 concluída (modelos `User`, `EmailPolicy`, `Invite`, `Membership`, `Role`).
 - Credenciais OAuth do Google Cloud:
   - **Client ID** e **Client Secret** de um app Web (Google Cloud Console → APIs & Services → Credentials).
-  - Authorized redirect URI: `http://localhost:3000/api/auth/callback/google`
+  - Authorized redirect URI: `http://localhost:3001/api/auth/callback/google`
     (e a URI de produção, ex.: `https://almo-erp.vercel.app/api/auth/callback/google`).
-  - Authorized JavaScript origins: `http://localhost:3000` e o domínio de produção.
+  - Authorized JavaScript origins: `http://localhost:3001` e o domínio de produção.
   - Consent screen do tipo **Internal** (restrito ao Workspace) ou **External** com
     e-mail corporativo verificado.
 - Criar a `AUTH_SECRET` com `openssl rand -base64 32`.

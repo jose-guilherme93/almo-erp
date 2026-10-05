@@ -2,7 +2,7 @@ import { expect, type Browser, type Page } from "@playwright/test";
 
 import { loginAs, type TestUserKey } from "./auth";
 
-const PORT = Number(process.env.PORT ?? 3000);
+const PORT = Number(process.env.PORT ?? 3001);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 
 /**

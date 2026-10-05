@@ -115,7 +115,8 @@ produção, então o servidor é o `pnpm dev` (padrão do `playwright.config.ts`
 E2E_AUTH_BYPASS=true pnpm e2e --project=chromium
 ```
 
-- Se já houver um `pnpm dev` na 3000, o Playwright o reutiliza. **Importante:** depois de
+- Se já houver um `pnpm dev` na **3001** (porta de dev; a 3000 fica com o container do
+  Dokploy), o Playwright o reutiliza. **Importante:** depois de
   alterar `prisma/schema.prisma`, reinicie o `pnpm dev` — ele mantém o Prisma Client antigo
   em memória e o E2E falha com `Unknown argument`.
 - `pnpm build && pnpm start` **não** serve para E2E (o `env.ts` recusa o bypass em produção).

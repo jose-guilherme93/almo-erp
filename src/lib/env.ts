@@ -39,7 +39,7 @@ const serverSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
   NEXT_PUBLIC_APP_NAME: z.string().trim().min(1).default("almo-erp"),
-  NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
+  NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3001"),
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL é obrigatória"),
 
