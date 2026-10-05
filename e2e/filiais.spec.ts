@@ -141,4 +141,18 @@ test.describe("cadastro", () => {
 
     await expect(page.getByLabel("Código da unidade")).toHaveValue("TST-E2E-2");
   });
+
+  test("oferece a unidade superior no cadastro", async ({ page }) => {
+    await loginAs(page, "superAdmin");
+    await page.goto("/filiais/nova");
+
+    // A hierarquia fica no terceiro passo do wizard.
+    await page.getByRole("button", { name: /Responsáveis e operação/ }).click();
+
+    const parent = page.getByLabel("Unidade superior (hierarquia)");
+    await expect(parent).toBeVisible();
+
+    await parent.click();
+    await expect(page.getByRole("option", { name: /MATRIZ/ })).toBeVisible();
+  });
 });
