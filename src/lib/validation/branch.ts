@@ -207,6 +207,6 @@ export const BRANCH_FORM_STEPS = [
   {
     id: "operacao",
     title: "Responsáveis e operação",
-    description: "Quem responde pela unidade e pelo almoxarifado.",
+    description: "Quem responde pela unidade e como ela se organiza na hierarquia.",
   },
 ] as const;

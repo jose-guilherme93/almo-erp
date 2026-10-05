@@ -49,10 +49,12 @@ export type BranchFormValues = {
   notificationResponsibleId: string | null;
   defaultApproverId: string | null;
   notes: string | null;
+  parentId: string | null;
   active: boolean;
 };
 
 export type PeopleOption = { id: string; name: string; email: string };
+export type BranchOption = { id: string; code: string; name: string };
 
 /**
  * Formulário de unidade.
@@ -64,10 +66,12 @@ export type PeopleOption = { id: string; name: string; email: string };
 export function BranchForm({
   mode,
   people,
+  branches,
   defaultValues,
 }: {
   mode: "create" | "edit";
   people: PeopleOption[];
+  branches: BranchOption[];
   defaultValues?: BranchFormValues;
 }) {
   const [step, setStep] = useState(0);
@@ -128,6 +132,7 @@ export function BranchForm({
       {
         step: 2,
         fields: [
+          "parentId",
           "legalResponsibleName",
           "legalResponsibleDocument",
           "warehouseResponsibleId",
@@ -358,6 +363,17 @@ export function BranchForm({
 
       {/* Passo 3 — Responsáveis e operação */}
       <div className={cn("grid gap-4 sm:grid-cols-2", step !== 2 && "hidden")}>
+        <div className="sm:col-span-2">
+          <FormField
+            id="parentId"
+            label="Unidade superior (hierarquia)"
+            hint="Opcional. A unidade que responde por esta. Não pode criar ciclo."
+            errors={fieldErrors["parentId"]}
+          >
+            <ParentBranchSelect branches={branches} defaultValue={defaultValues?.parentId} />
+          </FormField>
+        </div>
+
         <FormField
           id="legalResponsibleName"
           label="Responsável legal (nome)"
@@ -500,6 +516,38 @@ function PersonSelect({
           {people.map((person) => (
             <SelectItem key={person.id} value={person.id}>
               {person.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </>
+  );
+}
+
+/** Select de unidade superior (hierarquia) com opção "nenhuma". */
+function ParentBranchSelect({
+  branches,
+  defaultValue,
+}: {
+  branches: BranchOption[];
+  defaultValue?: string | null;
+}) {
+  const NONE = "__none__";
+  const [value, setValue] = useState(defaultValue ?? NONE);
+
+  return (
+    <>
+      {/* "nenhuma" precisa virar vazio: um id literal quebraria a chave estrangeira. */}
+      <input type="hidden" name="parentId" value={value === NONE ? "" : value} />
+      <Select value={value} onValueChange={setValue}>
+        <SelectTrigger id="parentId" className="w-full">
+          <SelectValue placeholder="Nenhuma (raiz da hierarquia)" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE}>Nenhuma (raiz da hierarquia)</SelectItem>
+          {branches.map((branch) => (
+            <SelectItem key={branch.id} value={branch.id}>
+              {branch.code} — {branch.name}
             </SelectItem>
           ))}
         </SelectContent>

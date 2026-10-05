@@ -236,9 +236,9 @@ entrega, inventário e notificação pendem todos de `Branch`, e cada filial já
 seu próprio CNPJ. Criar uma camada de empresa antes de existir necessidade real de
 relatório ou limite por CNPJ adicionaria um eixo sem uso.
 
-**Consequência.** As filiais de um grupo aparecem lado a lado, sem agrupamento visual
-(além de `Branch.parentId`, que existe no schema mas não tem campo no formulário). Há
-uma única matriz global e um único limite de aprovação da matriz
+**Consequência.** As filiais de um grupo aparecem lado a lado, sem agrupamento por
+empresa (a hierarquia `Branch.parentId` é editável no cadastro, mas não concede visão
+de rede). Há uma única matriz global e um único limite de aprovação da matriz
 (`request.matrixApprovalThreshold`), não um por empresa. A decisão é reversível: para
 agrupar por empresa no futuro, `Branch.companyId` já existe (nullable) — basta o
 cadastro de `Company` e o filtro nos relatórios; nada de estoque ou autorização muda.

@@ -8,19 +8,23 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/db";
 import { requirePagePermission } from "@/server/auth/guards";
+import { listBranchOptions } from "@/server/services/branch";
 
 export const metadata: Metadata = {
   title: "Nova unidade",
 };
 
 export default async function NovaFilialPage() {
-  await requirePagePermission("filial:create");
+  const context = await requirePagePermission("filial:create");
 
-  const people = await prisma.user.findMany({
-    where: { status: "ACTIVE", active: true },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, email: true },
-  });
+  const [people, branches] = await Promise.all([
+    prisma.user.findMany({
+      where: { status: "ACTIVE", active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, email: true },
+    }),
+    listBranchOptions(context),
+  ]);
 
   return (
     <PageBody className="max-w-4xl">
@@ -46,7 +50,7 @@ export default async function NovaFilialPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <BranchForm mode="create" people={people} />
+          <BranchForm mode="create" people={people} branches={branches} />
         </CardContent>
       </Card>
     </PageBody>
