@@ -115,10 +115,23 @@ produção, então o servidor é o `pnpm dev` (padrão do `playwright.config.ts`
 E2E_AUTH_BYPASS=true pnpm e2e --project=chromium
 ```
 
-- Se já houver um `pnpm dev` na **3001** (porta de dev; a 3000 fica com o container do
-  Dokploy), o Playwright o reutiliza. **Importante:** depois de
-  alterar `prisma/schema.prisma`, reinicie o `pnpm dev` — ele mantém o Prisma Client antigo
-  em memória e o E2E falha com `Unknown argument`.
+### Portas do dev local
+
+- **3000 — container de produção do Dokploy** (`next-server`). Não é dev server, e o
+  bypass de teste **não** existe aí: apontar o E2E para a 3000 faz o formulário de login
+  de teste sumir. Se `localhost:3000` responder, é o container, não o seu dev.
+- **3001 — `pnpm dev`** (definido em `package.json`). É a porta de desenvolvimento e a
+  padrão do Playwright (`playwright.config.ts` e `e2e/helpers/flows.ts`). O `start` de
+  produção continua na 3000 (via `PORT` do Docker).
+- **Cuidado com `.env.local`:** um `.env.local` apontando `DATABASE_URL` para outro banco
+  (ex.: Neon) tem prioridade sobre o `.env` e faz o dev usar o banco errado. Mantenha só o
+  `.env` do Postgres local.
+
+- Se já houver um `pnpm dev` na **3001**, o Playwright o reutiliza. Deixar o dev aberto
+  também evita um detalhe: quando o Playwright sobe o servidor sozinho, o `next dev` filho
+  pode não encerrar no fim e a CLI fica pendurada (mate o processo na 3001, se acontecer).
+  **Importante:** depois de alterar `prisma/schema.prisma`, reinicie o `pnpm dev` — ele
+  mantém o Prisma Client antigo em memória e o E2E falha com `Unknown argument`.
 - `pnpm build && pnpm start` **não** serve para E2E (o `env.ts` recusa o bypass em produção).
 - O `e2e.yml` do Actions é manual/opcional, capado em 5 min; não transformar em job longo.
 
