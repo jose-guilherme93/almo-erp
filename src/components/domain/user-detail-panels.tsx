@@ -20,6 +20,7 @@ import {
   adicionarVinculoAction,
   alterarStatusUsuarioAction,
   atualizarUsuarioAction,
+  editarVinculoAction,
   removerVinculoAction,
 } from "@/server/actions/usuario";
 
@@ -152,9 +153,13 @@ export type MembershipItem = {
   id: string;
   active: boolean;
   isDefault: boolean;
+  branchId: string;
   branchName: string;
   branchCode: string;
+  roleId: string;
   roleName: string;
+  sectorId: string | null;
+  sectorName: string | null;
 };
 
 export function MembershipManager({
@@ -162,11 +167,15 @@ export function MembershipManager({
   memberships,
   branches,
   roles,
+  sectors,
+  canManage,
 }: {
   userId: string;
   memberships: MembershipItem[];
   branches: PanelOption[];
   roles: PanelOption[];
+  sectors: PanelOption[];
+  canManage: boolean;
 }) {
   const router = useRouter();
 
@@ -179,6 +188,11 @@ export function MembershipManager({
     ActionResult<undefined> | null,
     FormData
   >(removerVinculoAction, null);
+
+  const [editState, editAction, isEditing] = useActionState<
+    ActionResult<{ membershipId: string }> | null,
+    FormData
+  >(editarVinculoAction, null);
 
   useEffect(() => {
     if (!addState) return;
@@ -202,6 +216,17 @@ export function MembershipManager({
     }
   }, [removeState, router]);
 
+  useEffect(() => {
+    if (!editState) return;
+
+    if (editState.ok) {
+      toast.success(editState.message ?? "Vínculo atualizado.");
+      router.refresh();
+    } else {
+      toast.error(editState.error);
+    }
+  }, [editState, router]);
+
   // Trocar a `key` do formulário o remonta após um cadastro bem-sucedido,
   // limpando os selects sem precisar de setState dentro de um efeito.
   const addFormKey = addState?.ok ? addState.data.membershipId : "novo-vinculo";
@@ -210,18 +235,29 @@ export function MembershipManager({
 
   return (
     <div className="space-y-5">
+      {editState && !editState.ok ? <FormError message={editState.error} /> : null}
+
       <ul className="divide-y rounded-md border">
         {memberships.length === 0 ? (
           <li className="text-muted-foreground p-3 text-sm">
             Sem vínculo. O usuário não consegue operar em nenhuma unidade.
           </li>
         ) : (
-          memberships.map((membership) => (
-            <li
-              key={membership.id}
-              className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
-            >
-              <div className="min-w-0">
+          memberships.map((membership) =>
+            canManage ? (
+              <MembershipRow
+                key={membership.id}
+                userId={userId}
+                membership={membership}
+                roles={roles}
+                sectors={sectors}
+                editAction={editAction}
+                removeAction={removeAction}
+                isEditing={isEditing}
+                isRemoving={isRemoving}
+              />
+            ) : (
+              <li key={membership.id} className="p-3 text-sm">
                 <p className="truncate font-medium">
                   {membership.branchName}
                   {membership.isDefault ? (
@@ -233,38 +269,143 @@ export function MembershipManager({
                 </p>
                 <p className="text-muted-foreground text-xs">
                   {membership.branchCode} · {membership.roleName}
+                  {membership.sectorName ? ` · ${membership.sectorName}` : ""}
                 </p>
-              </div>
-
-              <form action={removeAction}>
-                <input type="hidden" name="membershipId" value={membership.id} />
-                <input type="hidden" name="userId" value={userId} />
-                <Button
-                  type="submit"
-                  variant="ghost"
-                  size="sm"
-                  disabled={isRemoving}
-                  className="text-destructive"
-                >
-                  Remover
-                </Button>
-              </form>
-            </li>
-          ))
+              </li>
+            ),
+          )
         )}
       </ul>
 
-      <AddMembershipForm
-        key={addFormKey}
-        userId={userId}
-        branches={branches}
-        roles={roles}
-        action={addAction}
-        isPending={isAdding}
-        error={addState && !addState.ok ? addState.error : null}
-        fieldErrors={addFieldErrors}
-      />
+      {canManage ? (
+        <AddMembershipForm
+          key={addFormKey}
+          userId={userId}
+          branches={branches}
+          roles={roles}
+          sectors={sectors}
+          action={addAction}
+          isPending={isAdding}
+          error={addState && !addState.ok ? addState.error : null}
+          fieldErrors={addFieldErrors}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function MembershipRow({
+  userId,
+  membership,
+  roles,
+  sectors,
+  editAction,
+  removeAction,
+  isEditing,
+  isRemoving,
+}: {
+  userId: string;
+  membership: MembershipItem;
+  roles: PanelOption[];
+  sectors: PanelOption[];
+  editAction: (formData: FormData) => void;
+  removeAction: (formData: FormData) => void;
+  isEditing: boolean;
+  isRemoving: boolean;
+}) {
+  const [roleId, setRoleId] = useState(membership.roleId);
+  const [sectorId, setSectorId] = useState(membership.sectorId ?? "");
+  const [isDefault, setIsDefault] = useState(membership.isDefault);
+
+  return (
+    <li className="space-y-2 p-3">
+      <form
+        action={editAction}
+        className="grid gap-3 sm:grid-cols-[1.4fr_1fr_1fr_auto] sm:items-end"
+      >
+        <input type="hidden" name="membershipId" value={membership.id} />
+        <input type="hidden" name="userId" value={userId} />
+
+        <div className="min-w-0">
+          <p className="truncate font-medium">
+            {membership.branchName}
+            {membership.isDefault ? (
+              <span className="text-muted-foreground ml-2 text-xs">(padrão)</span>
+            ) : null}
+            {!membership.active ? (
+              <span className="ml-2 text-xs text-amber-600">inativo</span>
+            ) : null}
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {membership.branchCode} · {membership.roleName}
+            {membership.sectorName ? ` · ${membership.sectorName}` : ""}
+          </p>
+        </div>
+
+        <FormField id={`role-${membership.id}`} label="Perfil">
+          {/* Input espelho: o Select do Radix não participa do FormData nativo. */}
+          <input type="hidden" name="roleId" value={roleId} />
+          <Select value={roleId} onValueChange={setRoleId}>
+            <SelectTrigger id={`role-${membership.id}`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {roles.map((role) => (
+                <SelectItem key={role.id} value={role.id}>
+                  {role.name}
+                  {role.scope === "ALL_BRANCHES" ? " (rede)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+
+        <FormField id={`sector-${membership.id}`} label="Setor">
+          <input type="hidden" name="sectorId" value={sectorId} />
+          <Select value={sectorId} onValueChange={setSectorId}>
+            <SelectTrigger id={`sector-${membership.id}`} className="w-full">
+              <SelectValue placeholder="Sem setor" />
+            </SelectTrigger>
+            <SelectContent>
+              {sectors.map((sector) => (
+                <SelectItem key={sector.id} value={sector.id}>
+                  {sector.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+
+        <div className="flex flex-wrap items-center gap-2 pb-1">
+          <label className="flex cursor-pointer items-center gap-2 text-xs">
+            <Checkbox
+              checked={isDefault}
+              onCheckedChange={(value) => setIsDefault(value === true)}
+              aria-label="Definir como unidade padrão no login"
+            />
+            Padrão
+          </label>
+          <input type="hidden" name="isDefault" value={isDefault ? "on" : ""} />
+          <Button type="submit" size="sm" variant="outline" disabled={isEditing}>
+            Salvar
+          </Button>
+        </div>
+      </form>
+
+      <form action={removeAction}>
+        <input type="hidden" name="membershipId" value={membership.id} />
+        <input type="hidden" name="userId" value={userId} />
+        <Button
+          type="submit"
+          variant="ghost"
+          size="sm"
+          disabled={isRemoving}
+          className="text-destructive"
+        >
+          Remover vínculo
+        </Button>
+      </form>
+    </li>
   );
 }
 
@@ -272,6 +413,7 @@ function AddMembershipForm({
   userId,
   branches,
   roles,
+  sectors,
   action,
   isPending,
   error,
@@ -280,6 +422,7 @@ function AddMembershipForm({
   userId: string;
   branches: PanelOption[];
   roles: PanelOption[];
+  sectors: PanelOption[];
   action: (formData: FormData) => void;
   isPending: boolean;
   error: string | null;
@@ -287,6 +430,7 @@ function AddMembershipForm({
 }) {
   const [branchId, setBranchId] = useState("");
   const [roleId, setRoleId] = useState("");
+  const [sectorId, setSectorId] = useState("");
   const [isDefault, setIsDefault] = useState(false);
 
   return (
@@ -296,7 +440,7 @@ function AddMembershipForm({
 
       {error ? <FormError message={error} /> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <FormField id="branchId" label="Unidade" required errors={fieldErrors["branchId"]}>
           <input type="hidden" name="branchId" value={branchId} />
           <Select value={branchId} onValueChange={setBranchId}>
@@ -324,6 +468,27 @@ function AddMembershipForm({
                 <SelectItem key={role.id} value={role.id}>
                   {role.name}
                   {role.scope === "ALL_BRANCHES" ? " (rede)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+
+        <FormField
+          id="newSectorId"
+          label="Setor"
+          errors={fieldErrors["sectorId"]}
+          hint="Roteia chamados de atendimento (ex.: TI)."
+        >
+          <input type="hidden" name="sectorId" value={sectorId} />
+          <Select value={sectorId} onValueChange={setSectorId}>
+            <SelectTrigger id="newSectorId" className="w-full">
+              <SelectValue placeholder="Sem setor" />
+            </SelectTrigger>
+            <SelectContent>
+              {sectors.map((sector) => (
+                <SelectItem key={sector.id} value={sector.id}>
+                  {sector.name}
                 </SelectItem>
               ))}
             </SelectContent>

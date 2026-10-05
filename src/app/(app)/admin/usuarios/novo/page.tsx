@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { prisma } from "@/lib/db";
 import { requirePagePermission } from "@/server/auth/guards";
+import { listActiveSectors } from "@/server/services/sector";
 
 export const metadata: Metadata = {
   title: "Novo usuário",
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
 export default async function NovoUsuarioPage() {
   const context = await requirePagePermission("usuario:manage");
 
-  const [roles, branches] = await Promise.all([
+  const [roles, branches, sectors] = await Promise.all([
     prisma.role.findMany({
       where: { active: true },
       orderBy: [{ scope: "asc" }, { name: "asc" }],
@@ -27,6 +28,7 @@ export default async function NovoUsuarioPage() {
       orderBy: [{ type: "asc" }, { code: "asc" }],
       select: { id: true, code: true, name: true, type: true },
     }),
+    listActiveSectors(),
   ]);
 
   return (
@@ -49,6 +51,11 @@ export default async function NovoUsuarioPage() {
           <UserForm
             roles={roles}
             branches={branches}
+            sectors={sectors.map((sector) => ({
+              id: sector.id,
+              code: sector.code,
+              name: sector.name,
+            }))}
             canActivateDirectly={context.hasPermission("usuario:manage")}
           />
         </CardContent>

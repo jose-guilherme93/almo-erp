@@ -1,13 +1,16 @@
 name: CI
 
+# Apenas `main` dispara CI. `develop` e branches de trabalho não rodam nada.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
+# Um push novo cancela o run anterior da mesma ref: nunca fica fila acumulada.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -20,8 +23,11 @@ env:
 
 jobs:
   quality:
-    name: Lint, tipos, testes e build
+    name: Qualidade (lint, tipos, testes, build)
     runs-on: ubuntu-latest
+    # REGRA: nenhum job de CI passa de 5 minutos. O teto é o próprio contrato:
+    # se estourar, falha rápido em vez de pendurar por 30.
+    timeout-minutes: 5
 
     services:
       postgres:
@@ -53,85 +59,30 @@ jobs:
 
       - name: Instalar dependências
         run: pnpm install --frozen-lockfile
+        timeout-minutes: 3
 
       - name: Lint
         run: pnpm lint
+        timeout-minutes: 2
 
       - name: Typecheck
         run: pnpm typecheck
+        timeout-minutes: 2
 
       - name: Aplicar migrations
         run: pnpm db:deploy
+        timeout-minutes: 2
 
       - name: Seed
         run: pnpm db:seed
+        timeout-minutes: 2
         env:
           SEED_ADMIN_EMAIL: admin@exemplo.com.br
 
       - name: Testes
         run: pnpm test
+        timeout-minutes: 3
 
       - name: Build
         run: pnpm build
-
-  e2e:
-    name: Testes end-to-end
-    runs-on: ubuntu-latest
-    needs: quality
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: almo
-          POSTGRES_PASSWORD: almo_dev_password
-          POSTGRES_DB: almo_erp
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U almo -d almo_erp"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configurar pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Configurar Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Instalar dependências
-        run: pnpm install --frozen-lockfile
-
-      - name: Aplicar migrations
-        run: pnpm db:deploy
-
-      - name: Seed
-        run: pnpm db:seed
-        env:
-          SEED_ADMIN_EMAIL: admin@exemplo.com.br
-
-      - name: Instalar navegadores do Playwright
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Rodar e2e
-        run: pnpm e2e --project=chromium
-        env:
-          # Liga o provider de credenciais usado só pelos testes. O
-          # src/lib/env.ts recusa esta combinação se NODE_ENV=production.
-          E2E_AUTH_BYPASS: "true"
-
-      - name: Publicar relatório do Playwright
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7
+        timeout-minutes: 3

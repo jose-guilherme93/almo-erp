@@ -25,7 +25,9 @@ export type ReportId =
   | "solicitacoes"
   | "movimentacoes"
   | "sem-movimento"
-  | "sem-politica";
+  | "sem-politica"
+  | "demanda-por-setor"
+  | "duracao-demandas";
 
 export const REPORTS: Array<{ id: ReportId; label: string; description: string }> = [
   {
@@ -67,6 +69,16 @@ export const REPORTS: Array<{ id: ReportId; label: string; description: string }
     id: "sem-politica",
     label: "Itens sem mínimo definido",
     description: "Materiais sem política de reposição: lacuna silenciosa de configuração.",
+  },
+  {
+    id: "demanda-por-setor",
+    label: "Demanda por setor",
+    description: "Quais setores pedem mais material e abrem mais chamados, com valor e conclusão.",
+  },
+  {
+    id: "duracao-demandas",
+    label: "Duração das demandas",
+    description: "Tempo médio e máximo para decidir/atender, mês a mês, por tipo de demanda.",
   },
 ];
 
@@ -670,6 +682,231 @@ async function semPolitica(scope: ReportScope): Promise<ReportResult> {
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Observabilidade por setor e duração                                         */
+/* -------------------------------------------------------------------------- */
+
+const MATERIAL_DONE_STATUS = "DELIVERED";
+const MATERIAL_CLOSED_STATUSES = ["DELIVERED", "REJECTED", "CANCELLED"];
+const MAINTENANCE_DONE_STATUS = "DONE";
+const MAINTENANCE_OPEN_STATUSES = ["OPEN", "IN_REVIEW", "IN_PROGRESS", "WAITING_PARTS"];
+
+async function demandaPorSetor(scope: ReportScope): Promise<ReportResult> {
+  const [requests, maintenance] = await Promise.all([
+    prisma.request.findMany({
+      where: {
+        branchId: { in: [...scope.branchIds] },
+        createdAt: { gte: scope.from, lte: scope.to },
+      },
+      select: {
+        status: true,
+        sector: { select: { name: true } },
+        lines: { select: { requestedQuantity: true, unitPriceSnapshot: true } },
+      },
+    }),
+    prisma.maintenanceRequest.findMany({
+      where: {
+        branchId: { in: [...scope.branchIds] },
+        createdAt: { gte: scope.from, lte: scope.to },
+      },
+      select: { status: true, sector: { select: { name: true } } },
+    }),
+  ]);
+
+  type Agg = {
+    sector: string;
+    type: string;
+    total: number;
+    open: number;
+    done: number;
+    value: Prisma.Decimal;
+  };
+
+  const map = new Map<string, Agg>();
+  const keyOf = (sector: string, type: string) => `${sector}::${type}`;
+
+  for (const request of requests) {
+    const sector = request.sector?.name ?? "Sem setor";
+    const key = keyOf(sector, "Material");
+    const current = map.get(key) ?? {
+      sector,
+      type: "Material",
+      total: 0,
+      open: 0,
+      done: 0,
+      value: new Prisma.Decimal(0),
+    };
+
+    const value = request.lines.reduce(
+      (total, line) =>
+        total.plus(line.requestedQuantity.times(line.unitPriceSnapshot ?? new Prisma.Decimal(0))),
+      new Prisma.Decimal(0),
+    );
+
+    map.set(key, {
+      ...current,
+      total: current.total + 1,
+      open: current.open + (MATERIAL_CLOSED_STATUSES.includes(request.status) ? 0 : 1),
+      done: current.done + (request.status === MATERIAL_DONE_STATUS ? 1 : 0),
+      value: current.value.plus(value),
+    });
+  }
+
+  for (const ticket of maintenance) {
+    const sector = ticket.sector?.name ?? "Sem setor";
+    const key = keyOf(sector, "Chamado");
+    const current = map.get(key) ?? {
+      sector,
+      type: "Chamado",
+      total: 0,
+      open: 0,
+      done: 0,
+      value: new Prisma.Decimal(0),
+    };
+
+    map.set(key, {
+      ...current,
+      total: current.total + 1,
+      open: current.open + (MAINTENANCE_OPEN_STATUSES.includes(ticket.status) ? 1 : 0),
+      done: current.done + (ticket.status === MAINTENANCE_DONE_STATUS ? 1 : 0),
+    });
+  }
+
+  const rows = [...map.values()]
+    .sort((a, b) => b.total - a.total || a.sector.localeCompare(b.sector))
+    .map((row) => [
+      row.sector,
+      row.type,
+      row.total,
+      row.open,
+      row.done,
+      toCsvNumber(row.value.toString()),
+    ]);
+
+  const totalDemands = [...map.values()].reduce((total, row) => total + row.total, 0);
+
+  return {
+    headers: ["Setor", "Tipo", "Demandas", "Em aberto", "Concluídas", "Valor estimado (R$)"],
+    rows,
+    summary: `${rows.length} combinação(ões) setor × tipo · ${totalDemands} demanda(s) no período`,
+  };
+}
+
+function monthKey(date: Date): string {
+  return date.toISOString().slice(0, 7);
+}
+
+async function duracaoDemandas(scope: ReportScope): Promise<ReportResult> {
+  const [requests, maintenance, delegations] = await Promise.all([
+    prisma.request.findMany({
+      where: {
+        branchId: { in: [...scope.branchIds] },
+        createdAt: { gte: scope.from, lte: scope.to },
+      },
+      select: { createdAt: true, decidedAt: true, deliveredAt: true },
+    }),
+    prisma.maintenanceRequest.findMany({
+      where: {
+        branchId: { in: [...scope.branchIds] },
+        createdAt: { gte: scope.from, lte: scope.to },
+      },
+      select: { createdAt: true, completedAt: true },
+    }),
+    prisma.delegation.findMany({
+      where: {
+        createdAt: { gte: scope.from, lte: scope.to },
+        OR: [
+          { request: { branchId: { in: [...scope.branchIds] } } },
+          { maintenanceRequest: { branchId: { in: [...scope.branchIds] } } },
+        ],
+      },
+      select: { createdAt: true, completedAt: true },
+    }),
+  ]);
+
+  type Bucket = { month: string; type: string; total: number; durations: number[] };
+
+  const buckets = new Map<string, Bucket>();
+
+  const push = (month: string, type: string, hours: number | null) => {
+    const key = `${month}::${type}`;
+    const bucket = buckets.get(key) ?? { month, type, total: 0, durations: [] };
+
+    bucket.total += 1;
+    if (hours !== null && Number.isFinite(hours)) bucket.durations.push(hours);
+
+    buckets.set(key, bucket);
+  };
+
+  const hoursBetween = (from: Date, to: Date) => (to.getTime() - from.getTime()) / 3600000;
+
+  for (const request of requests) {
+    const end = request.deliveredAt ?? request.decidedAt;
+    push(
+      monthKey(request.createdAt),
+      "Material",
+      end ? hoursBetween(request.createdAt, end) : null,
+    );
+  }
+
+  for (const ticket of maintenance) {
+    push(
+      monthKey(ticket.createdAt),
+      "Chamado",
+      ticket.completedAt ? hoursBetween(ticket.createdAt, ticket.completedAt) : null,
+    );
+  }
+
+  for (const delegation of delegations) {
+    push(
+      monthKey(delegation.createdAt),
+      "Etapa em outro setor",
+      delegation.completedAt ? hoursBetween(delegation.createdAt, delegation.completedAt) : null,
+    );
+  }
+
+  const rows = [...buckets.values()]
+    .sort((a, b) => a.month.localeCompare(b.month) || a.type.localeCompare(b.type))
+    .map((bucket) => {
+      const average =
+        bucket.durations.length > 0
+          ? bucket.durations.reduce((total, value) => total + value, 0) / bucket.durations.length
+          : null;
+      const maximum = bucket.durations.length > 0 ? Math.max(...bucket.durations) : null;
+
+      return [
+        bucket.month,
+        bucket.type,
+        bucket.total,
+        bucket.durations.length,
+        average === null ? "—" : average.toFixed(1),
+        maximum === null ? "—" : maximum.toFixed(1),
+      ];
+    });
+
+  const allDurations = [...buckets.values()].flatMap((bucket) => bucket.durations);
+  const overallAverage =
+    allDurations.length > 0
+      ? allDurations.reduce((total, value) => total + value, 0) / allDurations.length
+      : null;
+
+  return {
+    headers: [
+      "Competência",
+      "Tipo",
+      "Demandas",
+      "Concluídas",
+      "Tempo médio (h)",
+      "Tempo máximo (h)",
+    ],
+    rows,
+    summary:
+      overallAverage === null
+        ? "Sem demandas concluídas no período."
+        : `Tempo médio geral de ${overallAverage.toFixed(1)}h entre abertura e fechamento`,
+  };
+}
+
 /** Despacha para o relatório pedido. */
 export async function runReport(reportId: ReportId, scope: ReportScope): Promise<ReportResult> {
   switch (reportId) {
@@ -689,6 +926,10 @@ export async function runReport(reportId: ReportId, scope: ReportScope): Promise
       return semMovimento(scope);
     case "sem-politica":
       return semPolitica(scope);
+    case "demanda-por-setor":
+      return demandaPorSetor(scope);
+    case "duracao-demandas":
+      return duracaoDemandas(scope);
   }
 }
 

@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Download, FileSpreadsheet } from "lucide-react";
+import { Download, FileSpreadsheet, History } from "lucide-react";
 
 import { PageBody, PageHeader } from "@/components/layout/page-header";
+import { ReportConsolidateForm } from "@/components/domain/report-consolidate-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -98,15 +99,33 @@ export default async function RelatoriosPage({
         title="Relatórios"
         description="Consumo, cobertura de estoque, valor e auditoria das movimentações."
         action={
-          <Button asChild variant="outline">
-            <Link
-              href={`/api/relatorios/${reportId}/csv?${exportQuery.toString()}`}
-              prefetch={false}
-            >
-              <Download className="size-4" />
-              Exportar CSV
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <ReportConsolidateForm
+              reportId={reportId}
+              periodo={activePreset}
+              from={from}
+              to={to}
+              filial={firstParam(params, "filial") ?? ""}
+              categoria={firstParam(params, "categoria") ?? ""}
+            />
+
+            <Button asChild variant="outline">
+              <Link
+                href={`/api/relatorios/${reportId}/csv?${exportQuery.toString()}`}
+                prefetch={false}
+              >
+                <Download className="size-4" />
+                Exportar CSV
+              </Link>
+            </Button>
+
+            <Button asChild variant="ghost">
+              <Link href="/relatorios/consolidados">
+                <History className="size-4" />
+                Consolidados
+              </Link>
+            </Button>
+          </div>
         }
       />
 

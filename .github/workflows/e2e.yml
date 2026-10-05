@@ -1,0 +1,92 @@
+name: E2E (manual)
+
+# NÃO roda em push nem em pull request. É opcional e disparado à mão; assim o
+# CI automático (só `main`) fica dentro dos 5 minutos.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: postgresql://almo:almo_dev_password@localhost:5432/almo_erp?schema=public
+  AUTH_SECRET: ci-secret-nao-usar-em-producao
+  AUTH_ALLOWED_DOMAINS: exemplo.com.br
+  NEXT_PUBLIC_APP_URL: http://localhost:3000
+  AUTH_TRUST_HOST: "true"
+  # O bypass de autenticação de teste (`E2E_AUTH_BYPASS`) só existe fora de
+  # produção (`src/lib/env.ts`), então o E2E roda com `pnpm dev` (comando padrão
+  # do playwright.config). Nunca com `pnpm build && pnpm start`.
+  #
+  # E2E é local-first (AGENTS §9.1): este workflow é manual e opcional. Se um
+  # cenário não couber no teto de 5 minutos, rode local.
+
+jobs:
+  e2e:
+    name: Playwright (chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: almo
+          POSTGRES_PASSWORD: almo_dev_password
+          POSTGRES_DB: almo_erp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U almo -d almo_erp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Cache dos navegadores do Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 3
+
+      - name: Aplicar migrations
+        run: pnpm db:deploy
+
+      - name: Seed
+        run: pnpm db:seed
+        env:
+          SEED_ADMIN_EMAIL: admin@exemplo.com.br
+
+      - name: Instalar Chromium
+        # Sem `--with-deps`: o runner do GitHub já tem as bibliotecas do Chromium.
+        run: pnpm exec playwright install chromium
+
+      - name: Rodar e2e
+        run: pnpm e2e --project=chromium
+        env:
+          E2E_AUTH_BYPASS: "true"
+
+      - name: Publicar relatório do Playwright
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

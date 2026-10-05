@@ -18,6 +18,8 @@ export type MembershipSpec = {
   roleName?: string;
   roleScope?: RoleScope;
   isDefault?: boolean;
+  sectorId?: string | null;
+  sectorName?: string | null;
 };
 
 export type AuthContextSpec = {
@@ -32,6 +34,9 @@ export type AuthContextSpec = {
   /** Todas as filiais visíveis quando há papel de rede. */
   networkBranchIds?: string[];
   activeBranchId?: string | null;
+  /** Setores do usuário; por padrão derivados dos vínculos. */
+  sectorIds?: string[];
+  activeSectorId?: string | null;
 };
 
 export function makeAuthContext(spec: AuthContextSpec = {}): AuthContext {
@@ -46,6 +51,8 @@ export function makeAuthContext(spec: AuthContextSpec = {}): AuthContext {
     roleName: entry.roleName ?? "Gestor",
     roleScope: entry.roleScope ?? ("OWN_BRANCHES" as RoleScope),
     isDefault: entry.isDefault ?? false,
+    sectorId: entry.sectorId ?? null,
+    sectorName: entry.sectorName ?? null,
   }));
 
   const isNetworkScope = spec.networkPermissions !== undefined;
@@ -66,9 +73,16 @@ export function makeAuthContext(spec: AuthContextSpec = {}): AuthContext {
       status: "ACTIVE" as UserStatus,
     },
     memberships,
+    sectorIds: spec.sectorIds ?? [
+      ...new Set(memberships.map((m) => m.sectorId).filter((id): id is string => !!id)),
+    ],
     branchIds,
     isNetworkScope,
     activeBranchId: spec.activeBranchId ?? branchIds[0] ?? null,
+    activeSectorId:
+      spec.activeSectorId ??
+      memberships.find((m) => m.branchId === (spec.activeBranchId ?? branchIds[0]))?.sectorId ??
+      null,
     networkPermissions,
 
     hasPermission(permission, branchId) {

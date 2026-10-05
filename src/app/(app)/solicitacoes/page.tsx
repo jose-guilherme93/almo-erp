@@ -20,7 +20,8 @@ import {
   type RawSearchParams,
 } from "@/lib/pagination";
 import { requirePagePermission } from "@/server/auth/guards";
-import { listRequests } from "@/server/services/request";
+import { readRequestedBranchId } from "@/server/auth/scope";
+import { listRequestableBranches, listRequests } from "@/server/services/request";
 
 export const metadata: Metadata = {
   title: "Solicitações",
@@ -36,17 +37,28 @@ export default async function SolicitacoesPage({
   const params = await searchParams;
   const context = await requirePagePermission("solicitacao:read");
 
-  // Por padrão mostramos as próprias solicitações; quem aprova pode ver todas.
-  const mineOnly = firstParam(params, "minhas") !== "0";
+  const canOverview = context.hasPermission("solicitacao:overview");
 
-  const result = await listRequests(context, {
-    search: readSearch(params),
-    status: firstParam(params, "situacao") ?? null,
-    priority: firstParam(params, "prioridade") ?? null,
-    requesterId: mineOnly ? context.user.id : null,
-    page: readPage(params),
-    pageSize: readPageSize(params),
-  });
+  // Sem visão geral, a pessoa só enxerga as próprias — e é isso que a lista
+  // mostra. Com visão geral (almoxarifado/matriz), o padrão é ver o escopo
+  // inteiro; "minhas=1" restringe às próprias.
+  const mineOnly = !canOverview || firstParam(params, "minhas") === "1";
+
+  const showBranchFilter = context.isNetworkScope;
+  const branchId = readRequestedBranchId(context, firstParam(params, "filial"));
+
+  const [result, branches] = await Promise.all([
+    listRequests(context, {
+      search: readSearch(params),
+      status: firstParam(params, "situacao") ?? null,
+      priority: firstParam(params, "prioridade") ?? null,
+      requesterId: mineOnly ? context.user.id : null,
+      branchId,
+      page: readPage(params),
+      pageSize: readPageSize(params),
+    }),
+    showBranchFilter ? listRequestableBranches(context) : Promise.resolve([]),
+  ]);
 
   const columns: Array<Column<Row>> = [
     {
@@ -95,11 +107,13 @@ export default async function SolicitacoesPage({
   return (
     <PageBody>
       <PageHeader
-        title={mineOnly ? "Minhas solicitações" : "Solicitações da unidade"}
+        title={mineOnly ? "Minhas solicitações" : "Solicitações"}
         description={
           mineOnly
             ? "Acompanhe o andamento dos seus pedidos de material."
-            : "Todas as solicitações da sua unidade."
+            : context.isNetworkScope
+              ? "Todas as solicitações de todas as unidades."
+              : "Todas as solicitações da sua unidade."
         }
         action={
           context.hasPermission("solicitacao:create") ? (
@@ -136,14 +150,27 @@ export default async function SolicitacoesPage({
           }))}
         />
 
-        <ClearFilters paramKeys={["busca", "situacao", "prioridade", "minhas"]} />
+        {showBranchFilter ? (
+          <TableFilterSelect
+            paramKey="filial"
+            placeholder="Unidade"
+            allLabel="Todas as unidades"
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+          />
+        ) : null}
 
-        {context.hasPermission("solicitacao:approve") ? (
+        <ClearFilters paramKeys={["busca", "situacao", "prioridade", "minhas", "filial"]} />
+
+        {canOverview ? (
           <Link
-            href={mineOnly ? "/solicitacoes?minhas=0" : "/solicitacoes"}
+            href={mineOnly ? "/solicitacoes" : "/solicitacoes?minhas=1"}
             className="border-input hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm"
           >
-            {mineOnly ? "Ver todas da unidade" : "Ver só as minhas"}
+            {mineOnly
+              ? context.isNetworkScope
+                ? "Ver todas as unidades"
+                : "Ver todas da unidade"
+              : "Ver só as minhas"}
           </Link>
         ) : null}
       </div>

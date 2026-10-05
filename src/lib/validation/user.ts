@@ -26,6 +26,15 @@ export const userStatusSchema = z.enum(["PENDING", "ACTIVE", "SUSPENDED", "INACT
 
 export const roleScopeSchema = z.enum(["ALL_BRANCHES", "OWN_BRANCHES"]);
 
+/**
+ * Setor do vínculo (opcional).
+ *
+ * Define de qual setor a pessoa faz parte naquela unidade — é o que roteia
+ * chamados de atendimento para o setor certo (ex.: TI) e libera a visibilidade
+ * das demandas encaminhadas/roteadas a ele.
+ */
+const sectorIdField = z.string().trim().min(1).optional();
+
 /** Criação de usuário pelo administrador. */
 export const createUserSchema = z.object({
   name: nameField,
@@ -35,6 +44,7 @@ export const createUserSchema = z.object({
     .array(z.string().trim().min(1))
     .min(1, "Selecione ao menos uma unidade.")
     .max(50, "Selecione menos unidades."),
+  sectorId: sectorIdField,
   activateNow: z.boolean().default(false),
 });
 
@@ -52,6 +62,14 @@ export const addMembershipSchema = z.object({
   userId: z.string().trim().min(1),
   branchId: z.string().trim().min(1, "Selecione a unidade."),
   roleId: z.string().trim().min(1, "Selecione o perfil."),
+  sectorId: sectorIdField,
+  isDefault: z.boolean().default(false),
+});
+
+export const updateMembershipSchema = z.object({
+  membershipId: z.string().trim().min(1),
+  roleId: z.string().trim().min(1, "Selecione um perfil."),
+  sectorId: sectorIdField,
   isDefault: z.boolean().default(false),
 });
 

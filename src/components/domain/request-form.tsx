@@ -5,6 +5,7 @@ import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { FormError, FormField } from "@/components/domain/form-field";
+import { ImageInput } from "@/components/domain/image-input";
 import { ItemCombobox, type ItemOption } from "@/components/domain/item-combobox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,12 @@ export type RequestableBranch = {
   city: string | null;
 };
 
+export type SectorOption = {
+  id: string;
+  code: string;
+  name: string;
+};
+
 /**
  * Formulário de solicitação de material.
  *
@@ -50,11 +57,16 @@ export type RequestableBranch = {
 export function RequestForm({
   branches,
   defaultBranchId,
+  sectors,
+  defaultSectorId,
 }: {
   branches: RequestableBranch[];
   defaultBranchId: string;
+  sectors: SectorOption[];
+  defaultSectorId: string;
 }) {
   const [branchId, setBranchId] = useState(defaultBranchId);
+  const [sectorId, setSectorId] = useState(defaultSectorId);
   const [lines, setLines] = useState<Line[]>([]);
   const [availability, setAvailability] = useState<
     Record<string, { available: string; status: string }>
@@ -82,21 +94,18 @@ export function RequestForm({
   };
 
   const addItem = (item: ItemOption) => {
-    setLines((current) => {
-      if (current.some((line) => line.item.id === item.id)) {
-        toast.error("Este material já está na solicitação. Ajuste a quantidade na linha.");
-        return current;
-      }
+    if (lines.some((line) => line.item.id === item.id)) {
+      toast.error("Este material já está na solicitação. Ajuste a quantidade na linha.");
+      return;
+    }
 
-      const next = [
-        ...current,
-        { key: `${item.id}-${Date.now()}`, item, quantity: "1", notes: "" },
-      ];
+    // Calcula fora do updater de `setLines`: disparar ação/atualizar estado
+    // durante a renderização faz o React reclamar e pode perder a resposta.
+    // O `item.id` basta como chave porque item repetido é bloqueado acima.
+    const next = [...lines, { key: item.id, item, quantity: "1", notes: "" }];
 
-      void refreshAvailability(next.map((line) => line.item.id));
-
-      return next;
-    });
+    setLines(next);
+    void refreshAvailability(next.map((line) => line.item.id));
   };
 
   const removeItem = (key: string) => {
@@ -109,15 +118,16 @@ export function RequestForm({
   return (
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="branchId" value={branchId} />
+      <input type="hidden" name="sectorId" value={sectorId} />
 
       {state && !state.ok ? <FormError message={state.error} /> : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           id="request-branch"
-          label="De qual unidade você precisa?"
+          label="Unidade"
           required
-          hint="O material sai desta unidade. O responsável por ela responde ao pedido."
+          hint="O material sai desta unidade."
           errors={fieldErrors["branchId"]}
         >
           <Select
@@ -143,13 +153,19 @@ export function RequestForm({
           </Select>
         </FormField>
 
-        <FormField
-          id="request-needed-at"
-          label="Precisa para"
-          hint="Opcional. Ajuda quem recebe a organizar a fila."
-          errors={fieldErrors["neededAt"]}
-        >
-          <Input id="request-needed-at" name="neededAt" type="date" />
+        <FormField id="request-sector" label="Setor" errors={fieldErrors["sectorId"]}>
+          <Select value={sectorId} onValueChange={setSectorId}>
+            <SelectTrigger id="request-sector" className="w-full">
+              <SelectValue placeholder="Seu setor" />
+            </SelectTrigger>
+            <SelectContent>
+              {sectors.map((sector) => (
+                <SelectItem key={sector.id} value={sector.id}>
+                  {sector.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </FormField>
       </div>
 
@@ -266,25 +282,24 @@ export function RequestForm({
         </div>
       )}
 
-      <FormField id="request-notes" label="Justificativa do pedido" errors={fieldErrors["notes"]}>
+      <FormField id="request-notes" label="Observação (opcional)" errors={fieldErrors["notes"]}>
         <Textarea
           id="request-notes"
           name="notes"
-          rows={3}
-          placeholder="Para que o material será usado, se for algo fora do rotineiro."
+          rows={2}
+          placeholder="Algo que ajude quem vai separar o material."
         />
       </FormField>
 
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={isPending || lines.length === 0 || !branchId}>
-          {isPending ? "Enviando…" : "Enviar solicitação"}
-        </Button>
-      </div>
+      <ImageInput />
 
-      <p className="text-muted-foreground text-xs">
-        A solicitação vai direto para quem responde na unidade escolhida. Você é avisado assim que
-        houver uma decisão.
-      </p>
+      <Button
+        type="submit"
+        className="w-full sm:w-auto"
+        disabled={isPending || lines.length === 0 || !branchId}
+      >
+        {isPending ? "Enviando…" : "Enviar pedido"}
+      </Button>
     </form>
   );
 }

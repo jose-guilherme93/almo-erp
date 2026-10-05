@@ -113,6 +113,17 @@ Para conhecer o sistema antes de criar as credenciais do Google, ligue
 passa a mostrar um campo de e-mail: entre com qualquer usuário da tabela abaixo.
 Em produção essa opção é recusada na inicialização.
 
+## Deploy (produção)
+
+O guia completo está em [`docs/DEPLOY.md`](docs/DEPLOY.md). Resumo:
+
+- **Uma VPS com Dokploy**: app (build pelo `Dockerfile`) + Postgres como serviço do Dokploy + Traefik.
+- No merge da `main`: o **Auto Deploy do Dokploy** builda e sobe (migrations no entrypoint).
+- Backup: Dokploy → S3 (principal) + cópia **cifrada** no GitHub Actions (secundária).
+- Anexos de imagem ficam no volume (`UPLOAD_DIR=/data/uploads`).
+- O E2E é **local** (`E2E_AUTH_BYPASS=true pnpm e2e --project=chromium`); o bypass de
+  login de teste é recusado em produção.
+
 ## Autenticação no Google
 
 1. Google Cloud Console → **APIs & Services → Credentials** → OAuth 2.0 Client ID (Web).

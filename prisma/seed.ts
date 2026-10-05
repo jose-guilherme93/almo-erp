@@ -14,6 +14,7 @@ import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient } from "../src/generated/prisma/client";
+import { PASSWORD_MIN_LENGTH, hashPassword, isAcceptablePassword } from "../src/lib/password";
 import { PERMISSIONS } from "../src/lib/permissions/catalog";
 import { ROLES, permissionsForRole } from "../src/lib/permissions/matrix";
 
@@ -25,7 +26,25 @@ if (!connectionString) {
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 
-const isProduction = process.env["NODE_ENV"] === "production";
+/**
+ * Decide se os dados de demonstração entram:
+ *   SEED_DEMO_DATA=true   → força (preview/staging)
+ *   SEED_DEMO_DATA=false  → nunca
+ *   ausente               → demo só fora de produção (padrão de dev e CI)
+ *
+ * É uma decisão **explícita**, e não o `NODE_ENV`: dentro do container o
+ * `NODE_ENV` é sempre `production`, então um preview com demo precisa pedir.
+ */
+function resolveSeedDemoData(): boolean {
+  const flag = (process.env["SEED_DEMO_DATA"] ?? "").trim().toLowerCase();
+
+  if (flag === "true") return true;
+  if (flag === "false") return false;
+
+  return process.env["NODE_ENV"] !== "production";
+}
+
+const seedDemoData = resolveSeedDemoData();
 
 // -----------------------------------------------------------------------------
 // Dados de referência
@@ -255,6 +274,15 @@ const ITEMS = [
   },
 ] as const;
 
+const SECTORS = [
+  { code: "FINANCEIRO", name: "Financeiro", kind: "REQUESTER" as const },
+  { code: "PEDAGOGICO", name: "Pedagógico", kind: "REQUESTER" as const },
+  { code: "RH", name: "Recursos Humanos", kind: "REQUESTER" as const },
+  { code: "ALMOXARIFADO", name: "Almoxarifado", kind: "SERVICE" as const },
+  { code: "MANUTENCAO", name: "Manutenção", kind: "SERVICE" as const },
+  { code: "TI", name: "Tecnologia da Informação", kind: "BOTH" as const },
+] as const;
+
 const BRANCHES = [
   {
     code: "MATRIZ",
@@ -320,6 +348,16 @@ const CONFIGS = [
     value: "1000.00",
     description: "Valor estimado (BRL) a partir do qual a solicitação exige aprovação da matriz.",
   },
+  {
+    key: "auth.localLogin.enabled",
+    value: true,
+    description: "Permite entrar com e-mail e senha, sem Google.",
+  },
+  {
+    key: "auth.google.enabled",
+    value: false,
+    description: 'Mostra o botão "Entrar com Google". Exige credencial configurada.',
+  },
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -381,6 +419,24 @@ async function seedPermissionsAndRoles(): Promise<void> {
   }
 
   console.log(`  papéis: ${ROLES.length}`);
+}
+
+async function seedSectors(): Promise<Record<string, string>> {
+  const ids: Record<string, string> = {};
+
+  for (const sector of SECTORS) {
+    const saved = await prisma.sector.upsert({
+      where: { code: sector.code },
+      update: { name: sector.name, kind: sector.kind, active: true },
+      create: { code: sector.code, name: sector.name, kind: sector.kind },
+    });
+
+    ids[sector.code] = saved.id;
+  }
+
+  console.log(`  setores: ${SECTORS.length}`);
+
+  return ids;
 }
 
 async function seedCompany(): Promise<void> {
@@ -617,10 +673,20 @@ async function seedEmailPolicy(branchIds: Record<string, string>): Promise<void>
 async function seedAdmin(branchIds: Record<string, string>): Promise<void> {
   const email = (process.env["SEED_ADMIN_EMAIL"] ?? "").trim().toLowerCase();
   const name = process.env["SEED_ADMIN_NAME"] ?? "Administrador da Matriz";
+  const password = (process.env["SEED_ADMIN_PASSWORD"] ?? "").trim();
+  const resetPassword = ["1", "true", "yes", "on"].includes(
+    (process.env["SEED_ADMIN_RESET_PASSWORD"] ?? "").toLowerCase(),
+  );
 
   if (!email) {
     console.log("  usuário administrador: não criado (SEED_ADMIN_EMAIL vazio)");
     return;
+  }
+
+  if (password.length > 0 && !isAcceptablePassword(password)) {
+    throw new Error(
+      `Seed: SEED_ADMIN_PASSWORD precisa ter ao menos ${PASSWORD_MIN_LENGTH} caracteres.`,
+    );
   }
 
   const role = await prisma.role.findUniqueOrThrow({ where: { slug: "SUPER_ADMIN" } });
@@ -630,10 +696,26 @@ async function seedAdmin(branchIds: Record<string, string>): Promise<void> {
     throw new Error("Seed: filial MATRIZ não encontrada para vincular o administrador.");
   }
 
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: { passwordHash: true },
+  });
+
+  // Só grava a senha no primeiro seed ou quando o reset é pedido — assim o
+  // seed (idempotente) nunca sobrescreve uma senha trocada depois.
+  const shouldSetPassword = password.length > 0 && (!existing?.passwordHash || resetPassword);
+  const passwordHash = shouldSetPassword ? await hashPassword(password) : undefined;
+
   const admin = await prisma.user.upsert({
     where: { email },
-    update: { name, status: "ACTIVE", active: true },
-    create: { email, name, status: "ACTIVE", approvedAt: new Date() },
+    update: { name, status: "ACTIVE", active: true, ...(passwordHash ? { passwordHash } : {}) },
+    create: {
+      email,
+      name,
+      status: "ACTIVE",
+      approvedAt: new Date(),
+      ...(passwordHash ? { passwordHash } : {}),
+    },
   });
 
   await prisma.membership.upsert({
@@ -650,12 +732,21 @@ async function seedAdmin(branchIds: Record<string, string>): Promise<void> {
     },
   });
 
-  console.log(`  administrador: ${email} (SUPER_ADMIN na matriz)`);
+  const passwordNote = passwordHash
+    ? " com senha local"
+    : existing?.passwordHash
+      ? " (senha local preservada)"
+      : " (sem senha local)";
+
+  console.log(`  administrador: ${email} (SUPER_ADMIN na matriz)${passwordNote}`);
 }
 
-async function seedDemoUsers(branchIds: Record<string, string>): Promise<void> {
-  if (isProduction) {
-    console.log("  usuários de demonstração: ignorados em produção");
+async function seedDemoUsers(
+  branchIds: Record<string, string>,
+  sectorIds: Record<string, string>,
+): Promise<void> {
+  if (!seedDemoData) {
+    console.log("  usuários de demonstração: desligados (SEED_DEMO_DATA)");
     return;
   }
 
@@ -663,47 +754,107 @@ async function seedDemoUsers(branchIds: Record<string, string>): Promise<void> {
 
   if (!domain) return;
 
+  // Senha dos usuários de demonstração: sem ela eles não teriam como entrar no
+  // preview (o login é local, por e-mail + senha).
+  const demoPassword = (process.env["SEED_DEMO_PASSWORD"] ?? "demo-senha-1234").trim();
+
+  if (demoPassword.length > 0 && !isAcceptablePassword(demoPassword)) {
+    throw new Error(
+      `Seed: SEED_DEMO_PASSWORD precisa ter ao menos ${PASSWORD_MIN_LENGTH} caracteres.`,
+    );
+  }
+
+  const demoPasswordHash = demoPassword.length > 0 ? await hashPassword(demoPassword) : undefined;
+
   const demo = [
     {
       local: "admin.filial",
       name: "Administrador da Unidade SP",
       role: "ADMIN_FILIAL",
       branch: "FIL-SP",
+      sector: "FINANCEIRO",
     },
-    { local: "gestor", name: "Gestor de Aprovações", role: "GESTOR", branch: "FIL-SP" },
-    { local: "almoxarife", name: "Almoxarife SP", role: "ALMOXARIFE", branch: "FIL-SP" },
+    {
+      local: "gestor",
+      name: "Gestor de Aprovações",
+      role: "GESTOR",
+      branch: "FIL-SP",
+      sector: "RH",
+    },
+    {
+      local: "almoxarife",
+      name: "Almoxarife SP",
+      role: "ALMOXARIFE",
+      branch: "FIL-SP",
+      sector: "ALMOXARIFADO",
+    },
+    {
+      local: "ti",
+      name: "Técnico de TI",
+      role: "TI",
+      branch: "FIL-SP",
+      sector: "TI",
+    },
     {
       local: "solicitante",
       name: "Colaborador Solicitante",
       role: "SOLICITANTE",
       branch: "FIL-SP",
+      sector: "PEDAGOGICO",
     },
-    { local: "consulta", name: "Usuário Consulta", role: "CONSULTA", branch: "FIL-RJ" },
+    {
+      local: "consulta",
+      name: "Usuário Consulta",
+      role: "CONSULTA",
+      branch: "FIL-RJ",
+      sector: "RH",
+    },
   ] as const;
 
   for (const entry of demo) {
     const email = `${entry.local}@${domain}`;
     const role = await prisma.role.findUniqueOrThrow({ where: { slug: entry.role } });
     const branchId = branchIds[entry.branch];
+    const sectorId = sectorIds[entry.sector];
 
     if (!branchId) continue;
 
     const user = await prisma.user.upsert({
       where: { email },
-      update: { name: entry.name, status: "ACTIVE", active: true },
-      create: { email, name: entry.name, status: "ACTIVE", approvedAt: new Date() },
+      update: {
+        name: entry.name,
+        status: "ACTIVE",
+        active: true,
+        ...(demoPasswordHash ? { passwordHash: demoPasswordHash } : {}),
+      },
+      create: {
+        email,
+        name: entry.name,
+        status: "ACTIVE",
+        approvedAt: new Date(),
+        ...(demoPasswordHash ? { passwordHash: demoPasswordHash } : {}),
+      },
     });
 
     await prisma.membership.upsert({
       where: {
         userId_branchId_roleId: { userId: user.id, branchId, roleId: role.id },
       },
-      update: { active: true, isDefault: true },
-      create: { userId: user.id, branchId, roleId: role.id, isDefault: true, active: true },
+      update: { active: true, isDefault: true, sectorId },
+      create: {
+        userId: user.id,
+        branchId,
+        roleId: role.id,
+        sectorId,
+        isDefault: true,
+        active: true,
+      },
     });
   }
 
-  console.log(`  usuários de demonstração: ${demo.length}`);
+  console.log(
+    `  usuários de demonstração: ${demo.length}${demoPasswordHash ? " (com senha de demo)" : ""}`,
+  );
 }
 
 async function seedConfigs(): Promise<void> {
@@ -718,46 +869,90 @@ async function seedConfigs(): Promise<void> {
   console.log(`  configurações: ${CONFIGS.length}`);
 }
 
+/**
+ * Bootstrap de produção: garante a matriz e o almoxarifado central sem os dados
+ * de demonstração. Não sobrescreve nada que o administrador já tenha editado —
+ * o resto (empresa, filiais, catálogo, setores de negócio) é cadastrado na UI.
+ */
+async function seedProductionBootstrap(): Promise<Record<string, string>> {
+  const matrix = await prisma.branch.upsert({
+    where: { code: "MATRIZ" },
+    update: {},
+    create: { code: "MATRIZ", name: "Matriz", type: "MATRIX" },
+  });
+
+  await prisma.storageLocation.upsert({
+    where: { branchId_code: { branchId: matrix.id, code: "ALMOX" } },
+    update: {},
+    create: {
+      branchId: matrix.id,
+      code: "ALMOX",
+      name: "Almoxarifado Central",
+      type: "MAIN_WAREHOUSE",
+      description: "Local principal de guarda e distribuição de materiais.",
+    },
+  });
+
+  console.log("  filial matriz garantida (sem dados de demonstração)");
+
+  return { MATRIZ: matrix.id };
+}
+
+/** Só no ambiente de demonstração: liga responsáveis das filiais aos usuários de demo. */
+async function linkDemoResponsibles(branchIds: Record<string, string>): Promise<void> {
+  const domain = (process.env["AUTH_ALLOWED_DOMAINS"] ?? "exemplo.com.br").split(",")[0]?.trim();
+
+  const almoxarife = await prisma.user.findUnique({
+    where: { email: `almoxarife@${domain}` },
+  });
+  const gestor = await prisma.user.findUnique({ where: { email: `gestor@${domain}` } });
+
+  if (!almoxarife && !gestor) return;
+
+  for (const code of ["MATRIZ", "FIL-SP", "FIL-RJ"]) {
+    const branchId = branchIds[code];
+    if (!branchId) continue;
+
+    await prisma.branch.update({
+      where: { id: branchId },
+      data: {
+        ...(almoxarife ? { warehouseResponsibleId: almoxarife.id } : {}),
+        ...(gestor ? { notificationResponsibleId: gestor.id, defaultApproverId: gestor.id } : {}),
+      },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   console.log("Seed do almo-erp\n");
 
-  await seedCompany();
+  // Dados de referência: existem em qualquer ambiente (o sistema não funciona
+  // sem permissões, papéis, unidades, setores e configurações).
   await seedPermissionsAndRoles();
-  const branchIds = await seedBranches();
   const unitIds = await seedUnits();
+  const sectorIds = await seedSectors();
+  await seedConfigs();
+
+  if (!seedDemoData) {
+    // Sem demo (produção): só o essencial. Nada de empresa, filial, catálogo ou
+    // usuário de demonstração — isso é criado pelo administrador na interface.
+    const branchIds = await seedProductionBootstrap();
+    await seedEmailPolicy(branchIds);
+    await seedAdmin(branchIds);
+
+    console.log("\nSeed concluído (produção: referência + matriz + administrador).");
+    return;
+  }
+
+  // Desenvolvimento e testes: dados de demonstração completos.
+  await seedCompany();
+  const branchIds = await seedBranches();
   const categoryIds = await seedCategories();
   await seedItems(categoryIds, unitIds, branchIds);
   await seedEmailPolicy(branchIds);
   await seedAdmin(branchIds);
-  await seedDemoUsers(branchIds);
-  await seedConfigs();
-
-  // Atualiza o responsável do almoxarifado e o aprovador padrão das filiais.
-  const almoxarife = await prisma.user.findUnique({
-    where: {
-      email: `almoxarife@${(process.env["AUTH_ALLOWED_DOMAINS"] ?? "exemplo.com.br").split(",")[0]?.trim()}`,
-    },
-  });
-  const gestor = await prisma.user.findUnique({
-    where: {
-      email: `gestor@${(process.env["AUTH_ALLOWED_DOMAINS"] ?? "exemplo.com.br").split(",")[0]?.trim()}`,
-    },
-  });
-
-  if (almoxarife || gestor) {
-    for (const code of ["MATRIZ", "FIL-SP", "FIL-RJ"]) {
-      const branchId = branchIds[code];
-      if (!branchId) continue;
-
-      await prisma.branch.update({
-        where: { id: branchId },
-        data: {
-          ...(almoxarife ? { warehouseResponsibleId: almoxarife.id } : {}),
-          ...(gestor ? { notificationResponsibleId: gestor.id, defaultApproverId: gestor.id } : {}),
-        },
-      });
-    }
-  }
+  await seedDemoUsers(branchIds, sectorIds);
+  await linkDemoResponsibles(branchIds);
 
   console.log("\nSeed concluído.");
 }

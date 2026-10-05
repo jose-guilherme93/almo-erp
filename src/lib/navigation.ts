@@ -36,7 +36,7 @@ export const NAVIGATION: NavGroup[] = [
         label: "Minhas solicitações",
         href: "/meu",
         permission: "notificacao:read",
-        description: "Seus pedidos e entregas",
+        description: "Seus pedidos e chamados",
       },
       {
         label: "Notificações",
@@ -46,24 +46,31 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
   {
-    label: "Operação",
+    // O solicitante puro enxerga apenas esta seção (e a Visão geral). Tudo o
+    // mais depende de permissão que ele não tem.
+    label: "Solicitações",
     items: [
       {
         label: "Fazer um pedido",
         href: "/solicitar",
         permission: "solicitacao:create",
-        description: "Material ou reparo",
+        description: "Material, reparo ou TI",
       },
       {
-        label: "Solicitações",
+        label: "Meus pedidos de material",
         href: "/solicitacoes",
         permission: "solicitacao:read",
       },
       {
-        label: "Reparos",
+        label: "Meus chamados",
         href: "/reparos",
         permission: "manutencao:read",
       },
+    ],
+  },
+  {
+    label: "Atendimento",
+    items: [
       {
         label: "Fila de aprovação",
         href: "/solicitacoes/fila",
@@ -73,6 +80,12 @@ export const NAVIGATION: NavGroup[] = [
         label: "Entregas",
         href: "/entregas",
         permission: "solicitacao:entregar",
+      },
+      {
+        label: "Encaminhamentos",
+        href: "/encaminhamentos",
+        permission: "manutencao:atender",
+        description: "Etapas que outros setores pediram ao seu",
       },
     ],
   },

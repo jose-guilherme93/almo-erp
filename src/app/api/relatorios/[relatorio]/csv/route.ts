@@ -4,6 +4,7 @@ import { csvFileName } from "@/lib/csv";
 import { ForbiddenError } from "@/lib/errors";
 import { requirePermission } from "@/server/auth/guards";
 import { buildScope, isReportId, reportToCsv, runReport } from "@/server/services/reports";
+import { consolidateReport } from "@/server/services/reports/snapshot";
 
 /**
  * Exportação CSV de um relatório.
@@ -12,7 +13,8 @@ import { buildScope, isReportId, reportToCsv, runReport } from "@/server/service
  * download com `Content-Disposition` — com Server Action isso exigiria gambiarra.
  *
  * O escopo do usuário é aplicado pelo mesmo `buildScope` da tela: exportar
- * nunca pode vazar mais do que a listagem mostra.
+ * nunca pode vazar mais do que a listagem mostra. Além disso, a exportação
+ * **consolida** o relatório (snapshot imutável com hash) e fica na auditoria.
  */
 export async function GET(
   request: NextRequest,
@@ -49,6 +51,20 @@ export async function GET(
   });
 
   const result = await runReport(relatorio, scope);
+
+  const forwarded = request.headers.get("x-forwarded-for");
+
+  await consolidateReport(context, {
+    reportId: relatorio,
+    scope,
+    result,
+    format: "CSV",
+    metadata: {
+      ip: forwarded ? (forwarded.split(",")[0]?.trim() ?? null) : request.headers.get("x-real-ip"),
+      userAgent: request.headers.get("user-agent"),
+    },
+  });
+
   const csv = reportToCsv(result);
 
   const fileName = csvFileName({

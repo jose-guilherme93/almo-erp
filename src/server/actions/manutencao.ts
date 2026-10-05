@@ -7,10 +7,12 @@ import { actionSuccess, runAction, type ActionResult } from "@/lib/action-result
 import { requirePermission } from "@/server/auth/guards";
 import {
   formDataToValues,
+  readFiles,
   readText,
   requestMetadata,
   validationFailure,
 } from "@/server/actions/helpers";
+import { discardStoredImages, storeUploadedImages } from "@/server/services/attachment";
 import {
   assignMaintenanceSchema,
   maintenanceCompleteSchema,
@@ -86,6 +88,7 @@ export async function abrirReparoAction(
 
     const parsed = maintenanceCreateSchema.safeParse({
       branchId: readText(values, "branchId"),
+      sectorId: readText(values, "sectorId"),
       category: readText(values, "category"),
       title: readText(values, "title"),
       description: readText(values, "description"),
@@ -96,7 +99,16 @@ export async function abrirReparoAction(
     if (!parsed.success) return validationFailure(parsed.error);
 
     const metadata = await requestMetadata();
-    const request = await createMaintenanceRequest(context, parsed.data, metadata);
+    const attachments = await storeUploadedImages(readFiles(formData, "fotos"));
+
+    let request: { id: string; number: string };
+
+    try {
+      request = await createMaintenanceRequest(context, { ...parsed.data, attachments }, metadata);
+    } catch (error) {
+      await discardStoredImages(attachments);
+      throw error;
+    }
 
     revalidateMaintenance(request.id);
 

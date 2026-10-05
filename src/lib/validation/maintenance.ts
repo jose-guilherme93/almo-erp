@@ -25,6 +25,7 @@ const categoryValues = MAINTENANCE_CATEGORIES.map((category) => category.value);
 
 export const maintenanceCreateSchema = z.object({
   branchId: z.string().trim().min(1, "Escolha a unidade."),
+  sectorId: z.string().trim().optional(),
   category: z.enum(categoryValues, { message: "Escolha o tipo de problema." }),
   title: z
     .string()

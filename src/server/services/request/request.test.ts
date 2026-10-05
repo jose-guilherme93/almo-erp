@@ -17,6 +17,9 @@ import {
   createRequest,
   deliverRequest,
   getRequestDetail,
+  listApprovalQueue,
+  listPendingDeliveries,
+  listRequests,
   rejectRequest,
 } from "@/server/services/request";
 
@@ -557,6 +560,75 @@ describe.runIf(process.env["DATABASE_URL"])("entrega", () => {
     expect(saved.lines[0]?.deliveredQuantity.toString()).toBe("10");
   });
 
+  it("entrega item controlado por lote usando o lote reservado", async () => {
+    const lotItem = await prisma.item.create({
+      data: {
+        code: `${TEST_PREFIX}-LOT`,
+        name: "Material com Lote Solicitável",
+        categoryId,
+        unitId,
+        referencePrice: d(10),
+        controlledByLot: true,
+      },
+      select: { id: true },
+    });
+
+    const lot = await prisma.itemLot.create({
+      data: {
+        itemId: lotItem.id,
+        code: "LOTE-A",
+        expirationDate: new Date(Date.now() + 30 * 24 * 3600 * 1000),
+      },
+      select: { id: true },
+    });
+
+    await createAndPostStockDocument({
+      type: "INBOUND",
+      branchId,
+      storageLocationId: locationId,
+      createdById: aprovadorId,
+      referenceType: "TEST",
+      lines: [{ itemId: lotItem.id, itemLotId: lot.id, quantity: d(10), unitCost: d(10) }],
+    });
+
+    const request = await createRequest(solicitanteContext(), {
+      branchId,
+      lines: [{ itemId: lotItem.id, quantity: "4" }],
+    });
+
+    const created = await prisma.request.findUniqueOrThrow({
+      where: { id: request.id },
+      select: { lines: { select: { id: true } } },
+    });
+
+    const lineId = created.lines[0]?.id ?? "";
+
+    await approveRequest(aprovadorContext(), {
+      requestId: request.id,
+      lines: [{ lineId, approvedQuantity: "4" }],
+    });
+
+    await deliverRequest(aprovadorContext(), {
+      requestId: request.id,
+      receivedByName: "João",
+      lines: [{ lineId, deliveredQuantity: "4" }],
+    });
+
+    const reservation = await prisma.stockReservation.findUniqueOrThrow({
+      where: { requestLineId: lineId },
+      select: { lotId: true, status: true },
+    });
+
+    expect(reservation.lotId).toBe(lot.id);
+
+    const issue = await prisma.stockDocument.findFirstOrThrow({
+      where: { referenceType: "REQUEST", referenceId: request.id, type: "ISSUE" },
+      select: { lines: { select: { itemLotId: true } } },
+    });
+
+    expect(issue.lines[0]?.itemLotId).toBe(lot.id);
+  });
+
   it("entregar menos que o aprovado libera a diferença da reserva", async () => {
     const request = await newRequest(10);
     await approveFully(request.id, 10);
@@ -669,5 +741,105 @@ describe.runIf(process.env["DATABASE_URL"])("escopo", () => {
     await expect(getRequestDetail(outroContexto, request.id)).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+
+  it("o solicitante vê apenas as próprias solicitações, mesmo na mesma unidade", async () => {
+    const minha = await newRequest(5);
+    const deOutro = await createRequest(aprovadorContext(), {
+      branchId,
+      lines: [{ itemId, quantity: "5" }],
+    });
+
+    const list = await listRequests(solicitanteContext(), {});
+
+    expect(list.items.map((item) => item.id)).toContain(minha.id);
+    expect(list.items.map((item) => item.id)).not.toContain(deOutro.id);
+  });
+
+  it("a fila sem filial mostra pendências de todas as unidades para quem tem escopo de rede", async () => {
+    const minha = await newRequest(5);
+
+    const redeContext = makeAuthContext({
+      userId: aprovadorId,
+      networkPermissions: ["solicitacao:approve", "solicitacao:overview"],
+      networkBranchIds: [branchId, otherBranchId],
+      activeBranchId: otherBranchId,
+    });
+
+    const queue = await listApprovalQueue(redeContext, null);
+
+    expect(queue.items.map((item) => item.id)).toContain(minha.id);
+  });
+
+  it("a fila sem filial cai na filial ativa para quem não tem escopo de rede", async () => {
+    const minha = await newRequest(5);
+    const outra = await createRequest(
+      makeAuthContext({
+        userId: aprovadorId,
+        memberships: [{ branchId: otherBranchId, roleSlug: "ADMIN_FILIAL" }],
+        permissions: ["solicitacao:create"],
+        activeBranchId: otherBranchId,
+      }),
+      { branchId: otherBranchId, lines: [{ itemId, quantity: "5" }] },
+    );
+
+    const queue = await listApprovalQueue(aprovadorContext(), null);
+
+    expect(queue.items.map((item) => item.id)).toContain(minha.id);
+    expect(queue.items.map((item) => item.id)).not.toContain(outra.id);
+  });
+
+  it("a fila de entregas sem filial mostra todas as unidades para escopo de rede", async () => {
+    const request = await newRequest(5);
+    await approveFully(request.id, 5);
+
+    const redeContext = makeAuthContext({
+      userId: aprovadorId,
+      networkPermissions: ["solicitacao:entregar", "solicitacao:overview"],
+      networkBranchIds: [branchId, otherBranchId],
+      activeBranchId: otherBranchId,
+    });
+
+    const list = await listPendingDeliveries(redeContext, null);
+
+    expect(list.items.map((item) => item.id)).toContain(request.id);
+  });
+
+  it("com visão geral do almoxarifado, enxerga as solicitações da filial", async () => {
+    const deOutro = await createRequest(aprovadorContext(), {
+      branchId,
+      lines: [{ itemId, quantity: "5" }],
+    });
+
+    const overviewContext = makeAuthContext({
+      userId: aprovadorId,
+      email: APROVADOR_EMAIL,
+      memberships: [{ branchId, roleSlug: "ALMOXARIFE" }],
+      permissions: ["solicitacao:read", "solicitacao:overview"],
+      activeBranchId: branchId,
+    });
+
+    const list = await listRequests(overviewContext, {});
+
+    expect(list.items.map((item) => item.id)).toContain(deOutro.id);
+  });
+
+  it("a busca não escapa do escopo de filial", async () => {
+    // Pedido de outra unidade, feito por outra pessoa. A busca do solicitante
+    // não pode devolvê-lo só porque o número casa.
+    const deOutraUnidade = await createRequest(aprovadorContext(), {
+      branchId: otherBranchId,
+      lines: [{ itemId, quantity: "5" }],
+    });
+
+    const saved = await prisma.request.findUniqueOrThrow({
+      where: { id: deOutraUnidade.id },
+      select: { number: true },
+    });
+
+    const list = await listRequests(solicitanteContext(), { search: saved.number });
+
+    expect(list.items).toHaveLength(0);
+    expect(list.total).toBe(0);
   });
 });

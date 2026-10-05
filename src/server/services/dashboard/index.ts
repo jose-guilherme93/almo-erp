@@ -2,7 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { availableQuantity } from "@/server/services/stock/average-cost";
 import { countBelowMinimum, listBelowMinimum, stockSummary } from "@/server/services/stock/alerts";
-import { countInTransit } from "@/server/services/transfer";
+import { countIncomingTransfers, countInTransit } from "@/server/services/transfer";
 import { responseInbox } from "@/server/services/notification/inbox";
 import type { AuthContext } from "@/server/auth/context";
 import { visibleBranchIds } from "@/server/auth/scope";
@@ -441,7 +441,8 @@ export async function getUnitDashboard(context: AuthContext, branchId: string) {
     pendingRequests([branchId]),
     requestsAtRisk([branchId]),
     awaitingDelivery([branchId]),
-    countInTransit([branchId]),
+    // O card é "transferências a receber": conta só as que chegam nesta unidade.
+    countIncomingTransfers(branchId),
     countBelowMinimum({ branchId }),
     requestsByStatus([branchId]),
     movementTrend([branchId]),

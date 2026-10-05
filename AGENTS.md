@@ -3,6 +3,8 @@
 > Contrato de trabalho para agentes de IA (e humanos) que implementam este repositório.
 > **Leia este arquivo inteiro antes de escrever qualquer código.** Ele tem precedência sobre
 > qualquer README, tutorial ou padrão do framework.
+>
+> **Estado atual do trabalho e pendências vivas: `docs/HANDOFF.md`.** Leia antes de retomar.
 
 ---
 
@@ -27,8 +29,14 @@ Cada unidade tem seu próprio almoxarifado, seus próprios usuários e seus pró
 | Comentários de código | **português**, apenas para regra de negócio não óbvia |
 
 `Item` (código) = "material" (na UI). `Branch` = "filial"/"unidade" (na UI).
-`Request` = "solicitação" (material). `MaintenanceRequest` = "chamado de reparo".
+`Request` = "solicitação" (material). `MaintenanceRequest` = "chamado" (reparo ou TI).
+`Delegation` = "encaminhamento" (etapa de uma demanda em outro setor).
+`Sector` = "setor" (Financeiro, Pedagógico, RH, Almoxarifado, Manutenção, TI).
 `StockDocument` = "movimentação de estoque".
+
+**Todo usuário é solicitante.** Um usuário novo nasce `SOLICITANTE` e enxerga
+apenas o que ele mesmo pediu. Ver mais do que isso é uma permissão explícita
+(`solicitacao:overview` / `manutencao:overview`), nunca o padrão.
 
 ---
 
@@ -143,6 +151,23 @@ pedir é um ato, não um rascunho.
 Se algo não está neste repositório (`AGENTS.md`, `docs/`, `docs/fases/`), **pergunte** —
 não invente regra de negócio. Se implementou algo, atualize a doc no mesmo commit.
 
+### 3.10 Autenticação: Google e login local
+
+O acesso tem **duas portas**, ligadas por configuração em `/admin/configuracoes`
+(permissão `configuracao:manage`, exclusiva do `SUPER_ADMIN`):
+
+- **Google** (`auth.google.enabled`) — só e-mail de domínio corporativo autorizado
+  (`AUTH_ALLOWED_DOMAINS` + `EmailPolicy`) e usuário pré-aprovado. É a porta de
+  autoatendimento.
+- **Login local** (`auth.localLogin.enabled`) — e-mail + senha. A conta é criada
+  por um administrador (ou pelo seed) e **não** passa pela regra de domínio: é o
+  caminho para operar o ERP sem Google, inclusive com e-mail pessoal.
+
+A senha é `scrypt` (`src/lib/password.ts`), verificação em tempo constante, e o
+provider tem freio de tentativas de força bruta (`src/server/auth/throttle.ts`).
+O login local **não** auto-provisiona usuário nem vínculo — quem cria é o
+administrador. As regras abaixo continuam valendo integralmente.
+
 ---
 
 ## 4. Estrutura de pastas
@@ -161,6 +186,7 @@ almo-erp/
 │  │  │  ├─ dashboard/         # dashboards por perfil (ver §7)
 │  │  │  ├─ solicitacoes/      # nova, listar, [id], aprovar
 │  │  │  ├─ entregas/
+│  │  │  ├─ encaminhamentos/   # etapas de demanda em outros setores
 │  │  │  ├─ estoque/           # saldos, movimentacoes, entradas, ajustes
 │  │  │  ├─ transferencias/
 │  │  │  ├─ inventario/
@@ -273,7 +299,9 @@ Regras:
 - Tipos (`NotificationType`): `REQUEST_CREATED`, `REQUEST_CLAIMED`, `REQUEST_APPROVED`,
   `REQUEST_PARTIALLY_APPROVED`, `REQUEST_REJECTED`, `REQUEST_DELIVERED`,
   `TRANSFER_SENT`, `TRANSFER_RECEIVED`, `STOCK_BELOW_MIN`, `INVENTORY_DIVERGENCE`,
-  `ACCESS_REQUESTED`, `ACCESS_GRANTED`.
+  `ACCESS_REQUESTED`, `ACCESS_GRANTED`, `MAINTENANCE_CREATED`, `MAINTENANCE_ASSIGNED`,
+  `MAINTENANCE_PRIORITY_SET`, `MAINTENANCE_DONE`, `DELEGATION_REQUESTED`,
+  `DELEGATION_ACCEPTED`, `DELEGATION_COMPLETED`, `DELEGATION_RETURNED`.
 - Cada notificação guarda `actorId` (quem disparou), `entityType`, `entityId`, `branchId`,
   `title`, `body`, `link`, `readAt`, `createdAt`.
 - A caixa de entrada fica em `/notificacoes`; o sino na topbar mostra o total não lidas.
@@ -295,8 +323,17 @@ pnpm build           # build de produção
 pnpm db:seed         # seed idempotente
 ```
 
+> O hook **`pre-push`** (`.husky/pre-push`) roda `lint + typecheck + test + build` antes de
+> **todo** push — se algo falhar, o push não sai. Ele exige o Postgres local de pé
+> (`docker compose up -d`) e pode ser pulado com `git push --no-verify`, mas o CI é a
+> barreira que ninguém pula.
+
 Definição de Pronto de uma fase: os comandos acima passam, a fase está marcada como concluída
 em `docs/fases/README.md`, e a doc correspondente foi atualizada se houve mudança de regra.
+
+**Ao fechar qualquer mudança de fluxo de usuário, rode também o E2E local** (§9.1). Ele é a
+única camada que prova o caminho de ponta a ponta pela interface; os testes de serviço não
+pegam erro de permissão de Server Action, locator quebrado ou ordem de tela.
 
 Cobertura mínima obrigatória de teste:
 
@@ -305,6 +342,32 @@ Cobertura mínima obrigatória de teste:
   (ida e volta), inventário com divergência.
 - Autorização: matriz de papel × permissão, e negação fora do escopo de filial.
 - Regra de e-mail corporativo: domínio permitido, domínio bloqueado, usuário não aprovado.
+
+### 9.1 CI (GitHub Actions)
+
+- **Só `main` dispara CI.** Pushes em `develop` ou em branches de trabalho não rodam
+  Actions. O PR para `main` roda o job de qualidade.
+- **Nenhum job passa de 5 minutos.** Todo job declara `timeout-minutes: 5` (e as etapas
+  pesadas, teto próprio). Um job que estouraria o teto deve **falhar rápido**, nunca
+  pendurar meia hora.
+- O CI automático (`ci.yml`) é só: install, lint, typecheck, migrations, seed, test e build.
+- **Deploy automático**: o **Auto Deploy do Dokploy** publica todo push na `main` (build pelo
+  `Dockerfile`). As migrations rodam no **entrypoint** (1 réplica, zero-downtime desligado).
+  O portão de qualidade fica **antes do push**: hook `pre-push` + CI no PR. Segredos e operação
+  em `docs/DEPLOY.md`. Backup: Dokploy → S3 (principal) + `backup.yml` (cópia cifrada, secundária).
+- **O E2E é local e faz parte do fechamento do trabalho.** Rode ao final de toda mudança de
+  fluxo, com o servidor de desenvolvimento:
+
+  ```bash
+  E2E_AUTH_BYPASS=true pnpm e2e --project=chromium
+  ```
+
+  O bypass de autenticação de teste **só existe fora de produção** (`src/lib/env.ts`), por
+  isso o E2E nunca roda contra `pnpm build && pnpm start`.
+- **No GitHub Actions, o E2E é opcional e manual** (`e2e.yml`, `workflow_dispatch`), com teto
+  de 5 minutos e cache dos navegadores. Não roda em push nem em PR. E2E no Actions **nunca**
+  pode virar um job longo (o histórico era de 40 minutos): se um cenário não couber em 5
+  minutos, rode-o local.
 
 ---
 
@@ -332,3 +395,13 @@ Cobertura mínima obrigatória de teste:
 - Criar biblioteca nova para algo que shadcn ou o Next já resolvem.
 - Implementar uma fase sem ler o arquivo da fase em `docs/fases/`.
 - Mexer em fase futura "adiantando" — respeite a ordem das fases.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -19,7 +19,7 @@ test("tela de login renderiza em pt-BR com a ação do Google", async ({ page })
   await expect(page).toHaveTitle(/almo-erp/i);
   await expect(page.locator("html")).toHaveAttribute("lang", "pt-BR");
   await expect(page.getByRole("button", { name: /entrar com google/i })).toBeVisible();
-  await expect(page.getByText(/acesso restrito a e-mails corporativos/i)).toBeVisible();
+  await expect(page.getByText(/acesso restrito a usuários autorizados/i)).toBeVisible();
 });
 
 test("rota inexistente também vai para o login quando não há sessão", async ({ page }) => {

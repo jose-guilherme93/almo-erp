@@ -12,7 +12,9 @@ import {
   reserveStock,
 } from "@/server/services/stock/reservation";
 import { writeAuditLog } from "@/server/services/audit";
+import { createAttachmentRows, type AttachmentInput } from "@/server/services/attachment";
 import { notify } from "@/server/services/notification";
+import { getAlmoxarifadoSectorId } from "@/server/services/sector";
 import {
   AWAITING_DELIVERY_STATUSES,
   PENDING_APPROVAL_STATUSES,
@@ -92,10 +94,26 @@ function visibilityFilter(context: AuthContext, options?: { branchId?: string | 
     return { branchId };
   }
 
-  // O solicitante enxerga o que ele pediu mesmo se escolheu outra unidade:
-  // a solicitação é dele antes de ser da filial.
+  // Visão geral (almoxarifado e matriz): tudo do escopo de filiais.
+  if (context.hasPermission("solicitacao:overview")) {
+    return { branchId: { in: visibleBranchIds(context) } };
+  }
+
+  // Sem visão geral, a pessoa só enxerga o que ela mesma pediu ou o que foi
+  // encaminhado/roteado ao setor dela (ex.: a TI analisando uma solicitação).
+  // A filial restringe o que não é pedido próprio — quem abriu vê mesmo em
+  // outra unidade (§3.7).
   return {
-    OR: [{ branchId: { in: visibleBranchIds(context) } }, { requesterId: context.user.id }],
+    OR: [
+      { requesterId: context.user.id },
+      {
+        branchId: { in: visibleBranchIds(context) },
+        OR: [
+          { delegations: { some: { toSectorId: { in: context.sectorIds } } } },
+          { serviceSectorId: { in: context.sectorIds } },
+        ],
+      },
+    ],
   };
 }
 
@@ -117,10 +135,24 @@ export async function getRequestDetail(context: AuthContext, requestId: string) 
       decidedAt: true,
       deliveredAt: true,
       branch: { select: { id: true, code: true, name: true } },
+      sector: { select: { id: true, code: true, name: true } },
+      serviceSector: { select: { id: true, code: true, name: true } },
       requester: { select: { id: true, name: true, email: true } },
       responsible: { select: { id: true, name: true } },
       claimedBy: { select: { id: true, name: true } },
       decidedBy: { select: { id: true, name: true } },
+      attachments: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          fileName: true,
+          mimeType: true,
+          sizeBytes: true,
+          width: true,
+          height: true,
+          createdAt: true,
+        },
+      },
       lines: {
         orderBy: { createdAt: "asc" },
         select: {
@@ -186,12 +218,22 @@ export async function getRequestDetail(context: AuthContext, requestId: string) 
   return request;
 }
 
+/** O usuário enxerga esta solicitação? Usado para liberar os anexos. */
+export async function canViewRequest(context: AuthContext, requestId: string): Promise<boolean> {
+  const count = await prisma.request.count({
+    where: { id: requestId, ...visibilityFilter(context) },
+  });
+
+  return count > 0;
+}
+
 export type RequestListFilters = {
   search?: string;
   status?: string | null;
   priority?: string | null;
   requesterId?: string | null;
   branchId?: string | null;
+  sectorId?: string | null;
   from?: string | null;
   to?: string | null;
   page?: number;
@@ -202,29 +244,37 @@ export async function listRequests(context: AuthContext, filters: RequestListFil
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
 
+  // Escopo e busca combinados com `AND`: se fossem espalhados no mesmo objeto, o
+  // `OR` da busca sobrescreveria o `OR` da visibilidade e o usuário enxergaria
+  // demanda de outra filial.
   const where: Prisma.RequestWhereInput = {
-    ...visibilityFilter(context, { branchId: filters.branchId ?? null }),
-    ...(filters.status ? { status: filters.status as RequestStatus } : {}),
-    ...(filters.priority
-      ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
-      : {}),
-    ...(filters.requesterId ? { requesterId: filters.requesterId } : {}),
-    ...(filters.search
-      ? {
-          OR: [
-            { number: { contains: filters.search, mode: "insensitive" } },
-            { requester: { name: { contains: filters.search, mode: "insensitive" } } },
-          ],
-        }
-      : {}),
-    ...(filters.from || filters.to
-      ? {
-          createdAt: {
-            ...(filters.from ? { gte: new Date(filters.from) } : {}),
-            ...(filters.to ? { lte: new Date(`${filters.to}T23:59:59`) } : {}),
-          },
-        }
-      : {}),
+    AND: [
+      visibilityFilter(context, { branchId: filters.branchId ?? null }),
+      {
+        ...(filters.status ? { status: filters.status as RequestStatus } : {}),
+        ...(filters.priority
+          ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
+          : {}),
+        ...(filters.requesterId ? { requesterId: filters.requesterId } : {}),
+        ...(filters.sectorId ? { sectorId: filters.sectorId } : {}),
+        ...(filters.search
+          ? {
+              OR: [
+                { number: { contains: filters.search, mode: "insensitive" } },
+                { requester: { name: { contains: filters.search, mode: "insensitive" } } },
+              ],
+            }
+          : {}),
+        ...(filters.from || filters.to
+          ? {
+              createdAt: {
+                ...(filters.from ? { gte: new Date(filters.from) } : {}),
+                ...(filters.to ? { lte: new Date(`${filters.to}T23:59:59`) } : {}),
+              },
+            }
+          : {}),
+      },
+    ],
   };
 
   const [items, total] = await Promise.all([
@@ -241,6 +291,7 @@ export async function listRequests(context: AuthContext, filters: RequestListFil
         createdAt: true,
         neededAt: true,
         branch: { select: { code: true, name: true } },
+        sector: { select: { id: true, code: true, name: true } },
         requester: { select: { name: true } },
         responsible: { select: { name: true } },
         _count: { select: { lines: true } },
@@ -253,23 +304,43 @@ export async function listRequests(context: AuthContext, filters: RequestListFil
 }
 
 /**
- * Fila de aprovação da unidade: o que precisa de decisão agora.
+ * Fila de aprovação: o que precisa de decisão agora.
  *
  * Ordena por prioridade e tempo de espera — urgente primeiro, e dentro disso o
  * mais antigo, para nada envelhecer esquecido.
+ *
+ * Com `branchId`, é a fila daquela unidade. Sem `branchId`, quem tem escopo de
+ * rede vê a fila de **todas** as unidades; os demais caem na filial ativa.
+ * Sem isso o super administrador abriria a fila da matriz e nunca veria o
+ * pedido feito numa unidade.
  */
 export async function listApprovalQueue(
   context: AuthContext,
-  branchId: string,
+  branchId: string | null,
   options: { page?: number; pageSize?: number } = {},
 ) {
-  assertBranchAccess(context, branchId);
-
   const page = Math.max(1, options.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));
 
+  let branchScope: Prisma.RequestWhereInput;
+
+  if (branchId) {
+    assertBranchAccess(context, branchId);
+    branchScope = { branchId };
+  } else if (context.isNetworkScope) {
+    branchScope = { branchId: { in: visibleBranchIds(context) } };
+  } else {
+    const active = context.activeBranchId;
+
+    if (!active) {
+      throw new BusinessRuleError("Nenhuma unidade ativa. Selecione uma unidade para continuar.");
+    }
+
+    branchScope = { branchId: active };
+  }
+
   const where: Prisma.RequestWhereInput = {
-    branchId,
+    ...branchScope,
     status: { in: [...PENDING_APPROVAL_STATUSES] },
   };
 
@@ -292,6 +363,8 @@ export async function listApprovalQueue(
         createdAt: true,
         neededAt: true,
         notes: true,
+        branch: { select: { id: true, code: true, name: true } },
+        sector: { select: { name: true } },
         requester: { select: { id: true, name: true } },
         responsible: { select: { id: true, name: true } },
         claimedBy: { select: { id: true, name: true } },
@@ -304,19 +377,39 @@ export async function listApprovalQueue(
   return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
 }
 
-/** Solicitações aprovadas aguardando entrega. */
+/**
+ * Solicitações aprovadas aguardando entrega.
+ *
+ * Sem `branchId`, quem tem escopo de rede vê as entregas de todas as unidades;
+ * os demais caem na filial ativa (mesma regra de `listApprovalQueue`).
+ */
 export async function listPendingDeliveries(
   context: AuthContext,
-  branchId: string,
+  branchId: string | null,
   options: { page?: number; pageSize?: number } = {},
 ) {
-  assertBranchAccess(context, branchId);
-
   const page = Math.max(1, options.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));
 
+  let branchScope: Prisma.RequestWhereInput;
+
+  if (branchId) {
+    assertBranchAccess(context, branchId);
+    branchScope = { branchId };
+  } else if (context.isNetworkScope) {
+    branchScope = { branchId: { in: visibleBranchIds(context) } };
+  } else {
+    const active = context.activeBranchId;
+
+    if (!active) {
+      throw new BusinessRuleError("Nenhuma unidade ativa. Selecione uma unidade para continuar.");
+    }
+
+    branchScope = { branchId: active };
+  }
+
   const where: Prisma.RequestWhereInput = {
-    branchId,
+    ...branchScope,
     status: { in: [...AWAITING_DELIVERY_STATUSES] },
   };
 
@@ -332,6 +425,7 @@ export async function listPendingDeliveries(
         status: true,
         priority: true,
         decidedAt: true,
+        branch: { select: { id: true, code: true, name: true } },
         requester: { select: { name: true } },
         _count: { select: { lines: true } },
       },
@@ -409,9 +503,11 @@ export async function createRequest(
   context: AuthContext,
   input: {
     branchId: string;
+    sectorId?: string | null;
     neededAt?: string;
     notes?: string;
     lines: RequestLineInput[];
+    attachments?: AttachmentInput[];
   },
   metadata?: { ip?: string | null; userAgent?: string | null },
 ): Promise<{ id: string; number: string }> {
@@ -461,11 +557,18 @@ export async function createRequest(
 
       const responsibleId = branch.defaultApproverId ?? branch.notificationResponsibleId;
 
+      // O setor do solicitante vem do vínculo; o setor que atende é o
+      // almoxarifado por padrão (a etapa pode depois ser encaminhada à TI).
+      const sectorId = input.sectorId ?? context.activeSectorId ?? null;
+      const serviceSectorId = await getAlmoxarifadoSectorId(tx);
+
       const request = await tx.request.create({
         data: {
           number,
           branchId: input.branchId,
           requesterId: context.user.id,
+          sectorId,
+          serviceSectorId,
           // Já entra na fila de aprovação.
           status: "SUBMITTED",
           priority: "NORMAL",
@@ -483,6 +586,12 @@ export async function createRequest(
           },
         },
         select: { id: true, number: true },
+      });
+
+      await createAttachmentRows(tx, {
+        attachments: input.attachments ?? [],
+        uploadedById: context.user.id,
+        requestId: request.id,
       });
 
       await tx.requestEvent.create({
@@ -1100,7 +1209,7 @@ export async function deliverRequest(
               approvedQuantity: true,
               deliveredQuantity: true,
               reservation: {
-                select: { id: true, quantity: true, status: true, stockLevelId: true },
+                select: { id: true, quantity: true, status: true, stockLevelId: true, lotId: true },
               },
             },
           },
@@ -1156,35 +1265,65 @@ export async function deliverRequest(
         }
       }
 
-      const locationId = toDeliver[0]?.line.reservation?.stockLevelId;
+      // Um documento de saída **por local**: itens da mesma solicitação podem
+      // ter sido reservados em prateleiras diferentes, e o saldo é por local.
+      const levelIds = [
+        ...new Set(
+          toDeliver
+            .map((delivery) => delivery.line.reservation?.stockLevelId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
 
-      if (!locationId) {
-        throw new BusinessRuleError(
-          "Não foi possível identificar o local de retirada do material.",
-        );
+      const levels = await tx.stockLevel.findMany({
+        where: { id: { in: levelIds } },
+        select: { id: true, storageLocationId: true },
+      });
+
+      const locationByLevel = new Map(levels.map((level) => [level.id, level.storageLocationId]));
+
+      const byLocation = new Map<string, typeof toDeliver>();
+
+      for (const delivery of toDeliver) {
+        const levelId = delivery.line.reservation?.stockLevelId;
+        const storageLocationId = levelId ? locationByLevel.get(levelId) : undefined;
+
+        if (!storageLocationId) {
+          throw new BusinessRuleError(
+            "Não foi possível identificar o local de retirada do material.",
+          );
+        }
+
+        const group = byLocation.get(storageLocationId) ?? [];
+        group.push(delivery);
+        byLocation.set(storageLocationId, group);
       }
 
-      const stockLevel = await tx.stockLevel.findUniqueOrThrow({
-        where: { id: locationId },
-        select: { storageLocationId: true },
-      });
+      const documents: Array<{ id: string; number: string }> = [];
 
-      // Um documento de saída para toda a entrega.
-      const document = await postStockDocument(tx, {
-        type: "ISSUE",
-        branchId: request.branchId,
-        storageLocationId: stockLevel.storageLocationId,
-        notes: `Entrega da solicitação ${request.number}`,
-        referenceType: "REQUEST",
-        referenceId: request.id,
-        createdById: context.user.id,
-        lines: toDeliver.map((delivery) => ({
-          itemId: delivery.line.itemId,
-          quantity: delivery.quantity.negated(),
-          // A reserva desta linha vira saída real.
-          releaseReserved: delivery.quantity,
-        })),
-      });
+      for (const [storageLocationId, group] of byLocation) {
+        const document = await postStockDocument(tx, {
+          type: "ISSUE",
+          branchId: request.branchId,
+          storageLocationId,
+          notes: `Entrega da solicitação ${request.number}`,
+          referenceType: "REQUEST",
+          referenceId: request.id,
+          createdById: context.user.id,
+          lines: group.map((delivery) => ({
+            itemId: delivery.line.itemId,
+            quantity: delivery.quantity.negated(),
+            // Material controlado por lote sai do lote reservado na aprovação.
+            itemLotId: delivery.line.reservation?.lotId ?? null,
+            // A reserva desta linha vira saída real.
+            releaseReserved: delivery.quantity,
+          })),
+        });
+
+        documents.push({ id: document.documentId, number: document.number });
+      }
+
+      const documentNumber = documents.map((doc) => doc.number).join(", ");
 
       for (const delivery of toDeliver) {
         await consumeReservation(tx, {
@@ -1225,7 +1364,9 @@ export async function deliverRequest(
           deliveredById: context.user.id,
           receivedByName: input.receivedByName,
           receivedByDocument: input.receivedByDocument,
-          stockDocumentId: document.documentId,
+          // A entrega aponta para o primeiro documento; os demais ficam
+          // vinculados à solicitação por `referenceType`/`referenceId`.
+          stockDocumentId: documents[0]?.id ?? null,
           notes: input.notes,
         },
         select: { id: true },
@@ -1245,7 +1386,7 @@ export async function deliverRequest(
           toStatus: "DELIVERED",
           comment: input.notes,
           metadata: {
-            stockDocumentNumber: document.number,
+            stockDocumentNumber: documentNumber,
             receivedByName: input.receivedByName,
           },
         },
@@ -1260,7 +1401,7 @@ export async function deliverRequest(
           branchId: request.branchId,
           after: {
             status: "DELIVERED",
-            stockDocumentNumber: document.number,
+            stockDocumentNumber: documentNumber,
             receivedByName: input.receivedByName,
           },
           ip: metadata?.ip,
@@ -1286,10 +1427,10 @@ export async function deliverRequest(
       log.info("solicitação entregue", {
         requestId: request.id,
         number: request.number,
-        documentNumber: document.number,
+        documentNumber,
       });
 
-      return { deliveryId: delivery.id, documentNumber: document.number };
+      return { deliveryId: delivery.id, documentNumber };
     },
     { timeout: 20_000, maxWait: 10_000 },
   );

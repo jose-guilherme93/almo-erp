@@ -1,0 +1,22 @@
+node_modules
+.next
+.git
+.gitignore
+.github
+
+# Segredos nunca entram na imagem
+.env
+.env.*
+!.env.example
+
+# Dados locais / artefatos de teste
+var/uploads
+tmp
+coverage
+test-results
+playwright-report
+
+# Não são necessários no runtime
+docs
+e2e
+*.log

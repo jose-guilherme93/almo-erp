@@ -19,6 +19,7 @@ import { prisma } from "@/lib/db";
 import { isAppError } from "@/lib/errors";
 import { requirePagePermission } from "@/server/auth/guards";
 import { listAuditTrail } from "@/server/services/audit";
+import { listActiveSectors } from "@/server/services/sector";
 import { getUserDetail } from "@/server/services/user";
 
 export const metadata: Metadata = {
@@ -52,7 +53,7 @@ export default async function UsuarioDetalhePage({ params, searchParams }: Usuar
     criado: "Usuário cadastrado. Ele entra com a conta Google usando este e-mail.",
   });
 
-  const [branches, roles, audit] = await Promise.all([
+  const [branches, roles, sectors, audit] = await Promise.all([
     prisma.branch.findMany({
       where: { active: true, id: { in: context.branchIds } },
       orderBy: [{ type: "asc" }, { code: "asc" }],
@@ -65,6 +66,7 @@ export default async function UsuarioDetalhePage({ params, searchParams }: Usuar
           select: { id: true, name: true, scope: true },
         })
       : Promise.resolve([]),
+    listActiveSectors(),
     listAuditTrail({ entityType: "User", entityId: id, limit: 20 }),
   ]);
 
@@ -171,9 +173,13 @@ export default async function UsuarioDetalhePage({ params, searchParams }: Usuar
               id: membership.id,
               active: membership.active,
               isDefault: membership.isDefault,
+              branchId: membership.branch.id,
               branchName: membership.branch.name,
               branchCode: membership.branch.code,
+              roleId: membership.role.id,
               roleName: membership.role.name,
+              sectorId: membership.sector?.id ?? null,
+              sectorName: membership.sector?.name ?? null,
             }))}
             branches={branches.map((branch) => ({ id: branch.id, name: branch.name }))}
             roles={roles.map((role) => ({
@@ -181,6 +187,8 @@ export default async function UsuarioDetalhePage({ params, searchParams }: Usuar
               name: role.name,
               scope: role.scope,
             }))}
+            sectors={sectors.map((sector) => ({ id: sector.id, name: sector.name }))}
+            canManage={canManage}
           />
         </CardContent>
       </Card>

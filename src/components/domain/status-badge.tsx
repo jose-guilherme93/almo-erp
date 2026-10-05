@@ -111,6 +111,15 @@ export const MAINTENANCE_PRIORITY_BADGE: Record<string, BadgeDescriptor> = {
   URGENT: { label: "Urgente", tone: "danger" },
 };
 
+export const DELEGATION_STATUS: Record<string, BadgeDescriptor> = {
+  PENDING: { label: "Aguardando aceite", tone: "warning" },
+  ACCEPTED: { label: "Aceita", tone: "info" },
+  IN_PROGRESS: { label: "Em análise", tone: "info" },
+  COMPLETED: { label: "Concluída — laudo pronto", tone: "success" },
+  RETURNED: { label: "Devolvida", tone: "muted" },
+  CANCELLED: { label: "Cancelada", tone: "muted" },
+};
+
 export const INVENTORY_STATUS: Record<string, BadgeDescriptor> = {
   OPEN: { label: "Aberto", tone: "info" },
   COUNTING: { label: "Em contagem", tone: "warning" },

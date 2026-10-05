@@ -22,6 +22,31 @@ export async function logoutAction(): Promise<void> {
 }
 
 /**
+ * Login local (e-mail + senha).
+ *
+ * A validação de verdade é o `authorize` do provider `local`; aqui só
+ * normalizamos o formulário. Em falha, o Auth.js redireciona para a tela de
+ * erro com `error=CredentialsSignin`, que a página de login traduz.
+ */
+export async function loginWithCredentialsAction(formData: FormData): Promise<void> {
+  const email = formData.get("email");
+  const password = formData.get("password");
+  const requested = formData.get("redirectTo");
+
+  if (typeof email !== "string" || typeof password !== "string") {
+    return;
+  }
+
+  const redirectTo = typeof requested === "string" && requested.startsWith("/") ? requested : "/";
+
+  await signIn("local", {
+    email: email.trim().toLowerCase(),
+    password,
+    redirectTo,
+  });
+}
+
+/**
  * Login por credenciais para os testes end-to-end.
  *
  * A página de login só renderiza o formulário que chama esta ação quando

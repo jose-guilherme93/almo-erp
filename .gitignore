@@ -21,6 +21,7 @@ next-env.d.ts
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # Testes
 coverage/
@@ -58,6 +59,16 @@ Thumbs.db
 /tmp/
 *.sqlite
 *.sqlite3
+
+# Ferramentas de agente (locais, não fazem parte do app)
+.agents/
+skills-lock.json
+
+# Anexos enviados em desenvolvimento (o volume de produção é externo)
+/var/uploads/
+
+# Backups locais gerados por scripts/backup-db.sh
+/backups/
 
 # Prisma Client gerado (recriado por `pnpm prisma generate`)
 src/generated/

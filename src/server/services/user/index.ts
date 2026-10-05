@@ -133,6 +133,7 @@ export async function getUserDetail(context: AuthContext, userId: string) {
           isDefault: true,
           branch: { select: { id: true, code: true, name: true, type: true, active: true } },
           role: { select: { id: true, slug: true, name: true, scope: true } },
+          sector: { select: { id: true, name: true } },
         },
       },
       invitesSent: {
@@ -267,11 +268,12 @@ export async function createUser(
         where: {
           userId_branchId_roleId: { userId: user.id, branchId, roleId: role.id },
         },
-        update: { active: true },
+        update: { active: true, sectorId: input.sectorId ?? null },
         create: {
           userId: user.id,
           branchId,
           roleId: role.id,
+          sectorId: input.sectorId ?? null,
           active: true,
           isDefault: index === 0,
         },
@@ -402,7 +404,13 @@ export async function changeUserStatus(
 
 export async function addMembership(
   context: AuthContext,
-  input: { userId: string; branchId: string; roleId: string; isDefault: boolean },
+  input: {
+    userId: string;
+    branchId: string;
+    roleId: string;
+    sectorId?: string;
+    isDefault: boolean;
+  },
   metadata?: { ip?: string | null; userAgent?: string | null },
 ) {
   assertBranchAccess(context, input.branchId);
@@ -416,6 +424,8 @@ export async function addMembership(
   if (!role || !role.active) {
     throw new NotFoundError("Perfil");
   }
+
+  await assertActiveSector(input.sectorId);
 
   return prisma.$transaction(async (tx) => {
     if (input.isDefault) {
@@ -433,11 +443,12 @@ export async function addMembership(
           roleId: input.roleId,
         },
       },
-      update: { active: true, isDefault: input.isDefault },
+      update: { active: true, isDefault: input.isDefault, sectorId: input.sectorId ?? null },
       create: {
         userId: input.userId,
         branchId: input.branchId,
         roleId: input.roleId,
+        sectorId: input.sectorId ?? null,
         isDefault: input.isDefault,
         active: true,
       },
@@ -451,7 +462,12 @@ export async function addMembership(
         entityType: "Membership",
         entityId: membership.id,
         branchId: input.branchId,
-        after: { userId: input.userId, roleId: input.roleId, isDefault: input.isDefault },
+        after: {
+          userId: input.userId,
+          roleId: input.roleId,
+          sectorId: input.sectorId ?? null,
+          isDefault: input.isDefault,
+        },
         ip: metadata?.ip,
         userAgent: metadata?.userAgent,
       },
@@ -459,6 +475,120 @@ export async function addMembership(
     );
 
     return membership;
+  });
+}
+
+/** Setor válido e ativo, ou `undefined` quando não informado. */
+async function assertActiveSector(sectorId?: string): Promise<void> {
+  if (!sectorId) return;
+
+  const sector = await prisma.sector.findUnique({
+    where: { id: sectorId },
+    select: { id: true, active: true },
+  });
+
+  if (!sector || !sector.active) {
+    throw new NotFoundError("Setor");
+  }
+}
+
+/**
+ * Edita um vínculo existente: perfil, setor e unidade padrão.
+ *
+ * O setor é o que liga a pessoa ao atendimento de um setor (TI, Manutenção) e
+ * ao roteamento das demandas — por isso é editável sem recriar o vínculo.
+ */
+export async function updateMembership(
+  context: AuthContext,
+  input: { membershipId: string; roleId: string; sectorId?: string; isDefault: boolean },
+  metadata?: { ip?: string | null; userAgent?: string | null },
+) {
+  const membership = await prisma.membership.findUnique({
+    where: { id: input.membershipId },
+    select: {
+      id: true,
+      userId: true,
+      branchId: true,
+      roleId: true,
+      sectorId: true,
+      isDefault: true,
+    },
+  });
+
+  if (!membership) throw new NotFoundError("Vínculo");
+
+  assertBranchAccess(context, membership.branchId);
+  await getUserDetail(context, membership.userId);
+
+  const role = await prisma.role.findUnique({
+    where: { id: input.roleId },
+    select: { id: true, active: true },
+  });
+
+  if (!role || !role.active) throw new NotFoundError("Perfil");
+
+  await assertActiveSector(input.sectorId);
+
+  // Trocar o perfil colide com a unicidade (usuário, unidade, perfil) se já
+  // existir outro vínculo com o mesmo trio.
+  if (input.roleId !== membership.roleId) {
+    const conflicting = await prisma.membership.findFirst({
+      where: {
+        userId: membership.userId,
+        branchId: membership.branchId,
+        roleId: input.roleId,
+        id: { not: membership.id },
+      },
+      select: { id: true },
+    });
+
+    if (conflicting) {
+      throw new ConflictError("Esta pessoa já tem esse perfil nesta unidade.");
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    if (input.isDefault) {
+      await tx.membership.updateMany({
+        where: { userId: membership.userId },
+        data: { isDefault: false },
+      });
+    }
+
+    const updated = await tx.membership.update({
+      where: { id: membership.id },
+      data: {
+        roleId: input.roleId,
+        sectorId: input.sectorId ?? null,
+        isDefault: input.isDefault,
+      },
+      select: { id: true },
+    });
+
+    await writeAuditLog(
+      {
+        actorId: context.user.id,
+        action: "membership.updated",
+        entityType: "Membership",
+        entityId: membership.id,
+        branchId: membership.branchId,
+        before: {
+          roleId: membership.roleId,
+          sectorId: membership.sectorId,
+          isDefault: membership.isDefault,
+        },
+        after: {
+          roleId: input.roleId,
+          sectorId: input.sectorId ?? null,
+          isDefault: input.isDefault,
+        },
+        ip: metadata?.ip,
+        userAgent: metadata?.userAgent,
+      },
+      tx,
+    );
+
+    return updated;
   });
 }
 
@@ -508,6 +638,62 @@ export async function removeMembership(
   });
 }
 
+/**
+ * Usuários ativos vinculados a qualquer um dos setores informados.
+ *
+ * Usado pelo fan-out das notificações de encaminhamento: quem recebe é sempre
+ * o setor de destino, e não uma pessoa. Com `branchId`, restringe à unidade —
+ * um setor é global, mas a demanda é de uma unidade.
+ */
+export async function usersInSectors(
+  sectorIds: readonly string[],
+  options: { branchId?: string | null } = {},
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<string[]> {
+  if (sectorIds.length === 0) return [];
+
+  const memberships = await client.membership.findMany({
+    where: {
+      sectorId: { in: [...sectorIds] },
+      ...(options.branchId ? { branchId: options.branchId } : {}),
+      active: true,
+      user: { status: "ACTIVE", active: true },
+      role: { active: true },
+    },
+    select: { userId: true },
+  });
+
+  return [...new Set(memberships.map((membership) => membership.userId))];
+}
+
+/**
+ * Usuários do setor que **podem atender** demandas na filial.
+ *
+ * Diferente de `usersInSectors`, exige a permissão no papel: nem todo mundo do
+ * setor de TI (ex.: quem só pede peças) deve receber o chamado.
+ */
+export async function usersInSectorsWithPermission(
+  branchId: string,
+  permission: string,
+  sectorIds: readonly string[],
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<string[]> {
+  if (sectorIds.length === 0) return [];
+
+  const memberships = await client.membership.findMany({
+    where: {
+      branchId,
+      sectorId: { in: [...sectorIds] },
+      active: true,
+      user: { status: "ACTIVE", active: true },
+      role: { active: true, rolePermissions: { some: { permissionId: permission } } },
+    },
+    select: { userId: true },
+  });
+
+  return [...new Set(memberships.map((membership) => membership.userId))];
+}
+
 /** Usuários com uma permissão específica em uma filial (usado por notificações). */
 export async function usersWithPermission(branchId: string, permission: string): Promise<string[]> {
   const memberships = await prisma.membership.findMany({
@@ -516,6 +702,35 @@ export async function usersWithPermission(branchId: string, permission: string):
       active: true,
       user: { status: "ACTIVE", active: true },
       role: { active: true, rolePermissions: { some: { permissionId: permission } } },
+    },
+    select: { userId: true },
+    orderBy: { userId: "asc" },
+  });
+
+  return [...new Set(memberships.map((membership) => membership.userId))];
+}
+
+/**
+ * Usuários com a permissão em um papel de escopo **de rede** (matriz,
+ * super admin).
+ *
+ * `usersWithPermission` só encontra vínculo na filial; um super admin tem
+ * vínculo apenas na matriz, então não seria notificado de um pedido feito numa
+ * unidade. Este helper fecha essa lacuna.
+ */
+export async function usersWithNetworkPermission(
+  permission: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<string[]> {
+  const memberships = await client.membership.findMany({
+    where: {
+      active: true,
+      user: { status: "ACTIVE", active: true },
+      role: {
+        active: true,
+        scope: "ALL_BRANCHES",
+        rolePermissions: { some: { permissionId: permission } },
+      },
     },
     select: { userId: true },
     orderBy: { userId: "asc" },

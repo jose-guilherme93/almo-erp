@@ -4,7 +4,9 @@ import { BusinessRuleError, InvalidTransitionError, NotFoundError } from "@/lib/
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
 import { writeAuditLog } from "@/server/services/audit";
+import { createAttachmentRows, type AttachmentInput } from "@/server/services/attachment";
 import { notify } from "@/server/services/notification";
+import { getServiceSectorForCategory } from "@/server/services/sector";
 import { nextMaintenanceNumber } from "@/server/services/stock/numbering";
 import type { AuthContext } from "@/server/auth/context";
 import { assertBranchAccess, visibleBranchIds } from "@/server/auth/scope";
@@ -47,6 +49,13 @@ export const OPEN_MAINTENANCE_STATUSES: readonly MaintenanceStatus[] = [
   "WAITING_PARTS",
 ];
 
+/** Estados terminais: chamados encerrados, recusados ou cancelados. */
+export const CLOSED_MAINTENANCE_STATUSES: readonly MaintenanceStatus[] = [
+  "DONE",
+  "REJECTED",
+  "CANCELLED",
+];
+
 export const MAINTENANCE_CATEGORY_LABELS: Record<string, string> = {
   ELECTRICAL: "Elétrica",
   PLUMBING: "Hidráulica",
@@ -79,13 +88,27 @@ function visibilityFilter(context: AuthContext, branchId?: string | null) {
     return { branchId };
   }
 
-  // Quem abriu continua vendo o chamado, mesmo que tenha escolhido outra
-  // unidade: o chamado é dele antes de ser da filial.
+  // Visão geral do setor (manutenção/TI/matriz): tudo do escopo de filiais.
+  if (context.hasPermission("manutencao:overview")) {
+    return { branchId: { in: visibleBranchIds(context) } };
+  }
+
+  // Sem visão geral, a pessoa vê:
+  //  - o que ela mesma abriu (mesmo em outra unidade — §3.7);
+  //  - o que foi atribuído a ela, encaminhado ao seu setor, ou roteado ao
+  //    setor de atendimento dela (ex.: chamado de TI com serviceSectorId = TI),
+  //    sempre dentro das filiais a que tem acesso.
   return {
     OR: [
-      { branchId: { in: visibleBranchIds(context) } },
       { requesterId: context.user.id },
-      { assignedToId: context.user.id },
+      {
+        branchId: { in: visibleBranchIds(context) },
+        OR: [
+          { assignedToId: context.user.id },
+          { delegations: { some: { toSectorId: { in: context.sectorIds } } } },
+          { serviceSectorId: { in: context.sectorIds } },
+        ],
+      },
     ],
   };
 }
@@ -93,9 +116,12 @@ function visibilityFilter(context: AuthContext, branchId?: string | null) {
 export type MaintenanceListFilters = {
   search?: string;
   status?: string | null;
+  /** Lista de status (visão "em aberto" / "concluídos"). Tem precedência sobre `status`. */
+  statuses?: readonly MaintenanceStatus[] | null;
   category?: string | null;
   priority?: string | null;
   branchId?: string | null;
+  sectorId?: string | null;
   mineOnly?: boolean;
   assignedToMe?: boolean;
   page?: number;
@@ -109,24 +135,36 @@ export async function listMaintenanceRequests(
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
 
+  // Escopo e busca combinados com `AND`: se fossem espalhados no mesmo objeto, o
+  // `OR` da busca sobrescreveria o `OR` da visibilidade e o usuário enxergaria
+  // chamado de outra filial.
   const where: Prisma.MaintenanceRequestWhereInput = {
-    ...visibilityFilter(context, filters.branchId ?? null),
-    ...(filters.status ? { status: filters.status as MaintenanceStatus } : {}),
-    ...(filters.category ? { category: filters.category as MaintenanceCategory } : {}),
-    ...(filters.priority
-      ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
-      : {}),
-    ...(filters.mineOnly ? { requesterId: context.user.id } : {}),
-    ...(filters.assignedToMe ? { assignedToId: context.user.id } : {}),
-    ...(filters.search
-      ? {
-          OR: [
-            { number: { contains: filters.search, mode: "insensitive" } },
-            { title: { contains: filters.search, mode: "insensitive" } },
-            { location: { contains: filters.search, mode: "insensitive" } },
-          ],
-        }
-      : {}),
+    AND: [
+      visibilityFilter(context, filters.branchId ?? null),
+      {
+        ...(filters.statuses && filters.statuses.length > 0
+          ? { status: { in: [...filters.statuses] } }
+          : filters.status
+            ? { status: filters.status as MaintenanceStatus }
+            : {}),
+        ...(filters.category ? { category: filters.category as MaintenanceCategory } : {}),
+        ...(filters.priority
+          ? { priority: filters.priority as "LOW" | "NORMAL" | "HIGH" | "URGENT" }
+          : {}),
+        ...(filters.sectorId ? { sectorId: filters.sectorId } : {}),
+        ...(filters.mineOnly ? { requesterId: context.user.id } : {}),
+        ...(filters.assignedToMe ? { assignedToId: context.user.id } : {}),
+        ...(filters.search
+          ? {
+              OR: [
+                { number: { contains: filters.search, mode: "insensitive" } },
+                { title: { contains: filters.search, mode: "insensitive" } },
+                { location: { contains: filters.search, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+    ],
   };
 
   const [items, total] = await Promise.all([
@@ -146,6 +184,7 @@ export async function listMaintenanceRequests(
         createdAt: true,
         completedAt: true,
         branch: { select: { id: true, code: true, name: true } },
+        sector: { select: { id: true, code: true, name: true } },
         requester: { select: { id: true, name: true } },
         assignedTo: { select: { id: true, name: true } },
       },
@@ -177,10 +216,24 @@ export async function getMaintenanceRequest(context: AuthContext, requestId: str
       assignedAt: true,
       completedAt: true,
       branch: { select: { id: true, code: true, name: true } },
+      sector: { select: { id: true, code: true, name: true } },
+      serviceSector: { select: { id: true, code: true, name: true } },
       requester: { select: { id: true, name: true, email: true } },
       responsible: { select: { id: true, name: true } },
       claimedBy: { select: { id: true, name: true } },
       assignedTo: { select: { id: true, name: true } },
+      attachments: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          fileName: true,
+          mimeType: true,
+          sizeBytes: true,
+          width: true,
+          height: true,
+          createdAt: true,
+        },
+      },
       events: {
         orderBy: { createdAt: "desc" },
         select: {
@@ -199,6 +252,18 @@ export async function getMaintenanceRequest(context: AuthContext, requestId: str
   if (!request) throw new NotFoundError("Chamado");
 
   return request;
+}
+
+/** O usuário enxerga este chamado? Usado para liberar os anexos. */
+export async function canViewMaintenance(
+  context: AuthContext,
+  requestId: string,
+): Promise<boolean> {
+  const count = await prisma.maintenanceRequest.count({
+    where: { id: requestId, ...visibilityFilter(context) },
+  });
+
+  return count > 0;
 }
 
 /** Fila de atendimento da unidade: o que está aberto, mais urgente primeiro. */
@@ -294,11 +359,13 @@ export async function maintenanceSummary(branchIds: readonly string[]) {
 
 export type CreateMaintenanceInput = {
   branchId: string;
+  sectorId?: string | null;
   category: string;
   title: string;
   description: string;
   location: string;
   assetTag?: string;
+  attachments?: AttachmentInput[];
 };
 
 /**
@@ -338,11 +405,18 @@ export async function createMaintenanceRequest(
     async (tx) => {
       const number = await nextMaintenanceNumber(tx, input.branchId);
 
+      // O setor que atende depende da categoria: TI vai para a TI, o resto
+      // fica com a manutenção.
+      const sectorId = input.sectorId ?? context.activeSectorId ?? null;
+      const serviceSectorId = await getServiceSectorForCategory(input.category, tx);
+
       const request = await tx.maintenanceRequest.create({
         data: {
           number,
           branchId: input.branchId,
           requesterId: context.user.id,
+          sectorId,
+          serviceSectorId,
           category: input.category as MaintenanceCategory,
           status: "OPEN",
           title: input.title,
@@ -352,6 +426,12 @@ export async function createMaintenanceRequest(
           responsibleId,
         },
         select: { id: true, number: true },
+      });
+
+      await createAttachmentRows(tx, {
+        attachments: input.attachments ?? [],
+        uploadedById: context.user.id,
+        maintenanceRequestId: request.id,
       });
 
       await tx.maintenanceEvent.create({
@@ -394,6 +474,7 @@ export async function createMaintenanceRequest(
           requesterName: context.user.name,
           title: input.title,
           location: input.location,
+          serviceSectorId,
         },
       });
 
@@ -579,6 +660,12 @@ export async function assignMaintenanceRequest(
       request.status === "REJECTED"
     ) {
       throw new BusinessRuleError("Este chamado já foi encerrado.");
+    }
+
+    // Reatribuir um chamado já em andamento não é transição de status; nos
+    // demais casos, o avanço para IN_PROGRESS passa pela máquina de estados.
+    if (request.status !== "IN_PROGRESS") {
+      assertTransition(request.status, "IN_PROGRESS");
     }
 
     const assignee = await tx.user.findFirst({

@@ -530,6 +530,8 @@ export async function cancelStockDocument(
           branchId: true,
           storageLocationId: true,
           destinationLocationId: true,
+          referenceType: true,
+          referenceId: true,
           notes: true,
           lines: {
             select: {
@@ -546,6 +548,20 @@ export async function cancelStockDocument(
 
       if (original.status !== "POSTED") {
         throw new BusinessRuleError("Somente movimentações lançadas podem ser canceladas.");
+      }
+
+      // Documento gerado por um fluxo de negócio não pode ser cancelado por
+      // fora: o estorno precisa reconciliar a solicitação/transferência/
+      // inventário de origem, senão o saldo volta e a entidade fica inconsistente.
+      if (
+        original.referenceType === "REQUEST" ||
+        original.referenceType === "TRANSFER" ||
+        original.referenceType === "INVENTORY"
+      ) {
+        throw new BusinessRuleError(
+          "Esta movimentação foi gerada por uma solicitação, transferência ou inventário. " +
+            "Cancele pelo fluxo de origem — o estoque é estornado lá.",
+        );
       }
 
       // Cancela invertendo os sinais das linhas.

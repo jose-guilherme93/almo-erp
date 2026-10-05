@@ -3,14 +3,15 @@ import Link from "next/link";
 import { PackageCheck } from "lucide-react";
 
 import { DataTable, type Column } from "@/components/data-table/data-table";
+import { ClearFilters, TableFilterSelect } from "@/components/data-table/table-filters";
 import { REQUEST_PRIORITY, REQUEST_STATUS, statusBadge } from "@/components/domain/status-badge";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { formatRelative } from "@/lib/format";
-import { readPage, readPageSize, type RawSearchParams } from "@/lib/pagination";
+import { firstParam, readPage, readPageSize, type RawSearchParams } from "@/lib/pagination";
 import { requirePagePermission } from "@/server/auth/guards";
-import { resolveWorkingBranch } from "@/server/auth/scope";
-import { listPendingDeliveries } from "@/server/services/request";
+import { readRequestedBranchId } from "@/server/auth/scope";
+import { listPendingDeliveries, listRequestableBranches } from "@/server/services/request";
 
 export const metadata: Metadata = {
   title: "Entregas",
@@ -25,12 +26,17 @@ export default async function EntregasPage({
 }) {
   const params = await searchParams;
   const context = await requirePagePermission("solicitacao:entregar");
-  const branchId = resolveWorkingBranch(context, null);
 
-  const result = await listPendingDeliveries(context, branchId, {
-    page: readPage(params),
-    pageSize: readPageSize(params),
-  });
+  const showBranchFilter = context.isNetworkScope;
+  const branchId = readRequestedBranchId(context, firstParam(params, "filial"));
+
+  const [result, branches] = await Promise.all([
+    listPendingDeliveries(context, branchId, {
+      page: readPage(params),
+      pageSize: readPageSize(params),
+    }),
+    showBranchFilter ? listRequestableBranches(context) : Promise.resolve([]),
+  ]);
 
   const columns: Array<Column<Row>> = [
     {
@@ -40,7 +46,8 @@ export default async function EntregasPage({
         <div className="min-w-0">
           <p className="truncate font-mono font-medium">{row.number}</p>
           <p className="text-muted-foreground truncate text-xs">
-            {row.requester.name} · {row._count.lines} item(ns)
+            {row.requester.name}
+            {showBranchFilter ? ` · ${row.branch.code}` : ""} · {row._count.lines} item(ns)
           </p>
         </div>
       ),
@@ -80,6 +87,18 @@ export default async function EntregasPage({
         para cada pedido. Ao confirmar a entrega, o saldo é baixado e o comprovante fica disponível
         para o solicitante.
       </p>
+
+      {showBranchFilter ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <TableFilterSelect
+            paramKey="filial"
+            placeholder="Unidade"
+            allLabel="Todas as unidades"
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+          />
+          <ClearFilters paramKeys={["filial"]} />
+        </div>
+      ) : null}
 
       <DataTable
         columns={columns}

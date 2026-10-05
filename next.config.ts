@@ -43,6 +43,14 @@ const nextConfig: NextConfig = {
   // Remove o cabeçalho `X-Powered-By`: não há motivo para anunciar a stack.
   poweredByHeader: false,
 
+  experimental: {
+    serverActions: {
+      // Anexos de imagem já chegam comprimidos; ainda assim damos folga para
+      // vários arquivos em um único envio.
+      bodySizeLimit: "12mb",
+    },
+  },
+
   async headers() {
     return [
       {

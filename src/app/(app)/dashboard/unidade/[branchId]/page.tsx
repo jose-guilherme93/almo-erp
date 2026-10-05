@@ -174,7 +174,9 @@ export default async function DashboardUnidadePage({ params }: UnitDashboardProp
 
           {queue.total > queue.items.length ? (
             <Button asChild variant="outline" size="sm" className="mt-3">
-              <Link href="/solicitacoes/fila">Ver a fila completa ({queue.total})</Link>
+              <Link href={`/solicitacoes/fila?filial=${branchId}`}>
+                Ver a fila completa ({queue.total})
+              </Link>
             </Button>
           ) : null}
         </CardContent>
@@ -193,7 +195,7 @@ export default async function DashboardUnidadePage({ params }: UnitDashboardProp
           title="Aguardando entrega"
           value={dashboard.awaitingDelivery}
           hint="aprovadas para separar"
-          href="/entregas"
+          href={`/entregas?filial=${branchId}`}
           icon={<PackageSearch className="size-3.5" />}
         />
 
@@ -201,7 +203,7 @@ export default async function DashboardUnidadePage({ params }: UnitDashboardProp
           title="Transferências a receber"
           value={dashboard.transfersInTransit}
           hint="a caminho desta unidade"
-          href="/transferencias?sentido=incoming"
+          href={`/transferencias?sentido=incoming&filial=${branchId}&emTransito=1`}
           icon={<ArrowLeftRight className="size-3.5" />}
         />
 
@@ -217,7 +219,7 @@ export default async function DashboardUnidadePage({ params }: UnitDashboardProp
           title="Valor em estoque"
           value={formatCurrency(dashboard.stockValue)}
           hint={`${dashboard.totalItems} item(ns) com saldo`}
-          href="/estoque/saldos"
+          href={`/estoque/saldos?filial=${branchId}`}
         />
 
         <MetricCard
@@ -242,14 +244,14 @@ export default async function DashboardUnidadePage({ params }: UnitDashboardProp
             0,
           )}
           hint="em andamento nesta unidade"
-          href="/solicitacoes?minhas=0"
+          href={`/solicitacoes?filial=${branchId}`}
         />
 
         <MetricCard
           title="Fila de aprovação"
           value={queue.total}
           tone={queue.total > 0 ? "warning" : "success"}
-          href="/solicitacoes/fila"
+          href={`/solicitacoes/fila?filial=${branchId}`}
         />
 
         {repairs ? (
@@ -262,7 +264,7 @@ export default async function DashboardUnidadePage({ params }: UnitDashboardProp
                 ? `${repairs.withoutPriority} sem prioridade`
                 : "todos classificados"
             }
-            href="/reparos"
+            href={`/reparos?filial=${branchId}`}
             icon={<Wrench className="size-3.5" />}
           />
         ) : null}
@@ -353,7 +355,7 @@ export default async function DashboardUnidadePage({ params }: UnitDashboardProp
             </ul>
 
             <Button asChild variant="outline" size="sm" className="mt-3">
-              <Link href="/entregas">Ver todas as entregas</Link>
+              <Link href={`/entregas?filial=${branchId}`}>Ver todas as entregas</Link>
             </Button>
           </CardContent>
         </Card>

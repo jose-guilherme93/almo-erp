@@ -2,7 +2,12 @@ import type { NotificationType } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
-import { usersWithPermission } from "@/server/services/user";
+import {
+  usersInSectors,
+  usersInSectorsWithPermission,
+  usersWithNetworkPermission,
+  usersWithPermission,
+} from "@/server/services/user";
 
 const log = logger.with({ service: "notification" });
 
@@ -130,6 +135,30 @@ const TEMPLATES: Record<
     body: (data) => `${data["actorName"] ?? "A manutenção"} concluiu o reparo.`,
     link: (_e, _i, data) => `/reparos/${data["maintenanceId"] ?? ""}`,
   },
+  DELEGATION_REQUESTED: {
+    title: (data) =>
+      `Etapa encaminhada ao seu setor${data["toSectorName"] ? ` — ${data["toSectorName"]}` : ""}`,
+    body: (data) =>
+      `${data["fromSectorName"] ?? "Outro setor"} pediu: ${data["reason"] ?? "análise"}. Registre o laudo quando concluir.`,
+    link: (_e, _i, data) => `/encaminhamentos/${data["delegationId"] ?? ""}`,
+  },
+  DELEGATION_ACCEPTED: {
+    title: () => "Sua etapa foi assumida",
+    body: (data) => `${data["accepterName"] ?? "O setor de destino"} assumiu a etapa encaminhada.`,
+    link: (_e, _i, data) => `/encaminhamentos/${data["delegationId"] ?? ""}`,
+  },
+  DELEGATION_COMPLETED: {
+    title: () => "Etapa concluída — laudo disponível",
+    body: (data) =>
+      `${data["toSectorName"] ?? "O setor"} concluiu a etapa. ${data["report"] ?? ""}`.trim(),
+    link: (_e, _i, data) => `/encaminhamentos/${data["delegationId"] ?? ""}`,
+  },
+  DELEGATION_RETURNED: {
+    title: () => "Etapa devolvida ao seu setor",
+    body: (data) =>
+      `${data["toSectorName"] ?? "O setor"} devolveu a etapa${data["report"] ? `: ${data["report"]}` : "."}`,
+    link: (_e, _i, data) => `/encaminhamentos/${data["delegationId"] ?? ""}`,
+  },
 };
 
 /** Rótulo de prioridade, para o texto da notificação. */
@@ -165,9 +194,12 @@ export async function resolveRecipients(
         select: { defaultApproverId: true, notificationResponsibleId: true },
       });
 
-      const approvers = await usersWithPermission(payload.branchId, "solicitacao:approve");
+      const [approvers, networkApprovers] = await Promise.all([
+        usersWithPermission(payload.branchId, "solicitacao:approve"),
+        usersWithNetworkPermission("solicitacao:approve", client),
+      ]);
 
-      const recipients = new Set<string>(approvers);
+      const recipients = new Set<string>([...approvers, ...networkApprovers]);
 
       // O aprovador padrão e o responsável por notificações sempre entram,
       // mesmo que o papel deles não tenha a permissão explicitamente.
@@ -181,9 +213,13 @@ export async function resolveRecipients(
     case "REQUEST_CLAIMED": {
       if (!payload.branchId) return [];
 
-      const approvers = await usersWithPermission(payload.branchId, "solicitacao:approve");
+      // Quem saiu da fila importa à unidade e à rede (matriz acompanha tudo).
+      const [approvers, networkApprovers] = await Promise.all([
+        usersWithPermission(payload.branchId, "solicitacao:approve"),
+        usersWithNetworkPermission("solicitacao:approve", client),
+      ]);
 
-      return approvers.filter((id) => !exclude.has(id));
+      return [...new Set([...approvers, ...networkApprovers])].filter((id) => !exclude.has(id));
     }
 
     case "REQUEST_APPROVED":
@@ -276,18 +312,37 @@ export async function resolveRecipients(
     case "MAINTENANCE_CREATED": {
       if (!payload.branchId) return [];
 
-      // Quem atende manutenção na unidade + o responsável padrão.
-      const [attendants, branch] = await Promise.all([
-        usersWithPermission(payload.branchId, "manutencao:atender"),
-        payload.branchId
-          ? client.branch.findUnique({
-              where: { id: payload.branchId },
-              select: { notificationResponsibleId: true },
-            })
-          : Promise.resolve(null),
+      // O chamado tem um setor de atendimento definido pela categoria (TI para
+      // `IT`, Manutenção para o resto). Quem responde é esse setor, na unidade
+      // do chamado — não todo mundo com `manutencao:atender` (o almoxarifado
+      // também tem a permissão e seria avisado de um chamado que não é dele).
+      const serviceSectorId = payload.data?.["serviceSectorId"] ?? null;
+
+      const [sectorAttendants, networkAttendants, branch] = await Promise.all([
+        serviceSectorId
+          ? usersInSectorsWithPermission(
+              payload.branchId,
+              "manutencao:atender",
+              [serviceSectorId],
+              client,
+            )
+          : Promise.resolve([]),
+        usersWithNetworkPermission("manutencao:atender", client),
+        client.branch.findUnique({
+          where: { id: payload.branchId },
+          select: { notificationResponsibleId: true },
+        }),
       ]);
 
-      const recipients = new Set<string>(attendants);
+      const recipients = new Set<string>([...sectorAttendants, ...networkAttendants]);
+
+      // Fallback: se o setor de atendimento não tem ninguém na unidade, avisa
+      // quem atende manutenção na filial para o chamado não ficar órfão.
+      if (sectorAttendants.length === 0) {
+        for (const id of await usersWithPermission(payload.branchId, "manutencao:atender")) {
+          recipients.add(id);
+        }
+      }
 
       if (branch?.notificationResponsibleId) recipients.add(branch.notificationResponsibleId);
 
@@ -303,6 +358,30 @@ export async function resolveRecipients(
     case "MAINTENANCE_DONE": {
       const requesterId = payload.data?.["requesterId"];
       return requesterId && !exclude.has(requesterId) ? [requesterId] : [];
+    }
+
+    case "DELEGATION_REQUESTED": {
+      const toSectorId = payload.data?.["toSectorId"];
+      if (!toSectorId) return [];
+
+      const recipients = await usersInSectors([toSectorId], { branchId: payload.branchId }, client);
+
+      return recipients.filter((id) => !exclude.has(id));
+    }
+
+    case "DELEGATION_ACCEPTED":
+    case "DELEGATION_COMPLETED":
+    case "DELEGATION_RETURNED": {
+      const fromSectorId = payload.data?.["fromSectorId"];
+      if (!fromSectorId) return [];
+
+      const recipients = await usersInSectors(
+        [fromSectorId],
+        { branchId: payload.branchId },
+        client,
+      );
+
+      return recipients.filter((id) => !exclude.has(id));
     }
 
     default:

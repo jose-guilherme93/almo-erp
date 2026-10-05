@@ -30,6 +30,20 @@ export function resolveHomeRoute(context: AuthContext): string {
     return `/dashboard/unidade/${approverBranch}`;
   }
 
+  // Quem atende um setor de serviço (TI, Manutenção) sem aprovar nem entregar
+  // cai direto na fila de chamados — é com isso que ele se importa.
+  const isServiceAttendant = context.branchIds.some((branchId) =>
+    context.hasPermission("manutencao:atender", branchId),
+  );
+
+  if (
+    isServiceAttendant &&
+    !context.hasPermission("solicitacao:entregar") &&
+    !context.hasPermission("solicitacao:approve")
+  ) {
+    return "/reparos";
+  }
+
   // Quem só pede material ou abre chamado cai direto na tela de escolha.
   if (context.hasPermission("solicitacao:create") || context.hasPermission("manutencao:create")) {
     return "/solicitar";
@@ -52,6 +66,14 @@ export function describeProfile(context: AuthContext): string {
 
   if (activeBranchId && context.hasPermission("solicitacao:entregar", activeBranchId)) {
     return "Você opera o almoxarifado da sua unidade.";
+  }
+
+  const isServiceAttendant = context.branchIds.some((branchId) =>
+    context.hasPermission("manutencao:atender", branchId),
+  );
+
+  if (isServiceAttendant) {
+    return "Você atende os chamados do seu setor.";
   }
 
   return "Aqui você pede material e acompanha seus pedidos.";

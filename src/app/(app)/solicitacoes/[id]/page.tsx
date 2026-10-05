@@ -3,6 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Printer } from "lucide-react";
 
+import { AttachmentGallery } from "@/components/domain/attachment-gallery";
+import { EncaminharEtapaForm } from "@/components/domain/delegation-actions";
+import { DelegationList } from "@/components/domain/delegation-list";
 import {
   ApprovalPanel,
   PreparationAction,
@@ -17,7 +20,9 @@ import { formatCurrency, formatDate, formatDateTime, formatQuantity } from "@/li
 import type { RawSearchParams } from "@/lib/pagination";
 import { isAppError } from "@/lib/errors";
 import { requirePagePermission } from "@/server/auth/guards";
+import { listDelegationsForEntity } from "@/server/services/delegation";
 import { estimateRequestValue, getRequestDetail } from "@/server/services/request";
+import { listActiveSectors } from "@/server/services/sector";
 
 export const metadata: Metadata = {
   title: "Solicitação",
@@ -45,6 +50,15 @@ export default async function SolicitacaoDetalhePage({ params, searchParams }: R
   const isOwner = request.requester.id === context.user.id;
   const canApprove = context.hasPermission("solicitacao:approve", request.branch.id);
   const canDeliver = context.hasPermission("solicitacao:entregar", request.branch.id);
+  const canDelegate = context.hasPermission("manutencao:delegar", request.branch.id);
+
+  const [delegations, sectors] = await Promise.all([
+    listDelegationsForEntity(context, "REQUEST", request.id),
+    canDelegate ? listActiveSectors() : Promise.resolve([]),
+  ]);
+
+  const canDelegateNow =
+    canDelegate && !["DELIVERED", "CANCELLED", "REJECTED"].includes(request.status);
 
   const estimatedValue = estimateRequestValue(
     request.lines.map((line) => ({
@@ -66,9 +80,9 @@ export default async function SolicitacaoDetalhePage({ params, searchParams }: R
     <PageBody className="max-w-4xl">
       <PageHeader
         title={request.number}
-        description={`${request.branch.name} · solicitado por ${request.requester.name} em ${formatDateTime(
-          request.createdAt,
-        )}`}
+        description={`${request.branch.name}${
+          request.sector ? ` · ${request.sector.name}` : ""
+        } · solicitado por ${request.requester.name} em ${formatDateTime(request.createdAt)}`}
         action={
           <div className="flex gap-2">
             {request.delivery ? (
@@ -191,6 +205,48 @@ export default async function SolicitacaoDetalhePage({ params, searchParams }: R
           ) : null}
         </CardContent>
       </Card>
+
+      {request.attachments.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Fotos</CardTitle>
+            <CardDescription>Imagens anexadas à solicitação.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AttachmentGallery
+              items={request.attachments.map((attachment) => ({
+                id: attachment.id,
+                fileName: attachment.fileName,
+                mimeType: attachment.mimeType,
+                createdAt: attachment.createdAt,
+              }))}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {delegations.length > 0 || canDelegateNow ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Etapas com outros setores</CardTitle>
+            <CardDescription>
+              Enquanto uma etapa está aberta, quem responde por ela é o setor de destino.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <DelegationList items={delegations} sectorIds={context.sectorIds} />
+
+            {canDelegateNow ? (
+              <EncaminharEtapaForm
+                key={`encaminhar-${delegations.length}`}
+                entityType="REQUEST"
+                entityId={request.id}
+                sectors={sectors.map((sector) => ({ id: sector.id, name: sector.name }))}
+              />
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {request.delivery ? (
         <Card>

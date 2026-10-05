@@ -1,11 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { CredentialsSignInForm } from "@/components/layout/credentials-sign-in-form";
 import { GoogleSignInButton } from "@/components/layout/google-sign-in-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_DESCRIPTION, APP_NAME } from "@/lib/constants";
 import { env } from "@/lib/env";
+import { isGoogleLoginEnabled, isLocalLoginEnabled } from "@/server/auth/login-options";
 import { loginE2EAction, loginWithGoogleAction } from "@/server/actions/auth";
+
+/**
+ * A tela de login lê os toggles em `Config` (banco), então nunca é estática:
+ * se fosse pré-renderizada, congelaria o estado do banco no momento do build.
+ */
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Entrar",
@@ -17,6 +25,7 @@ type LoginPageProps = {
 
 /** Mensagens para os erros que o próprio Auth.js devolve na query string. */
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  CredentialsSignin: "E-mail ou senha inválidos.",
   AccessDenied: "Seu e-mail não foi autorizado a acessar o sistema.",
   OAuthAccountNotLinked: "Este e-mail já está vinculado a outra forma de acesso.",
   OAuthCallbackError: "Não foi possível concluir o login com o Google. Tente novamente.",
@@ -25,6 +34,12 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
+
+  const [localEnabled, googleEnabled] = await Promise.all([
+    isLocalLoginEnabled(),
+    isGoogleLoginEnabled(),
+  ]);
+
   const errorMessage = params.error
     ? (AUTH_ERROR_MESSAGES[params.error] ?? "Não foi possível entrar. Tente novamente.")
     : null;
@@ -52,13 +67,33 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </p>
         ) : null}
 
-        <form action={loginWithGoogleAction} className="space-y-3">
+        {localEnabled ? (
+          <>
+            <CredentialsSignInForm redirectTo={redirectTo} />
+
+            {googleEnabled ? (
+              <div className="flex items-center gap-3">
+                <span className="bg-border h-px flex-1" aria-hidden />
+                <span className="text-muted-foreground text-xs">ou</span>
+                <span className="bg-border h-px flex-1" aria-hidden />
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        <form action={loginWithGoogleAction} className="space-y-2">
           <input type="hidden" name="redirectTo" value={redirectTo} />
-          <GoogleSignInButton />
+          <GoogleSignInButton disabled={!googleEnabled} />
+          {!googleEnabled ? (
+            <p className="text-muted-foreground text-center text-xs">
+              Login com Google ainda não configurado.
+            </p>
+          ) : null}
         </form>
 
         <p className="text-muted-foreground text-center text-xs text-balance">
-          Acesso restrito a e-mails corporativos autorizados. Use sua conta da empresa.
+          Acesso restrito a usuários autorizados. Entre com o e-mail e a senha cadastrados pelo
+          administrador.
         </p>
 
         <p className="text-muted-foreground text-center text-xs">

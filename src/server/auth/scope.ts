@@ -90,6 +90,20 @@ export function canSwitchBranch(context: AuthContext): boolean {
   return context.branchIds.length > 1;
 }
 
+/**
+ * Lê `?filial=` de uma listagem: devolve a filial só quando ela é acessível.
+ *
+ * Sem filial (ou com uma inválida), o serviço decide: escopo de rede vê todas
+ * as unidades, os demais ficam na filial ativa. É o que faz o link de um
+ * indicador do dashboard abrir a mesma consulta que originou o número.
+ */
+export function readRequestedBranchId(
+  context: AuthContext,
+  requested: string | undefined | null,
+): string | null {
+  return requested && context.branchIds.includes(requested) ? requested : null;
+}
+
 /** Filiais para exibição em select, já no escopo do usuário. */
 export function selectableBranches(
   context: AuthContext,

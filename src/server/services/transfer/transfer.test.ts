@@ -235,6 +235,29 @@ describe.runIf(process.env["DATABASE_URL"])("fluxo completo", () => {
     expect(saved.sentById).toBe(actorId);
   });
 
+  it("dois envios simultâneos baixam o estoque uma única vez", async () => {
+    const transfer = await newTransfer(40);
+
+    const results = await Promise.allSettled([
+      sendTransfer(originContext(), transfer.id),
+      sendTransfer(originContext(), transfer.id),
+    ]);
+
+    // Só um envio pode vencer; o outro encontra a transferência já enviada.
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(await balanceOf(originBranchId)).toBe("60");
+
+    const documents = await prisma.stockDocument.count({
+      where: {
+        referenceType: "TRANSFER",
+        referenceId: transfer.id,
+        type: "TRANSFER_OUT",
+      },
+    });
+
+    expect(documents).toBe(1);
+  });
+
   it("receber credita o destino e fecha a transferência", async () => {
     const transfer = await newTransfer(40);
     await sendTransfer(originContext(), transfer.id);

@@ -53,6 +53,20 @@ export const CONFIG_DEFINITIONS = [
     min: 0,
     max: 1_000_000,
   },
+  {
+    key: "auth.localLogin.enabled",
+    label: "Login local (e-mail e senha)",
+    description:
+      "Permite entrar com e-mail e senha, sem Google. O administrador cria a conta e define a senha.",
+    type: "boolean" as const,
+  },
+  {
+    key: "auth.google.enabled",
+    label: "Login com Google",
+    description:
+      'Mostra o botão "Entrar com Google". Exige AUTH_GOOGLE_ID e AUTH_GOOGLE_SECRET configurados.',
+    type: "boolean" as const,
+  },
 ] as const;
 
 export type ConfigKey = (typeof CONFIG_DEFINITIONS)[number]["key"];
@@ -124,6 +138,29 @@ export async function getConfigNumber(key: string, fallback: number): Promise<nu
   return fallback;
 }
 
+/**
+ * Lê um liga/desliga (`type: "boolean"`) com fallback.
+ *
+ * Aceita booleano nativo (como fica no JSON após `updateConfigs`) ou string,
+ * porque o valor pode ter sido gravado à mão.
+ */
+export async function isConfigFlagEnabled(key: string, fallback: boolean): Promise<boolean> {
+  const config = await prisma.config.findUnique({
+    where: { key },
+    select: { value: true },
+  });
+
+  const value = config?.value;
+
+  if (typeof value === "boolean") return value;
+
+  if (typeof value === "string") {
+    return ["true", "1", "yes", "on"].includes(value.trim().toLowerCase());
+  }
+
+  return fallback;
+}
+
 export async function updateConfigs(
   context: AuthContext,
   values: Record<string, string>,
@@ -131,7 +168,7 @@ export async function updateConfigs(
 ) {
   const updates: Array<{
     key: string;
-    value: string | number;
+    value: string | number | boolean;
     definition: (typeof CONFIG_DEFINITIONS)[number];
   }> = [];
 
@@ -141,6 +178,15 @@ export async function updateConfigs(
     if (raw === undefined) continue;
 
     const trimmed = raw.trim();
+
+    if (definition.type === "boolean") {
+      if (trimmed !== "true" && trimmed !== "false") {
+        throw new BusinessRuleError(`"${definition.label}" precisa ser "Sim" ou "Não".`);
+      }
+
+      updates.push({ key: definition.key, value: trimmed === "true", definition });
+      continue;
+    }
 
     if (definition.type === "number") {
       const parsed = Number(trimmed);

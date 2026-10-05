@@ -200,6 +200,37 @@ enum NotificationType {
   MAINTENANCE_ASSIGNED
   MAINTENANCE_PRIORITY_SET
   MAINTENANCE_DONE
+  DELEGATION_REQUESTED
+  DELEGATION_ACCEPTED
+  DELEGATION_COMPLETED
+  DELEGATION_RETURNED
+}
+
+/// Papel do setor no fluxo: quem pede, quem atende, ou os dois.
+enum SectorKind {
+  REQUESTER
+  SERVICE
+  BOTH
+}
+
+/// Etapa de uma demanda encaminhada a outro setor.
+enum DelegationStatus {
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  RETURNED
+  CANCELLED
+}
+
+enum DelegationEventType {
+  CREATED
+  ACCEPTED
+  PROGRESS_UPDATED
+  COMPLETED
+  RETURNED
+  CANCELLED
+  COMMENTED
 }
 
 // -----------------------------------------------------------------------------
@@ -320,6 +351,34 @@ model StorageLocation {
   @@map("storage_locations")
 }
 
+/// Setor da organização (Financeiro, Pedagógico, RH, TI, Almoxarifado…).
+///
+/// `kind` diz se o setor abre pedidos, atende pedidos, ou ambos. O setor é a
+/// dimensão que liga o colaborador à solicitação e que permite encaminhar uma
+/// etapa de uma demanda para outro setor (ver `Delegation`).
+model Sector {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  name        String
+  kind        SectorKind @default(REQUESTER)
+  description String?
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  memberships          Membership[]
+  requestsAsOrigin     Request[]            @relation("RequestOriginSector")
+  requestsAsService    Request[]            @relation("RequestServiceSector")
+  maintenanceAsOrigin  MaintenanceRequest[] @relation("MaintenanceOriginSector")
+  maintenanceAsService MaintenanceRequest[] @relation("MaintenanceServiceSector")
+  delegationsFrom      Delegation[]         @relation("DelegationFromSector")
+  delegationsTo        Delegation[]         @relation("DelegationToSector")
+
+  @@index([kind])
+  @@index([active])
+  @@map("sectors")
+}
+
 // -----------------------------------------------------------------------------
 // Identidade e acesso
 // -----------------------------------------------------------------------------
@@ -332,6 +391,10 @@ model User {
   status      UserStatus @default(PENDING)
   active      Boolean    @default(true)
   lastLoginAt DateTime?  @map("last_login_at")
+
+  /// Hash scrypt da senha (login local, e-mail + senha). `null` = o usuário
+  /// não tem senha e só entra por Google.
+  passwordHash String? @map("password_hash")
 
   approvedById String?   @map("approved_by_id")
   approvedAt   DateTime? @map("approved_at")
@@ -388,9 +451,35 @@ model User {
   maintenanceAssigned    MaintenanceRequest[] @relation("MaintenanceAssignedTo")
   maintenanceEvents      MaintenanceEvent[]
 
+  delegationsRequested Delegation[]      @relation("DelegationRequestedBy")
+  delegationsAccepted  Delegation[]      @relation("DelegationAcceptedBy")
+  delegationsCompleted Delegation[]      @relation("DelegationCompletedBy")
+  delegationEvents     DelegationEvent[]
+  attachmentsUploaded  Attachment[]
+
+  reportSnapshotsGenerated ReportSnapshot[] @relation("ReportSnapshotGeneratedBy")
+  reportExports            ReportExport[]     @relation("ReportExportActor")
+
   @@index([status])
   @@index([active])
   @@map("users")
+}
+
+/// Contador de tentativas de login local por e-mail (proteção contra força bruta).
+///
+/// Vive no banco (e não em memória) para sobreviver a restart e ser auditável.
+/// Só o provider local (e-mail + senha) alimenta esta tabela; o Google não.
+model LoginThrottle {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  failedCount   Int       @default(0) @map("failed_count")
+  firstFailedAt DateTime? @map("first_failed_at")
+  lockedUntil   DateTime? @map("locked_until")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([lockedUntil])
+  @@map("login_throttles")
 }
 
 model Membership {
@@ -398,18 +487,22 @@ model Membership {
   userId    String   @map("user_id")
   branchId  String   @map("branch_id")
   roleId    String   @map("role_id")
+  /// Setor do colaborador neste vínculo. Pré-seleciona o setor na solicitação.
+  sectorId  String?  @map("sector_id")
   isDefault Boolean  @default(false) @map("is_default")
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  role   Role    @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  sector Sector? @relation(fields: [sectorId], references: [id], onDelete: SetNull)
 
   @@unique([userId, branchId, roleId])
   @@index([branchId, roleId])
   @@index([userId, active])
+  @@index([sectorId])
   @@map("memberships")
 }
 
@@ -606,8 +699,10 @@ model ItemLot {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  item       Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  stockLines StockLine[]
+  item               Item               @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  stockLines         StockLine[]
+  stockReservations  StockReservation[]
+  transferLines      TransferLine[]
 
   @@unique([itemId, code])
   @@index([itemId, expirationDate])
@@ -721,6 +816,8 @@ model StockReservation {
   id            String            @id @default(cuid())
   requestLineId String            @unique @map("request_line_id")
   stockLevelId  String            @map("stock_level_id")
+  /// Lote para o qual o saldo foi reservado (material controlado por lote).
+  lotId         String?           @map("item_lot_id")
   quantity      Decimal           @db.Decimal(18, 4)
   status        ReservationStatus @default(ACTIVE)
   createdById   String?           @map("created_by_id")
@@ -729,9 +826,11 @@ model StockReservation {
 
   requestLine RequestLine @relation(fields: [requestLineId], references: [id], onDelete: Cascade)
   stockLevel  StockLevel  @relation(fields: [stockLevelId], references: [id], onDelete: Restrict)
+  itemLot     ItemLot?    @relation(fields: [lotId], references: [id], onDelete: Restrict)
   createdBy   User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([stockLevelId, status])
+  @@index([lotId])
   @@map("stock_reservations")
 }
 
@@ -772,6 +871,8 @@ model TransferLine {
   id               String   @id @default(cuid())
   transferId       String   @map("transfer_id")
   itemId           String   @map("item_id")
+  /// Lote enviado (material controlado por lote). Preenchido no envio por FEFO.
+  itemLotId        String?  @map("item_lot_id")
   quantitySent     Decimal  @map("quantity_sent") @db.Decimal(18, 4)
   quantityReceived Decimal  @default(0) @map("quantity_received") @db.Decimal(18, 4)
   notes            String?
@@ -780,8 +881,10 @@ model TransferLine {
 
   transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
   item     Item     @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  itemLot  ItemLot? @relation(fields: [itemLotId], references: [id], onDelete: Restrict)
 
   @@index([transferId])
+  @@index([itemLotId])
   @@map("transfer_lines")
 }
 
@@ -875,23 +978,38 @@ model Request {
   matrixDecidedAt   DateTime? @map("matrix_decided_at")
 
   deliveredAt DateTime? @map("delivered_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  branch          Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  requester       User           @relation("RequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
-  responsible     User?          @relation("RequestResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
-  claimedBy       User?          @relation("RequestClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
-  decidedBy       User?          @relation("RequestDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
-  matrixDecidedBy User?          @relation("RequestMatrixDecidedBy", fields: [matrixDecidedById], references: [id], onDelete: SetNull)
-  lines           RequestLine[]
-  events          RequestEvent[]
-  delivery        Delivery?
+  /// Setor de quem pediu e setor que atende (almoxarifado por padrão).
+  sectorId        String? @map("sector_id")
+  serviceSectorId String? @map("service_sector_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branch                  Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  sector                  Sector?        @relation("RequestOriginSector", fields: [sectorId], references: [id], onDelete: SetNull)
+  serviceSector           Sector?        @relation("RequestServiceSector", fields: [serviceSectorId], references: [id], onDelete: SetNull)
+  requester               User           @relation("RequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  responsible             User?          @relation("RequestResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  claimedBy               User?          @relation("RequestClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  decidedBy               User?          @relation("RequestDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  matrixDecidedBy         User?          @relation("RequestMatrixDecidedBy", fields: [matrixDecidedById], references: [id], onDelete: SetNull)
+  lines                   RequestLine[]
+  events                  RequestEvent[]
+  delivery                Delivery?
+  delegations             Delegation[]   @relation("RequestDelegations")
+  attachments             Attachment[]
+  /// Quando esta solicitação nasceu de uma etapa encaminhada (ex.: peça
+  /// pedida pela TI a partir de uma análise), guarda o encaminhamento de origem.
+  spawnedFromDelegationId String?        @unique @map("spawned_from_delegation_id")
+  spawnedFromDelegation   Delegation?    @relation("DelegationSpawnedRequests", fields: [spawnedFromDelegationId], references: [id], onDelete: SetNull)
 
   @@unique([branchId, number])
   @@index([branchId, status])
   @@index([requesterId, status])
   @@index([responsibleId, status])
+  @@index([sectorId])
+  @@index([serviceSectorId])
   @@index([status, priority, createdAt])
   @@map("requests")
 }
@@ -1037,20 +1155,30 @@ model MaintenanceRequest {
 
   rejectReason String? @map("reject_reason")
 
+  /// Setor de quem abriu e setor que atende (Manutenção, TI…).
+  sectorId        String? @map("sector_id")
+  serviceSectorId String? @map("service_sector_id")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  branch      Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  requester   User               @relation("MaintenanceRequester", fields: [requesterId], references: [id], onDelete: Restrict)
-  responsible User?              @relation("MaintenanceResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
-  claimedBy   User?              @relation("MaintenanceClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
-  assignedTo  User?              @relation("MaintenanceAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
-  events      MaintenanceEvent[]
+  branch        Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  sector        Sector?            @relation("MaintenanceOriginSector", fields: [sectorId], references: [id], onDelete: SetNull)
+  serviceSector Sector?            @relation("MaintenanceServiceSector", fields: [serviceSectorId], references: [id], onDelete: SetNull)
+  requester     User               @relation("MaintenanceRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  responsible   User?              @relation("MaintenanceResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  claimedBy     User?              @relation("MaintenanceClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  assignedTo    User?              @relation("MaintenanceAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  events        MaintenanceEvent[]
+  delegations   Delegation[]       @relation("MaintenanceDelegations")
+  attachments   Attachment[]
 
   @@unique([branchId, number])
   @@index([branchId, status])
   @@index([requesterId, status])
   @@index([assignedToId, status])
+  @@index([sectorId])
+  @@index([serviceSectorId])
   @@index([status, priority, createdAt])
   @@map("maintenance_requests")
 }
@@ -1071,4 +1199,177 @@ model MaintenanceEvent {
 
   @@index([requestId, createdAt])
   @@map("maintenance_events")
+}
+
+// -----------------------------------------------------------------------------
+// Encaminhamento de etapas entre setores
+// -----------------------------------------------------------------------------
+
+/// Etapa de uma demanda encaminhada de um setor para outro.
+///
+/// O almoxarifado recebe uma solicitação e pode encaminhar uma etapa ("analisar
+/// se o defeito é de fabricação ou mau uso") para a TI. Quando a TI conclui com
+/// um laudo, o comando **volta** para o setor de origem, que segue até fechar.
+/// Enquanto a etapa estiver com a TI, só ela (e o setor de origem) enxergam a
+/// demanda.
+model Delegation {
+  id           String           @id @default(cuid())
+  fromSectorId String           @map("from_sector_id")
+  toSectorId   String           @map("to_sector_id")
+  status       DelegationStatus @default(PENDING)
+  /// O que o setor de origem precisa que o destino analise/faça.
+  reason       String
+  /// Laudo/atestado do setor de destino ao concluir a etapa.
+  report       String?
+
+  requestedById String    @map("requested_by_id")
+  acceptedById  String?   @map("accepted_by_id")
+  acceptedAt    DateTime? @map("accepted_at")
+  completedById String?   @map("completed_by_id")
+  completedAt   DateTime? @map("completed_at")
+  returnedAt    DateTime? @map("returned_at")
+
+  /// Exatamente uma das duas referências é preenchida (validado no serviço).
+  requestId            String? @map("request_id")
+  maintenanceRequestId String? @map("maintenance_request_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  fromSector         Sector              @relation("DelegationFromSector", fields: [fromSectorId], references: [id], onDelete: Restrict)
+  toSector           Sector              @relation("DelegationToSector", fields: [toSectorId], references: [id], onDelete: Restrict)
+  requestedBy        User                @relation("DelegationRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  acceptedBy         User?               @relation("DelegationAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+  completedBy        User?               @relation("DelegationCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  request            Request?            @relation("RequestDelegations", fields: [requestId], references: [id], onDelete: Cascade)
+  maintenanceRequest MaintenanceRequest? @relation("MaintenanceDelegations", fields: [maintenanceRequestId], references: [id], onDelete: Cascade)
+  spawnedRequests    Request[]           @relation("DelegationSpawnedRequests")
+  events             DelegationEvent[]
+
+  @@index([toSectorId, status])
+  @@index([fromSectorId, status])
+  @@index([requestId])
+  @@index([maintenanceRequestId])
+  @@map("delegations")
+}
+
+model DelegationEvent {
+  id           String              @id @default(cuid())
+  delegationId String              @map("delegation_id")
+  actorId      String?             @map("actor_id")
+  type         DelegationEventType
+  fromStatus   DelegationStatus?   @map("from_status")
+  toStatus     DelegationStatus?   @map("to_status")
+  comment      String?
+  metadata     Json?
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  delegation Delegation @relation(fields: [delegationId], references: [id], onDelete: Cascade)
+  actor      User?      @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([delegationId, createdAt])
+  @@map("delegation_events")
+}
+
+// -----------------------------------------------------------------------------
+// Anexos
+// -----------------------------------------------------------------------------
+
+/// Imagem anexada a uma solicitação ou chamado.
+///
+/// O arquivo é comprimido no navegador (WebP, maior lado limitado) e guardado em
+/// disco; aqui ficam só os metadados. O binário é servido por route handler
+/// autenticado, respeitando a visibilidade da entidade pai.
+model Attachment {
+  id         String  @id @default(cuid())
+  /// Caminho relativo dentro do diretório de uploads.
+  storageKey String  @unique @map("storage_key")
+  fileName   String  @map("file_name")
+  mimeType   String  @map("mime_type")
+  sizeBytes  Int     @map("size_bytes")
+  width      Int?
+  height     Int?
+  checksum   String?
+
+  requestId            String? @map("request_id")
+  maintenanceRequestId String? @map("maintenance_request_id")
+  uploadedById         String  @map("uploaded_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  request            Request?            @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  maintenanceRequest MaintenanceRequest? @relation(fields: [maintenanceRequestId], references: [id], onDelete: Cascade)
+  uploadedBy         User                @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([requestId])
+  @@index([maintenanceRequestId])
+  @@map("attachments")
+}
+
+// -----------------------------------------------------------------------------
+// Relatórios consolidados (append-only)
+// -----------------------------------------------------------------------------
+
+/// Formato de saída de um relatório consolidado.
+enum ReportExportFormat {
+  CSV
+  PDF
+  DRIVE
+  PRINT
+}
+
+/// Fotografia imutável de um relatório consolidado.
+///
+/// Guarda exatamente o que foi gerado (dados, filtros e escopo) com hash de
+/// conteúdo. **Não existe update nem delete**: um relatório consolidado é
+/// evidência, não rascunho. O banco reforça isso com um trigger que recusa
+/// `UPDATE`/`DELETE` nesta tabela (ver migration `report_snapshots`).
+model ReportSnapshot {
+  id           String   @id @default(cuid())
+  reportId     String   @map("report_id")
+  reportLabel  String   @map("report_label")
+  /// Filtros usados na geração (período, filial, categoria) — JSON congelado.
+  params       Json
+  periodFrom   DateTime @map("period_from")
+  periodTo     DateTime @map("period_to")
+  /// Filiais do escopo no momento da consolidação.
+  branchIds    String[] @map("branch_ids") @default([])
+  headers      Json
+  rows         Json
+  rowCount     Int      @map("row_count")
+  summary      String
+  /// SHA-256 canônico de (relatório + período + escopo + conteúdo).
+  contentHash  String   @map("content_hash")
+
+  generatedById String   @map("generated_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  generatedBy User           @relation("ReportSnapshotGeneratedBy", fields: [generatedById], references: [id], onDelete: Restrict)
+  exports     ReportExport[]
+
+  @@index([reportId, createdAt])
+  @@index([generatedById, createdAt])
+  @@map("report_snapshots")
+}
+
+/// Cada saída de um relatório consolidado (CSV, PDF, Drive…): trilha de
+/// auditoria de exportação de dado.
+model ReportExport {
+  id             String              @id @default(cuid())
+  snapshotId     String              @map("snapshot_id")
+  format         ReportExportFormat
+  actorId        String              @map("actor_id")
+  /// Destino externo quando houver (ex.: id do arquivo no Google Drive).
+  destination    String?
+  destinationUrl String?             @map("destination_url")
+  ip             String?
+  userAgent      String?             @map("user_agent")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  snapshot ReportSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  actor    User           @relation("ReportExportActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([snapshotId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("report_exports")
 }

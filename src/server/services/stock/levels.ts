@@ -15,6 +15,7 @@ import { resolveWorkingBranch } from "@/server/auth/scope";
 
 export type StockLevelFilters = {
   search?: string;
+  branchId?: string | null;
   categoryId?: string | null;
   storageLocationId?: string | null;
   onlyBelowMinimum?: boolean;
@@ -51,7 +52,7 @@ export async function listStockLevels(
   pageSize: number;
   totalPages: number;
 }> {
-  const branchId = resolveWorkingBranch(context, null);
+  const branchId = resolveWorkingBranch(context, filters.branchId ?? null);
 
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));

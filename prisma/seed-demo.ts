@@ -60,6 +60,8 @@ function makeContext(input: {
       roleName: "Demonstração",
       roleScope: input.isNetworkScope ? ("ALL_BRANCHES" as const) : ("OWN_BRANCHES" as const),
       isDefault: true,
+      sectorId: null,
+      sectorName: null,
     },
   ];
 
@@ -77,9 +79,11 @@ function makeContext(input: {
       status: "ACTIVE",
     },
     memberships,
+    sectorIds: [],
     branchIds,
     isNetworkScope: input.isNetworkScope ?? false,
     activeBranchId: input.branchId,
+    activeSectorId: null,
     networkPermissions: input.isNetworkScope ? permissions : new Set<string>(),
     hasPermission(permission, branchId) {
       if (branchId !== undefined && !branchIds.includes(branchId)) return false;
@@ -103,6 +107,8 @@ async function resetDemoData(): Promise<void> {
 
   await prisma.delivery.deleteMany({ where: { deliveredById: { in: userIds } } });
   await prisma.stockReservation.deleteMany({ where: { createdById: { in: userIds } } });
+  await prisma.delegation.deleteMany({ where: { requestedById: { in: userIds } } });
+  await prisma.attachment.deleteMany({ where: { uploadedById: { in: userIds } } });
   await prisma.requestEvent.deleteMany({ where: { actorId: { in: userIds } } });
   await prisma.requestLine.deleteMany({ where: { request: { requesterId: { in: userIds } } } });
   await prisma.request.deleteMany({ where: { requesterId: { in: userIds } } });

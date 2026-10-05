@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db";
 import { writeAuditLog } from "@/server/services/audit";
 import { notify } from "@/server/services/notification";
 import { postStockDocument } from "@/server/services/stock/post-document";
+import { lockFlowRow } from "@/server/services/stock/lock";
+import { resolveLotForItem } from "@/server/services/stock/lots";
 import { nextTransferNumber } from "@/server/services/stock/numbering";
 import { assertTransition } from "@/server/services/transfer/transitions";
 import type { AuthContext } from "@/server/auth/context";
@@ -56,6 +58,8 @@ function visibilityFilter(context: AuthContext, options?: { branchId?: string | 
 export type TransferListFilters = {
   search?: string;
   status?: string | null;
+  /** Vários status ao mesmo tempo (ex.: "em trânsito" = SENT + IN_TRANSIT). */
+  statuses?: readonly string[] | null;
   branchId?: string | null;
   direction?: "incoming" | "outgoing" | "all";
   page?: number;
@@ -66,7 +70,9 @@ export async function listTransfers(context: AuthContext, filters: TransferListF
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
 
-  const branchId = filters.branchId ?? context.activeBranchId;
+  // Sem filial pedida, o escopo de rede vê todas as unidades; os demais ficam
+  // na filial ativa.
+  const branchId = filters.branchId ?? (context.isNetworkScope ? null : context.activeBranchId);
 
   const directionFilter: Prisma.TransferWhereInput =
     filters.direction === "incoming" && branchId
@@ -75,8 +81,14 @@ export async function listTransfers(context: AuthContext, filters: TransferListF
         ? { originBranchId: branchId }
         : {};
 
+  const statusFilter: Prisma.TransferWhereInput = filters.statuses?.length
+    ? { status: { in: filters.statuses as TransferStatus[] } }
+    : filters.status
+      ? { status: filters.status as TransferStatus }
+      : {};
+
   const where: Prisma.TransferWhereInput = {
-    ...(filters.status ? { status: filters.status as TransferStatus } : {}),
+    ...statusFilter,
     ...(filters.search ? { number: { contains: filters.search, mode: "insensitive" } } : {}),
     ...directionFilter,
     ...(Object.keys(directionFilter).length === 0 ? visibilityFilter(context, { branchId }) : {}),
@@ -276,6 +288,10 @@ export async function sendTransfer(
 ) {
   return prisma.$transaction(
     async (tx) => {
+      // Trava a transferência: sem isso, dois envios simultâneos baixam o
+      // estoque duas vezes enquanto a transferência registra um só.
+      await lockFlowRow(tx, "transfers", transferId);
+
       const transfer = await tx.transfer.findUnique({
         where: { id: transferId },
         select: {
@@ -286,7 +302,7 @@ export async function sendTransfer(
           destinationBranchId: true,
           notes: true,
           lines: {
-            select: { itemId: true, quantitySent: true },
+            select: { id: true, itemId: true, quantitySent: true },
           },
         },
       });
@@ -302,6 +318,28 @@ export async function sendTransfer(
 
       const locationId = await defaultLocationId(tx, transfer.originBranchId);
 
+      // Material controlado por lote: escolhe o lote por FEFO e o registra na
+      // linha, para que o destino receba/devolva exatamente o mesmo lote.
+      const linesWithLot: Array<{
+        itemId: string;
+        quantitySent: Prisma.Decimal;
+        itemLotId: string | null;
+      }> = [];
+
+      for (const line of transfer.lines) {
+        const itemLotId = await resolveLotForItem(tx, {
+          branchId: transfer.originBranchId,
+          itemId: line.itemId,
+          quantity: line.quantitySent,
+        });
+
+        if (itemLotId) {
+          await tx.transferLine.update({ where: { id: line.id }, data: { itemLotId } });
+        }
+
+        linesWithLot.push({ itemId: line.itemId, quantitySent: line.quantitySent, itemLotId });
+      }
+
       // Baixa na origem. Se não houver saldo, o motor de estoque lança
       // InsufficientStockError e nada é persistido — a transferência continua
       // em rascunho para o usuário ajustar.
@@ -313,9 +351,10 @@ export async function sendTransfer(
         referenceType: "TRANSFER",
         referenceId: transfer.id,
         createdById: context.user.id,
-        lines: transfer.lines.map((line) => ({
+        lines: linesWithLot.map((line) => ({
           itemId: line.itemId,
           quantity: line.quantitySent.negated(),
+          itemLotId: line.itemLotId,
         })),
       });
 
@@ -379,6 +418,8 @@ export async function dispatchTransfer(
   metadata?: { ip?: string | null; userAgent?: string | null },
 ) {
   return prisma.$transaction(async (tx) => {
+    await lockFlowRow(tx, "transfers", transferId);
+
     const transfer = await tx.transfer.findUnique({
       where: { id: transferId },
       select: { id: true, status: true, originBranchId: true },
@@ -437,6 +478,8 @@ export async function receiveTransfer(
 ) {
   return prisma.$transaction(
     async (tx) => {
+      await lockFlowRow(tx, "transfers", input.transferId);
+
       const transfer = await tx.transfer.findUnique({
         where: { id: input.transferId },
         select: {
@@ -446,7 +489,13 @@ export async function receiveTransfer(
           originBranchId: true,
           destinationBranchId: true,
           lines: {
-            select: { id: true, itemId: true, quantitySent: true, quantityReceived: true },
+            select: {
+              id: true,
+              itemId: true,
+              itemLotId: true,
+              quantitySent: true,
+              quantityReceived: true,
+            },
           },
         },
       });
@@ -454,10 +503,6 @@ export async function receiveTransfer(
       if (!transfer) throw new NotFoundError("Transferência");
 
       assertBranchAccess(context, transfer.destinationBranchId);
-
-      if (transfer.status !== "IN_TRANSIT" && transfer.status !== "SENT") {
-        throw new BusinessRuleError("Só é possível receber transferência enviada ou em trânsito.");
-      }
 
       const locationId = await defaultLocationId(tx, transfer.destinationBranchId);
       const lineById = new Map(transfer.lines.map((line) => [line.id, line]));
@@ -495,6 +540,27 @@ export async function receiveTransfer(
 
       const toReceive = receipts.filter((receipt) => receipt.quantity.greaterThan(0));
 
+      // Apura o estado final e o valida na máquina **antes** de mexer no
+      // estoque: o recebimento pode vir de SENT (despacho pulado) ou IN_TRANSIT,
+      // e o que sobra pendente mantém a transferência em trânsito.
+      const receivedNow = new Map(receipts.map((receipt) => [receipt.line.id, receipt.quantity]));
+      const fullyReceived = transfer.lines.every((line) =>
+        line.quantityReceived
+          .plus(receivedNow.get(line.id) ?? new Prisma.Decimal(0))
+          .greaterThanOrEqualTo(line.quantitySent),
+      );
+      const nextStatus: TransferStatus = fullyReceived ? "RECEIVED" : "IN_TRANSIT";
+
+      if (transfer.status !== "SENT" && transfer.status !== "IN_TRANSIT") {
+        throw new BusinessRuleError("Só é possível receber transferência enviada ou em trânsito.");
+      }
+
+      // Recebimento parcial mantém IN_TRANSIT (sem mudança de estado); só
+      // validamos na máquina quando há transição de fato.
+      if (nextStatus !== transfer.status) {
+        assertTransition(transfer.status, nextStatus);
+      }
+
       if (toReceive.length > 0) {
         await postStockDocument(tx, {
           type: "TRANSFER_IN",
@@ -507,6 +573,7 @@ export async function receiveTransfer(
           lines: toReceive.map((receipt) => ({
             itemId: receipt.line.itemId,
             quantity: receipt.quantity,
+            itemLotId: receipt.line.itemLotId,
           })),
         });
       }
@@ -520,18 +587,6 @@ export async function receiveTransfer(
           },
         });
       }
-
-      // Estado final depende do que ainda falta chegar.
-      const updatedLines = await tx.transferLine.findMany({
-        where: { transferId: transfer.id },
-        select: { quantitySent: true, quantityReceived: true },
-      });
-
-      const fullyReceived = updatedLines.every((line) =>
-        line.quantityReceived.greaterThanOrEqualTo(line.quantitySent),
-      );
-
-      const nextStatus: TransferStatus = fullyReceived ? "RECEIVED" : "IN_TRANSIT";
 
       await tx.transfer.update({
         where: { id: transfer.id },
@@ -599,6 +654,8 @@ export async function returnTransfer(
 ) {
   return prisma.$transaction(
     async (tx) => {
+      await lockFlowRow(tx, "transfers", input.transferId);
+
       const transfer = await tx.transfer.findUnique({
         where: { id: input.transferId },
         select: {
@@ -608,7 +665,7 @@ export async function returnTransfer(
           originBranchId: true,
           destinationBranchId: true,
           lines: {
-            select: { itemId: true, quantitySent: true, quantityReceived: true },
+            select: { itemId: true, itemLotId: true, quantitySent: true, quantityReceived: true },
           },
         },
       });
@@ -625,6 +682,7 @@ export async function returnTransfer(
       const pending = transfer.lines
         .map((line) => ({
           itemId: line.itemId,
+          itemLotId: line.itemLotId,
           quantity: line.quantitySent.minus(line.quantityReceived),
         }))
         .filter((line) => line.quantity.greaterThan(0));
@@ -646,6 +704,7 @@ export async function returnTransfer(
         lines: pending.map((line) => ({
           itemId: line.itemId,
           quantity: line.quantity,
+          itemLotId: line.itemLotId,
         })),
       });
 
@@ -693,6 +752,8 @@ export async function cancelTransfer(
   metadata?: { ip?: string | null; userAgent?: string | null },
 ) {
   return prisma.$transaction(async (tx) => {
+    await lockFlowRow(tx, "transfers", input.transferId);
+
     const transfer = await tx.transfer.findUnique({
       where: { id: input.transferId },
       select: {
@@ -725,7 +786,7 @@ export async function cancelTransfer(
 
       const lines = await tx.transferLine.findMany({
         where: { transferId: transfer.id },
-        select: { itemId: true, quantitySent: true },
+        select: { itemId: true, itemLotId: true, quantitySent: true },
       });
 
       const document = await postStockDocument(tx, {
@@ -739,6 +800,7 @@ export async function cancelTransfer(
         lines: lines.map((line) => ({
           itemId: line.itemId,
           quantity: line.quantitySent,
+          itemLotId: line.itemLotId,
         })),
       });
 

@@ -1,0 +1,94 @@
+name: Backup
+
+# Cópia SECUNDÁRIA e CIFRADA do banco.
+#
+# Entra por SSH na VPS e tira o dump de DENTRO do container do Postgres — o
+# banco nunca fica exposto na internet. O dump é cifrado (AES256) antes de ser
+# guardado como artefato do workflow.
+#
+# O backup PRINCIPAL é o do Dokploy → S3 (retenção longa). Este aqui é uma
+# segunda cópia, em outro provedor, com retenção curta — por isso 14 dias.
+#
+# Manual: botão "Run workflow". Agendado: 07:00 UTC (04:00 BRT).
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: backup-db
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    name: Dump cifrado via SSH
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validar secrets
+        env:
+          HOST: ${{ secrets.SSH_HOST }}
+          SSHUSER: ${{ secrets.SSH_USER }}
+          KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          CONTAINER: ${{ secrets.POSTGRES_CONTAINER }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          faltando=""
+          for v in HOST SSHUSER KEY CONTAINER PASS; do
+            [ -z "${!v:-}" ] && faltando="$faltando $v"
+          done
+          if [ -n "$faltando" ]; then
+            echo "::error::Faltam secrets:$faltando (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+
+      - name: Preparar a chave SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Gerar e cifrar o dump
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          POSTGRES_CONTAINER: ${{ secrets.POSTGRES_CONTAINER }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          mkdir -p backups
+          STAMP="$(date +%Y%m%d-%H%M%S)"
+          DUMP="backups/almo_erp-$STAMP.dump"
+
+          # `-T` (sem TTY) para o binário passar intacto pelo SSH.
+          # As credenciais vêm do próprio ambiente do container do Postgres.
+          ssh -T -i ~/.ssh/id_deploy "$SSH_USER@$SSH_HOST" \
+            "docker exec '$POSTGRES_CONTAINER' sh -c 'pg_dump -U \$POSTGRES_USER -d \$POSTGRES_DB -Fc'" \
+            > "$DUMP"
+
+          # Cifra antes de sair da máquina: o artefato vai ilegível para o GitHub.
+          umask 077
+          printf '%s' "$BACKUP_PASSPHRASE" > /tmp/pass
+          gpg --symmetric --cipher-algo AES256 --batch --yes \
+            --passphrase-file /tmp/pass -o "$DUMP.gpg" "$DUMP"
+          rm -f /tmp/pass "$DUMP"
+
+          ls -lh backups
+
+      - name: Publicar o artefato cifrado
+        uses: actions/upload-artifact@v4
+        with:
+          name: almo-erp-dump-${{ github.run_id }}
+          path: backups/*.gpg
+          retention-days: 14
+          if-no-files-found: error
+
+# Restauração (guarde a passphrase em local seguro):
+#   gpg --batch --yes --passphrase-file <arquivo> -d almo_erp-<data>.dump.gpg > dump
+#   pg_restore -d "postgresql://..." --clean --if-exists dump

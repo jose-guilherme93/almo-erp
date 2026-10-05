@@ -51,8 +51,30 @@ describe("catálogo de permissões", () => {
 });
 
 describe("matriz papel × permissão", () => {
-  it("define exatamente os 7 papéis de sistema", () => {
+  it("define exatamente os papéis de sistema, na ordem de ROLE_SLUGS", () => {
     expect(ROLES.map((role) => role.slug)).toEqual([...ROLE_SLUGS]);
+  });
+
+  it("TI atende chamados sem visão geral do almoxarifado", () => {
+    const permissions = permissionsForRole("TI");
+
+    expect(permissions).toContain("manutencao:atender");
+    expect(permissions).toContain("manutencao:delegar");
+    expect(permissions).not.toContain("manutencao:overview");
+    expect(permissions).not.toContain("solicitacao:overview");
+    expect(permissions).not.toContain("estoque:entrada");
+  });
+
+  it("SOLICITANTE não enxerga estoque, transferências nem catálogo de gestão", () => {
+    const permissions = permissionsForRole("SOLICITANTE");
+
+    expect(permissions).toContain("solicitacao:create");
+    expect(permissions).toContain("manutencao:create");
+    expect(permissions).not.toContain("solicitacao:overview");
+    expect(permissions).not.toContain("estoque:read");
+    expect(permissions).not.toContain("transferencia:read");
+    expect(permissions).not.toContain("item:read");
+    expect(permissions).not.toContain("categoria:read");
   });
 
   it("só usa permissões existentes no catálogo", () => {

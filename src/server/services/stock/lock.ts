@@ -136,4 +136,67 @@ export async function lockStockLevels(
   return result;
 }
 
+/**
+ * Trava **todas** as linhas de saldo de um material na filial e as devolve.
+ *
+ * A reserva não sabe de antemão qual prateleira vai usar: ela escolhe olhando o
+ * disponível. Por isso precisa travar o conjunto inteiro do item na filial antes
+ * de decidir — sem isso, duas aprovações simultâneas reservam o mesmo saldo.
+ */
+export async function lockItemLevels(
+  tx: Prisma.TransactionClient,
+  input: { itemId: string; branchId: string },
+) {
+  const rows = await tx.stockLevel.findMany({
+    where: { itemId: input.itemId, branchId: input.branchId },
+    select: { id: true },
+    orderBy: { id: "asc" },
+  });
+
+  if (rows.length > 0) {
+    const ids = rows.map((row) => row.id);
+
+    await tx.$queryRaw`
+      SELECT id FROM stock_levels
+      WHERE id = ANY(${ids}::text[])
+      ORDER BY id
+      FOR UPDATE
+    `;
+  }
+
+  return tx.stockLevel.findMany({
+    where: { itemId: input.itemId, branchId: input.branchId },
+    select: {
+      id: true,
+      quantity: true,
+      reservedQuantity: true,
+      averageCost: true,
+      version: true,
+      storageLocation: { select: { type: true, active: true } },
+    },
+  });
+}
+
+/** Trava uma linha de saldo pelo id. Usado ao liberar/consumir reserva. */
+export async function lockStockLevelById(
+  tx: Prisma.TransactionClient,
+  stockLevelId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM stock_levels WHERE id = ${stockLevelId} FOR UPDATE`;
+}
+
+/**
+ * Trava uma linha de uma entidade de fluxo (transferência, inventário) para
+ * serializar transições concorrentes do mesmo registro.
+ *
+ * `table` é uma união fechada — nunca vem de input do usuário.
+ */
+export async function lockFlowRow(
+  tx: Prisma.TransactionClient,
+  table: "transfers" | "inventory_sessions",
+  id: string,
+): Promise<void> {
+  await tx.$queryRawUnsafe(`SELECT id FROM "${table}" WHERE id = $1 FOR UPDATE`, id);
+}
+
 export { keyOf as stockLevelKey };

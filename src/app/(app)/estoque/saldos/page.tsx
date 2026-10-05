@@ -20,6 +20,8 @@ import {
 } from "@/lib/pagination";
 import { prisma } from "@/lib/db";
 import { requirePagePermission } from "@/server/auth/guards";
+import { readRequestedBranchId } from "@/server/auth/scope";
+import { listRequestableBranches } from "@/server/services/request";
 import { listStockLevels } from "@/server/services/stock/levels";
 
 export const metadata: Metadata = {
@@ -44,9 +46,14 @@ export default async function SaldosPage({ searchParams }: SaldosPageProps) {
   const onlyBelowMinimum = firstParam(params, "abaixoMinimo") === "1";
   const onlyStale = firstParam(params, "semMovimento") === "1";
 
-  const [result, categories, locations] = await Promise.all([
+  const showBranchFilter = context.isNetworkScope;
+  const branchId = readRequestedBranchId(context, firstParam(params, "filial"));
+  const locationsBranchId = branchId ?? context.activeBranchId;
+
+  const [result, categories, locations, branches] = await Promise.all([
     listStockLevels(context, {
       search,
+      branchId,
       categoryId,
       storageLocationId: locationId,
       onlyBelowMinimum,
@@ -59,17 +66,22 @@ export default async function SaldosPage({ searchParams }: SaldosPageProps) {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
-    context.activeBranchId
+    locationsBranchId
       ? prisma.storageLocation.findMany({
-          where: { branchId: context.activeBranchId, active: true },
+          where: { branchId: locationsBranchId, active: true },
           orderBy: { name: "asc" },
           select: { id: true, name: true },
         })
       : Promise.resolve([]),
+    showBranchFilter ? listRequestableBranches(context) : Promise.resolve([]),
   ]);
 
   const activeBranch = context.activeBranchId
     ? context.getMembership(context.activeBranchId)
+    : undefined;
+
+  const selectedBranchName = branchId
+    ? branches.find((branch) => branch.id === branchId)?.name
     : undefined;
 
   const columns: Array<Column<Row>> = [
@@ -163,9 +175,11 @@ export default async function SaldosPage({ searchParams }: SaldosPageProps) {
       <PageHeader
         title="Saldos"
         description={
-          activeBranch
-            ? `Posição atual de ${activeBranch.branchName}.`
-            : "Posição atual do estoque."
+          selectedBranchName
+            ? `Posição atual de ${selectedBranchName}.`
+            : activeBranch
+              ? `Posição atual de ${activeBranch.branchName}.`
+              : "Posição atual do estoque."
         }
       />
 
@@ -179,6 +193,15 @@ export default async function SaldosPage({ searchParams }: SaldosPageProps) {
           options={categories.map((category) => ({ value: category.id, label: category.name }))}
         />
 
+        {showBranchFilter ? (
+          <TableFilterSelect
+            paramKey="filial"
+            placeholder="Unidade"
+            allLabel="Escolha uma unidade"
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+          />
+        ) : null}
+
         {locations.length > 0 ? (
           <TableFilterSelect
             paramKey="local"
@@ -188,7 +211,9 @@ export default async function SaldosPage({ searchParams }: SaldosPageProps) {
           />
         ) : null}
 
-        <ClearFilters paramKeys={["busca", "categoria", "local", "abaixoMinimo", "semMovimento"]} />
+        <ClearFilters
+          paramKeys={["busca", "categoria", "local", "abaixoMinimo", "semMovimento", "filial"]}
+        />
 
         <div className="flex flex-wrap gap-1">
           <FilterToggle

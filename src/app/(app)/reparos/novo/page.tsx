@@ -8,20 +8,44 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePagePermission } from "@/server/auth/guards";
 import { listRequestableBranchesForMaintenance } from "@/server/services/maintenance";
+import { listActiveSectors } from "@/server/services/sector";
+import { firstParam, type RawSearchParams } from "@/lib/pagination";
+import { MAINTENANCE_CATEGORIES } from "@/lib/validation/maintenance";
 
 export const metadata: Metadata = {
   title: "Abrir chamado de reparo",
 };
 
-export default async function NovoReparoPage() {
+export default async function NovoReparoPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
+  const params = await searchParams;
   const context = await requirePagePermission("manutencao:create");
 
-  const branches = await listRequestableBranchesForMaintenance(context);
+  const [branches, sectors] = await Promise.all([
+    listRequestableBranchesForMaintenance(context),
+    listActiveSectors(),
+  ]);
 
   const defaultBranchId =
     context.activeBranchId && branches.some((branch) => branch.id === context.activeBranchId)
       ? context.activeBranchId
       : (branches[0]?.id ?? "");
+
+  const defaultSectorId =
+    (context.activeSectorId &&
+      sectors.some((sector) => sector.id === context.activeSectorId) &&
+      context.activeSectorId) ||
+    sectors[0]?.id ||
+    "";
+
+  // Atalho "Chamado de TI": chega com a categoria pré-selecionada.
+  const requestedCategory = firstParam(params, "categoria");
+  const defaultCategory = MAINTENANCE_CATEGORIES.some((entry) => entry.value === requestedCategory)
+    ? (requestedCategory as string)
+    : "";
 
   return (
     <PageBody className="max-w-2xl">
@@ -47,7 +71,17 @@ export default async function NovoReparoPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <MaintenanceForm branches={branches} defaultBranchId={defaultBranchId} />
+          <MaintenanceForm
+            branches={branches}
+            defaultBranchId={defaultBranchId}
+            sectors={sectors.map((sector) => ({
+              id: sector.id,
+              code: sector.code,
+              name: sector.name,
+            }))}
+            defaultSectorId={defaultSectorId}
+            defaultCategory={defaultCategory}
+          />
         </CardContent>
       </Card>
     </PageBody>

@@ -72,23 +72,22 @@ export function StockDocumentForm({
   const fieldErrors = state && !state.ok ? (state.fieldErrors ?? {}) : {};
 
   const addItem = (item: ItemOption) => {
-    setLines((current) => {
-      if (current.some((line) => line.item.id === item.id)) {
-        toast.error("Este material já está no documento. Ajuste a quantidade na linha existente.");
-        return current;
-      }
+    if (lines.some((line) => line.item.id === item.id)) {
+      toast.error("Este material já está no documento. Ajuste a quantidade na linha existente.");
+      return;
+    }
 
-      return [
-        ...current,
-        {
-          key: `${item.id}-${Date.now()}`,
-          item,
-          quantity: mode === "inbound" ? "1" : "0",
-          unitCost: "0",
-          lotId: "",
-        },
-      ];
-    });
+    setLines([
+      ...lines,
+      {
+        // Item repetido é bloqueado acima, então o `item.id` é chave única.
+        key: item.id,
+        item,
+        quantity: mode === "inbound" ? "1" : "0",
+        unitCost: "0",
+        lotId: "",
+      },
+    ]);
 
     // Busca os lotes do item na primeira vez que ele entra no documento.
     if (item.controlledByLot && !itemLots[item.id]) {

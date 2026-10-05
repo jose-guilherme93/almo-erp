@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format";
 import {
+  buildQueryString,
   firstParam,
   readPage,
   readPageSize,
@@ -21,6 +22,8 @@ import {
   type RawSearchParams,
 } from "@/lib/pagination";
 import { requirePagePermission } from "@/server/auth/guards";
+import { readRequestedBranchId } from "@/server/auth/scope";
+import { listRequestableBranches } from "@/server/services/request";
 import { listTransfers } from "@/server/services/transfer";
 
 export const metadata: Metadata = {
@@ -52,13 +55,22 @@ export default async function TransferenciasPage({
     DIRECTION_TABS.some((tab) => tab.id === directionParam) ? directionParam : "all"
   ) as "all" | "incoming" | "outgoing";
 
-  const result = await listTransfers(context, {
-    search,
-    status,
-    direction,
-    page,
-    pageSize,
-  });
+  const showBranchFilter = context.isNetworkScope;
+  const branchId = readRequestedBranchId(context, firstParam(params, "filial"));
+  const inTransitOnly = firstParam(params, "emTransito") === "1";
+
+  const [result, branches] = await Promise.all([
+    listTransfers(context, {
+      search,
+      status,
+      statuses: inTransitOnly ? ["SENT", "IN_TRANSIT"] : null,
+      direction,
+      branchId,
+      page,
+      pageSize,
+    }),
+    showBranchFilter ? listRequestableBranches(context) : Promise.resolve([]),
+  ]);
 
   const activeBranch = context.activeBranchId
     ? context.getMembership(context.activeBranchId)
@@ -122,9 +134,11 @@ export default async function TransferenciasPage({
       <PageHeader
         title="Transferências"
         description={
-          activeBranch
-            ? `Movimentação de material entre unidades, com ${activeBranch.branchName} como referência.`
-            : "Movimentação de material entre unidades."
+          showBranchFilter
+            ? "Movimentação de material entre todas as unidades."
+            : activeBranch
+              ? `Movimentação de material entre unidades, com ${activeBranch.branchName} como referência.`
+              : "Movimentação de material entre unidades."
         }
         action={
           context.hasPermission("transferencia:create") ? (
@@ -142,7 +156,7 @@ export default async function TransferenciasPage({
         {DIRECTION_TABS.map((tab) => (
           <Link
             key={tab.id}
-            href={`/transferencias?sentido=${tab.id}`}
+            href={`/transferencias${buildQueryString(params, { sentido: tab.id })}`}
             aria-current={direction === tab.id ? "page" : undefined}
             className={
               direction === tab.id
@@ -173,7 +187,28 @@ export default async function TransferenciasPage({
           }))}
         />
 
-        <ClearFilters paramKeys={["busca", "situacao", "sentido"]} />
+        {showBranchFilter ? (
+          <TableFilterSelect
+            paramKey="filial"
+            placeholder="Unidade"
+            allLabel="Todas as unidades"
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+          />
+        ) : null}
+
+        <Link
+          href={inTransitOnly ? "/transferencias" : "/transferencias?emTransito=1"}
+          aria-pressed={inTransitOnly}
+          className={
+            inTransitOnly
+              ? "bg-primary text-primary-foreground inline-flex h-8 items-center rounded-md px-3 text-sm font-medium"
+              : "border-input hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm"
+          }
+        >
+          Em trânsito
+        </Link>
+
+        <ClearFilters paramKeys={["busca", "situacao", "sentido", "filial", "emTransito"]} />
       </div>
 
       <DataTable
@@ -189,7 +224,7 @@ export default async function TransferenciasPage({
         rowHref={(row) => `/transferencias/${row.id}`}
         emptyTitle="Nenhuma transferência encontrada"
         emptyDescription={
-          search || status
+          search || status || inTransitOnly
             ? "Ajuste os filtros para ver mais resultados."
             : "Crie uma transferência para mover material entre unidades."
         }

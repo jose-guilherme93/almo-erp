@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePagePermission } from "@/server/auth/guards";
 import { listRequestableBranches } from "@/server/services/request";
+import { listActiveSectors } from "@/server/services/sector";
 
 export const metadata: Metadata = {
   title: "Solicitar material",
@@ -22,7 +23,10 @@ export const metadata: Metadata = {
 export default async function NovaSolicitacaoPage() {
   const context = await requirePagePermission("solicitacao:create");
 
-  const branches = await listRequestableBranches(context);
+  const [branches, sectors] = await Promise.all([
+    listRequestableBranches(context),
+    listActiveSectors(),
+  ]);
 
   // Pré-seleciona a unidade em que o usuário já está operando, quando houver.
   const defaultBranchId =
@@ -30,11 +34,18 @@ export default async function NovaSolicitacaoPage() {
       ? context.activeBranchId
       : (branches[0]?.id ?? "");
 
+  const defaultSectorId =
+    (context.activeSectorId &&
+      sectors.some((sector) => sector.id === context.activeSectorId) &&
+      context.activeSectorId) ||
+    sectors[0]?.id ||
+    "";
+
   return (
     <PageBody className="max-w-3xl">
       <PageHeader
-        title="Solicitar material"
-        description="Escolha a unidade, adicione os materiais e envie. Vai direto para quem responde."
+        title="Pedir material"
+        description="Adicione os materiais e envie. Vai direto para quem responde."
         action={
           <Button asChild variant="ghost" size="sm">
             <Link href="/meu">
@@ -54,7 +65,16 @@ export default async function NovaSolicitacaoPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <RequestForm branches={branches} defaultBranchId={defaultBranchId} />
+          <RequestForm
+            branches={branches}
+            defaultBranchId={defaultBranchId}
+            sectors={sectors.map((sector) => ({
+              id: sector.id,
+              code: sector.code,
+              name: sector.name,
+            }))}
+            defaultSectorId={defaultSectorId}
+          />
         </CardContent>
       </Card>
     </PageBody>
