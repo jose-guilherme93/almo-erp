@@ -55,6 +55,10 @@ de empurrar direto.
 - O entrypoint **espera o banco** (até ~60s, por `DB_WAIT_ATTEMPTS` ×
   `DB_WAIT_DELAY_SECONDS`) antes de migrar — evita crash-loop quando a VPS
   reinicia com o Postgres ainda subindo.
+- **Versão exibida**: o build injeta `semver+SHA` (do `package.json` + commit). Para o SHA
+  aparecer, passe o build arg `GIT_SHA` (ex.: `--build-arg GIT_SHA=$(git rev-parse --short HEAD)`);
+  sem ele o commit fica `unknown`, mas o semver e a data continuam. A versão sai em
+  `/api/health`, no cabeçalho `X-App-Version` e no rodapé da sidebar.
 
 > Por que 1 réplica e sem zero-downtime: as migrations rodam no entrypoint. Com
 > mais de um container subindo ao mesmo tempo, duas instâncias migrariam juntas.
@@ -89,8 +93,8 @@ Settings → Secrets and variables → Actions.
    Isso cria permissões, papéis, unidades, setores, configurações, a filial
    `MATRIZ` e o administrador. É idempotente e não reescreve a senha depois.
 3. Verifique `curl -fsS https://colegiobatista.josetilabs.com/api/health` →
-   `{"status":"ok"}` e faça login em `/login` com o `SEED_ADMIN_EMAIL` +
-   `SEED_ADMIN_PASSWORD`.
+   `{"status":"ok","version":"0.1.0+abc1234","commit":"abc1234","builtAt":"…"}` e faça login
+   em `/login` com o `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`.
 
 > Quer um ambiente de **preview** com dados de demonstração? Veja §11.
 

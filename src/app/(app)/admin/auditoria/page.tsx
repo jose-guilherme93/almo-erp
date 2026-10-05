@@ -104,6 +104,14 @@ export default async function AuditoriaPage({
         <span className="text-muted-foreground font-mono text-xs">{row.ip ?? "—"}</span>
       ),
     },
+    {
+      key: "appVersion",
+      header: "Versão",
+      cell: (row) => (
+        <span className="text-muted-foreground font-mono text-xs">{row.appVersion ?? "—"}</span>
+      ),
+      mobile: (row) => row.appVersion ?? "—",
+    },
   ];
 
   return (

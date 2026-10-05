@@ -1,6 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
+import { APP_VERSION } from "@/lib/version";
 
 const log = logger.with({ service: "audit" });
 
@@ -70,6 +71,7 @@ export async function writeAuditLog(
         after: sanitize(input.after),
         ip: input.ip ?? null,
         userAgent: input.userAgent ?? null,
+        appVersion: APP_VERSION,
       },
     });
   } catch (error) {

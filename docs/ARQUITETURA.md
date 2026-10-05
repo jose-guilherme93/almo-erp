@@ -32,6 +32,13 @@
 - **Almoxarifado local** = conjunto de `StorageLocation` dentro da filial.
 - Nenhuma filial enxerga dados de outra, exceto visões consolidadas da matriz.
 
+> **Empresa e unidade são a mesma entidade — não há dimensão de grupo.** Cada `Branch`
+> tem o próprio CNPJ; a matriz é uma filial com `type = MATRIX`. O modelo `Company`
+> existe no schema apenas como rótulo jurídico criado pelo seed: não tem CRUD, não tem
+> regra de negócio, e `Branch.companyId` é um agrupamento opcional que a operação não
+> usa. Quem enxerga a rede é o **papel** com escopo `ALL_BRANCHES`, não o tipo da filial.
+> Decisão registrada em `DECISOES.md` (ADR-14).
+
 ---
 
 ## 2. Cadastro de filial (completo)
@@ -59,9 +66,12 @@ Regras:
 
 - `code` é único e imutável após o primeiro uso em documento.
 - CNPJ e CEP são validados e normalizados (somente dígitos) com Zod.
+- O CNPJ pode ser consultado na base pública (BrasilAPI) pelo botão **"Buscar dados"**:
+  a consulta passa pelo servidor (CSP restringe `connect-src` a `self`) e exige
+  `filial:create`/`filial:manage`; a base é configurável por `CNPJ_API_URL`.
 - Ao desativar uma filial (`active = false`), ela **não** aceita novas solicitações nem
   movimentações, mas continua legível para auditoria.
-- Filiais com转移 pendente são bloqueadas para desativação.
+- Filiais com transferência pendente são bloqueadas para desativação.
 - Todo cadastro tem `AuditLog` de criação/alteração.
 
 ---

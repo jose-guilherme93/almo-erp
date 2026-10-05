@@ -80,6 +80,15 @@ Rotas em `src/app/(app)/filiais/`:
 - [ ] Link para abrir o endereço no mapa. **Não** integrar API de mapas nesta fase —
       ícone/link externo basta.
 
+### 04.6 — Consulta de CNPJ (BrasilAPI)
+
+- [x] Botão **"Buscar dados"** ao lado do CNPJ: consulta a BrasilAPI pela rota
+      `/api/cnpj/[cnpj]` e preenche razão social, nome fantasia, CNAE, endereço e UF.
+      O navegador não fala com a API externa (CSP `connect-src 'self'`).
+- [x] A rota exige `filial:create`/`filial:manage`; CNPJ inválido nem é consultado.
+- [x] Falha da API externa não trava o cadastro: mostra aviso e mantém o preenchimento
+      manual.
+
 ## Testes obrigatórios
 
 - [ ] `cnpj` válido/inválido; `zipCode` válido/inválido.
@@ -101,4 +110,4 @@ Rotas em `src/app/(app)/filiais/`:
 
 ## Fora do escopo
 
-Importação de filiais em lote (CSV), integração com Receita Federal, mapa interativo.
+Importação de filiais em lote (CSV), mapa interativo.

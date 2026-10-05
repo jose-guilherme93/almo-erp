@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { BranchForm } from "@/components/domain/branch-form";
+import { BranchForm, type BranchOption } from "@/components/domain/branch-form";
 import { BranchStatusActions } from "@/components/domain/branch-status-actions";
 import { SuccessCallout, successMessageFrom } from "@/components/domain/success-callout";
 import { StorageLocationManager } from "@/components/domain/storage-location-manager";
@@ -18,7 +18,7 @@ import { isAppError } from "@/lib/errors";
 import { prisma } from "@/lib/db";
 import { requirePagePermission } from "@/server/auth/guards";
 import { listAuditTrail } from "@/server/services/audit";
-import { getBranchDetail } from "@/server/services/branch";
+import { getBranchDetail, listBranchOptions } from "@/server/services/branch";
 
 export const metadata: Metadata = {
   title: "Unidade",
@@ -60,7 +60,7 @@ export default async function FilialDetalhePage({ params, searchParams }: Filial
   const canManage = context.hasPermission("filial:manage", branch.id);
   const canManageLocations = context.hasPermission("local:manage", branch.id);
 
-  const [people, audit] = await Promise.all([
+  const [people, audit, branchOptions] = await Promise.all([
     canManage
       ? prisma.user.findMany({
           where: { status: "ACTIVE", active: true },
@@ -71,7 +71,28 @@ export default async function FilialDetalhePage({ params, searchParams }: Filial
     tab === "historico"
       ? listAuditTrail({ entityType: "Branch", entityId: id, limit: 50 })
       : Promise.resolve([]),
+    canManage ? listBranchOptions(context) : Promise.resolve([]),
   ]);
+
+  // Unidade superior: as opções visíveis, mais o pai atual caso esteja inativo,
+  // excluindo a própria unidade (o servidor também recusaria o auto-vínculo).
+  const parentOptions: BranchOption[] = branchOptions.map(({ id: optionId, code, name }) => ({
+    id: optionId,
+    code,
+    name,
+  }));
+
+  const currentParent = branch.parent;
+
+  if (currentParent && !parentOptions.some((option) => option.id === currentParent.id)) {
+    parentOptions.push({
+      id: currentParent.id,
+      code: currentParent.code,
+      name: currentParent.name,
+    });
+  }
+
+  const selectableParents = parentOptions.filter((option) => option.id !== branch.id);
 
   const successMessage = successMessageFrom(query, {
     criada: "Unidade cadastrada.",
@@ -151,6 +172,7 @@ export default async function FilialDetalhePage({ params, searchParams }: Filial
                 <BranchForm
                   mode="edit"
                   people={people}
+                  branches={selectableParents}
                   defaultValues={{
                     id: branch.id,
                     code: branch.code,
@@ -179,6 +201,7 @@ export default async function FilialDetalhePage({ params, searchParams }: Filial
                     notificationResponsibleId: branch.notificationResponsibleId,
                     defaultApproverId: branch.defaultApproverId,
                     notes: branch.notes,
+                    parentId: branch.parentId,
                     active: branch.active,
                   }}
                 />

@@ -27,8 +27,11 @@ FROM base AS build
 # `NEXT_PUBLIC_*` é inlinado no bundle: precisa existir em tempo de build.
 ARG NEXT_PUBLIC_APP_NAME=almo-erp
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
+# SHA do commit, para a versão exibida (o `.git` não entra na imagem).
+ARG GIT_SHA=
 ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV GIT_SHA=$GIT_SHA
 # O env é validado ao importar o Prisma; no build não há banco, só um placeholder.
 ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
 

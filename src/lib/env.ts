@@ -39,7 +39,7 @@ const serverSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
   NEXT_PUBLIC_APP_NAME: z.string().trim().min(1).default("almo-erp"),
-  NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
+  NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3001"),
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL é obrigatória"),
 
@@ -67,6 +67,9 @@ const serverSchema = z.object({
   SLA_APPROVAL_HOURS: z.coerce.number().int().positive().default(24),
   STOCK_BELOW_MIN_DEDUP_DAYS: z.coerce.number().int().positive().default(7),
   MATRIX_APPROVAL_THRESHOLD: z.coerce.number().nonnegative().default(1000),
+
+  /** Base da API pública de consulta de CNPJ (padrão: BrasilAPI). */
+  CNPJ_API_URL: z.string().url().optional(),
 
   SMTP_HOST: optionalString,
   SMTP_PORT: optionalNumber,

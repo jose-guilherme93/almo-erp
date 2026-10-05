@@ -214,3 +214,78 @@ autenticada teria cobertura e2e.
 **Por quê.** Testar a aplicação de verdade exige passar pelas mesmas regras (domínio,
 status do usuário, permissões). E uma porta dos fundos de autenticação precisa falhar
 alto se alguém errar a configuração — falhar em subir é melhor que subir aberto.
+
+---
+
+## ADR-14 — Empresa e unidade são a mesma entidade (`Branch`)
+
+**Contexto.** O schema tem `Company` (razão social, nome fantasia, CNPJ) e `Branch`
+(unidade operacional, com CNPJ próprio). Isso sugere uma hierarquia de grupo — uma
+empresa com várias filiais — e gerou a dúvida de como modelar um grupo com matriz +
+outras empresas.
+
+**Decisão.** Neste projeto **não existe dimensão de "empresa/grupo" separada da filial**.
+Toda unidade é um `Branch` com o próprio CNPJ; a matriz é uma `Branch` com
+`type = MATRIX`. O `Company` fica no schema apenas como rótulo jurídico criado pelo
+seed: não tem CRUD, não tem regra de negócio, e `Branch.companyId` é um agrupamento
+opcional que a operação não usa. Quem enxerga a rede é o **papel** com escopo
+`ALL_BRANCHES` (`SUPER_ADMIN`, `ADMIN_MATRIZ`), não o tipo da filial.
+
+**Por quê.** Operacionalmente só `Branch` importa: estoque, solicitação, aprovação,
+entrega, inventário e notificação pendem todos de `Branch`, e cada filial já carrega
+seu próprio CNPJ. Criar uma camada de empresa antes de existir necessidade real de
+relatório ou limite por CNPJ adicionaria um eixo sem uso.
+
+**Consequência.** As filiais de um grupo aparecem lado a lado, sem agrupamento por
+empresa (a hierarquia `Branch.parentId` é editável no cadastro, mas não concede visão
+de rede). Há uma única matriz global e um único limite de aprovação da matriz
+(`request.matrixApprovalThreshold`), não um por empresa. A decisão é reversível: para
+agrupar por empresa no futuro, `Branch.companyId` já existe (nullable) — basta o
+cadastro de `Company` e o filtro nos relatórios; nada de estoque ou autorização muda.
+
+---
+
+## ADR-15 — Consulta de CNPJ via BrasilAPI, mediada pelo servidor
+
+**Contexto.** O cadastro de filial tem muitos campos fiscais e de endereço (razão social,
+nome fantasia, CNAE, CEP, logradouro, bairro, município, UF). Digitar tudo à mão é lento e
+propenso a erro.
+
+**Decisão.** Um botão **"Buscar dados"** no cadastro consulta a **BrasilAPI**
+(`/api/cnpj/v1/{cnpj}`, pública e sem chave) por meio de uma rota nossa
+(`/api/cnpj/[cnpj]`) e preenche os campos. A rota exige `filial:create`/`filial:manage` e
+devolve um payload normalizado; o mapper puro (`src/lib/cnpj.ts`) isola a tradução do
+formato externo.
+
+**Por quê.** O CSP do projeto restringe `connect-src` a `self`, então o navegador não pode
+chamar a API externa direto — e é bom que não: a rota própria concentra permissão,
+validação de CNPJ e tratamento de erro. Manter a tradução pura permite testar o formato da
+BrasilAPI sem rede.
+
+**Consequência.** É uma dependência externa **opcional**: se a BrasilAPI estiver fora do ar,
+o cadastro continua funcionando à mão (aviso, sem bloquear o salvamento). A base é
+configurável por `CNPJ_API_URL`. O preenchimento é auxiliar — a pessoa confere antes de
+salvar.
+
+---
+
+## ADR-16 — Versão da aplicação no build (semver + SHA), visível em todo lugar
+
+**Contexto.** A primeira versão foi para produção e é preciso saber, sem abrir o servidor,
+qual versão está no ar — para correlacionar um comportamento relatado com o deploy que o
+introduziu.
+
+**Decisão.** No build, `next.config.ts` compõe
+`APP_VERSION = <semver do package.json>+<SHA curto>` e injeta `NEXT_PUBLIC_APP_VERSION`,
+`NEXT_PUBLIC_GIT_SHA` e `NEXT_PUBLIC_BUILD_TIME`. A versão aparece em: `/api/health`,
+cabeçalho `X-App-Version` de toda resposta, rodapé da sidebar e `AuditLog.appVersion`.
+
+**Por quê.** O `.dockerignore` exclui `.git`, então dentro da imagem não há repositório para
+descobrir o commit: o SHA chega como **build arg** `GIT_SHA`. Sem ele, cai em `unknown` e o
+semver continua legível. O semver vem do `package.json` (bump manual por release); o SHA é
+automático por build. Gravar a versão em cada `AuditLog` responde "em que versão isso
+aconteceu".
+
+**Consequência.** Bumpar o `package.json` a cada release é disciplina humana; o resto é
+automático. Rodar o Docker sem `--build-arg GIT_SHA` deixa o commit como `unknown` (a versão
+semver e a data continuam corretas).

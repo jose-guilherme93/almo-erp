@@ -71,7 +71,7 @@ pnpm db:migrate      # aplica as migrations
 pnpm db:seed         # dados de demonstração
 
 # 5. Aplicação
-pnpm dev             # http://localhost:3000
+pnpm dev             # http://localhost:3001
 ```
 
 Com `SEED_ADMIN_EMAIL` preenchido no `.env`, o seed cria o super administrador.
@@ -127,9 +127,9 @@ O guia completo está em [`docs/DEPLOY.md`](docs/DEPLOY.md). Resumo:
 ## Autenticação no Google
 
 1. Google Cloud Console → **APIs & Services → Credentials** → OAuth 2.0 Client ID (Web).
-2. **Authorized redirect URI**: `http://localhost:3000/api/auth/callback/google`
+2. **Authorized redirect URI**: `http://localhost:3001/api/auth/callback/google`
    (e a URI de produção).
-3. **Authorized JavaScript origins**: `http://localhost:3000`.
+3. **Authorized JavaScript origins**: `http://localhost:3001`.
 4. Preencha `AUTH_GOOGLE_ID` e `AUTH_GOOGLE_SECRET` no `.env`.
 
 O acesso só é liberado para e-mail de domínio corporativo **e** cadastrado no sistema.

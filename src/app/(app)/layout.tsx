@@ -8,6 +8,7 @@ import { NotificationBell } from "@/components/layout/notification-bell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { APP_NAME } from "@/lib/constants";
+import { APP_VERSION, BUILD_TIME } from "@/lib/version";
 import { visibleNavigation } from "@/lib/navigation";
 import { logoutAction } from "@/server/actions/auth";
 import { requirePageSession } from "@/server/auth/guards";
@@ -57,8 +58,18 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             {APP_NAME}
           </Link>
         </div>
-        <div className="h-[calc(100svh-3.5rem)]">
-          <AppNav sections={sections} />
+        <div className="flex h-[calc(100svh-3.5rem)] flex-col">
+          <div className="min-h-0 flex-1">
+            <AppNav sections={sections} />
+          </div>
+          <div className="border-t px-4 py-2">
+            <span
+              className="text-muted-foreground text-xs"
+              title={BUILD_TIME ? `Build: ${BUILD_TIME}` : undefined}
+            >
+              {APP_VERSION}
+            </span>
+          </div>
         </div>
       </aside>
 

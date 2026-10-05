@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { FormError, FormField } from "@/components/domain/form-field";
@@ -16,8 +16,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ActionResult } from "@/lib/action-result";
+import { cnpjLookupResponseSchema } from "@/lib/cnpj";
+import { formatCnpj, onlyDigits } from "@/lib/format";
 import { BRANCH_FORM_STEPS } from "@/lib/validation/branch";
-import { UF_LIST } from "@/lib/validation/br";
+import { isValidCnpj, UF_LIST } from "@/lib/validation/br";
 import { cn } from "@/lib/utils";
 import { atualizarFilialAction, criarFilialAction } from "@/server/actions/filial";
 
@@ -49,10 +51,12 @@ export type BranchFormValues = {
   notificationResponsibleId: string | null;
   defaultApproverId: string | null;
   notes: string | null;
+  parentId: string | null;
   active: boolean;
 };
 
 export type PeopleOption = { id: string; name: string; email: string };
+export type BranchOption = { id: string; code: string; name: string };
 
 /**
  * Formulário de unidade.
@@ -64,16 +68,20 @@ export type PeopleOption = { id: string; name: string; email: string };
 export function BranchForm({
   mode,
   people,
+  branches,
   defaultValues,
 }: {
   mode: "create" | "edit";
   people: PeopleOption[];
+  branches: BranchOption[];
   defaultValues?: BranchFormValues;
 }) {
   const [step, setStep] = useState(0);
   const [type, setType] = useState<"MATRIX" | "BRANCH">(defaultValues?.type ?? "BRANCH");
   const [active, setActive] = useState(defaultValues?.active ?? true);
   const [state, setState] = useState<string>(defaultValues?.state ?? "");
+  const formRef = useRef<HTMLFormElement>(null);
+  const [cnpjLoading, setCnpjLoading] = useState(false);
 
   const action = mode === "create" ? criarFilialAction : atualizarFilialAction;
 
@@ -88,6 +96,68 @@ export function BranchForm({
       toast.error(result.error);
     }
   }, [result]);
+
+  /** Escreve um valor em um campo não-controlado, pelo nome. */
+  const fillField = (form: HTMLFormElement, name: string, value: string | null) => {
+    if (!value) return;
+
+    const field = form.elements.namedItem(name);
+
+    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+      field.value = value;
+    }
+  };
+
+  /** Busca o CNPJ na base pública e completa os campos do cadastro. */
+  const handleCnpjLookup = async () => {
+    const form = formRef.current;
+    if (!form) return;
+
+    const cnpjField = form.elements.namedItem("cnpj");
+    const digits = cnpjField instanceof HTMLInputElement ? onlyDigits(cnpjField.value) : "";
+
+    if (!isValidCnpj(digits)) {
+      toast.error("Informe um CNPJ válido antes de buscar.");
+      return;
+    }
+
+    setCnpjLoading(true);
+
+    try {
+      const response = await fetch(`/api/cnpj/${digits}`);
+      const body: unknown = await response.json();
+      const parsed = cnpjLookupResponseSchema.safeParse(body);
+      const data = parsed.success ? parsed.data.data : undefined;
+
+      if (!response.ok || !parsed.success || !parsed.data.ok || !data) {
+        toast.error(
+          parsed.success && parsed.data.error
+            ? parsed.data.error
+            : "Não foi possível consultar o CNPJ agora.",
+        );
+        return;
+      }
+
+      fillField(form, "cnpj", formatCnpj(data.cnpj));
+      fillField(form, "legalName", data.legalName);
+      fillField(form, "tradeName", data.tradeName);
+      fillField(form, "cnae", data.cnae);
+      fillField(form, "zipCode", data.zipCode);
+      fillField(form, "street", data.street);
+      fillField(form, "number", data.number);
+      fillField(form, "complement", data.complement);
+      fillField(form, "district", data.district);
+      fillField(form, "city", data.city);
+
+      if (data.state) setState(data.state);
+
+      toast.success("Dados do CNPJ preenchidos. Confira antes de salvar.");
+    } catch {
+      toast.error("Não foi possível consultar o CNPJ agora.");
+    } finally {
+      setCnpjLoading(false);
+    }
+  };
 
   const fieldErrors = result && !result.ok ? (result.fieldErrors ?? {}) : {};
 
@@ -128,6 +198,7 @@ export function BranchForm({
       {
         step: 2,
         fields: [
+          "parentId",
           "legalResponsibleName",
           "legalResponsibleDocument",
           "warehouseResponsibleId",
@@ -156,7 +227,7 @@ export function BranchForm({
   const current = BRANCH_FORM_STEPS[step];
 
   return (
-    <form action={formAction} className="space-y-6">
+    <form ref={formRef} action={formAction} className="space-y-6">
       {defaultValues?.id ? <input type="hidden" name="branchId" value={defaultValues.id} /> : null}
       <input type="hidden" name="type" value={type} />
       <input type="hidden" name="active" value={active ? "on" : ""} />
@@ -210,14 +281,32 @@ export function BranchForm({
           <Input id="name" name="name" defaultValue={defaultValues?.name} required />
         </FormField>
 
-        <FormField id="cnpj" label="CNPJ" required={mode === "create"} errors={fieldErrors["cnpj"]}>
-          <Input
-            id="cnpj"
-            name="cnpj"
-            defaultValue={defaultValues?.cnpj ?? ""}
-            placeholder="00.000.000/0000-00"
-            inputMode="numeric"
-          />
+        <FormField
+          id="cnpj"
+          label="CNPJ"
+          required={mode === "create"}
+          hint="Use “Buscar dados” para preencher razão social e endereço automaticamente."
+          errors={fieldErrors["cnpj"]}
+        >
+          <div className="flex gap-2">
+            <Input
+              id="cnpj"
+              name="cnpj"
+              defaultValue={defaultValues?.cnpj ?? ""}
+              placeholder="00.000.000/0000-00"
+              inputMode="numeric"
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleCnpjLookup()}
+              disabled={cnpjLoading}
+              aria-busy={cnpjLoading}
+            >
+              {cnpjLoading ? "Buscando…" : "Buscar dados"}
+            </Button>
+          </div>
         </FormField>
 
         <FormField
@@ -358,6 +447,17 @@ export function BranchForm({
 
       {/* Passo 3 — Responsáveis e operação */}
       <div className={cn("grid gap-4 sm:grid-cols-2", step !== 2 && "hidden")}>
+        <div className="sm:col-span-2">
+          <FormField
+            id="parentId"
+            label="Unidade superior (hierarquia)"
+            hint="Opcional. A unidade que responde por esta. Não pode criar ciclo."
+            errors={fieldErrors["parentId"]}
+          >
+            <ParentBranchSelect branches={branches} defaultValue={defaultValues?.parentId} />
+          </FormField>
+        </div>
+
         <FormField
           id="legalResponsibleName"
           label="Responsável legal (nome)"
@@ -500,6 +600,38 @@ function PersonSelect({
           {people.map((person) => (
             <SelectItem key={person.id} value={person.id}>
               {person.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </>
+  );
+}
+
+/** Select de unidade superior (hierarquia) com opção "nenhuma". */
+function ParentBranchSelect({
+  branches,
+  defaultValue,
+}: {
+  branches: BranchOption[];
+  defaultValue?: string | null;
+}) {
+  const NONE = "__none__";
+  const [value, setValue] = useState(defaultValue ?? NONE);
+
+  return (
+    <>
+      {/* "nenhuma" precisa virar vazio: um id literal quebraria a chave estrangeira. */}
+      <input type="hidden" name="parentId" value={value === NONE ? "" : value} />
+      <Select value={value} onValueChange={setValue}>
+        <SelectTrigger id="parentId" className="w-full">
+          <SelectValue placeholder="Nenhuma (raiz da hierarquia)" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE}>Nenhuma (raiz da hierarquia)</SelectItem>
+          {branches.map((branch) => (
+            <SelectItem key={branch.id} value={branch.id}>
+              {branch.code} — {branch.name}
             </SelectItem>
           ))}
         </SelectContent>
