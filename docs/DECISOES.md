@@ -214,3 +214,31 @@ autenticada teria cobertura e2e.
 **Por quê.** Testar a aplicação de verdade exige passar pelas mesmas regras (domínio,
 status do usuário, permissões). E uma porta dos fundos de autenticação precisa falhar
 alto se alguém errar a configuração — falhar em subir é melhor que subir aberto.
+
+---
+
+## ADR-14 — Empresa e unidade são a mesma entidade (`Branch`)
+
+**Contexto.** O schema tem `Company` (razão social, nome fantasia, CNPJ) e `Branch`
+(unidade operacional, com CNPJ próprio). Isso sugere uma hierarquia de grupo — uma
+empresa com várias filiais — e gerou a dúvida de como modelar um grupo com matriz +
+outras empresas.
+
+**Decisão.** Neste projeto **não existe dimensão de "empresa/grupo" separada da filial**.
+Toda unidade é um `Branch` com o próprio CNPJ; a matriz é uma `Branch` com
+`type = MATRIX`. O `Company` fica no schema apenas como rótulo jurídico criado pelo
+seed: não tem CRUD, não tem regra de negócio, e `Branch.companyId` é um agrupamento
+opcional que a operação não usa. Quem enxerga a rede é o **papel** com escopo
+`ALL_BRANCHES` (`SUPER_ADMIN`, `ADMIN_MATRIZ`), não o tipo da filial.
+
+**Por quê.** Operacionalmente só `Branch` importa: estoque, solicitação, aprovação,
+entrega, inventário e notificação pendem todos de `Branch`, e cada filial já carrega
+seu próprio CNPJ. Criar uma camada de empresa antes de existir necessidade real de
+relatório ou limite por CNPJ adicionaria um eixo sem uso.
+
+**Consequência.** As filiais de um grupo aparecem lado a lado, sem agrupamento visual
+(além de `Branch.parentId`, que existe no schema mas não tem campo no formulário). Há
+uma única matriz global e um único limite de aprovação da matriz
+(`request.matrixApprovalThreshold`), não um por empresa. A decisão é reversível: para
+agrupar por empresa no futuro, `Branch.companyId` já existe (nullable) — basta o
+cadastro de `Company` e o filtro nos relatórios; nada de estoque ou autorização muda.
