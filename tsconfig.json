@@ -4,6 +4,10 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": false,
     "skipLibCheck": true,
+    // O script de release roda direto pelo Node (`--experimental-strip-types`), e o
+    // runtime exige a extensão `.ts` explícita no import relativo. `noEmit` já
+    // está ligado, então esta opção não muda nada do build do Next.
+    "allowImportingTsExtensions": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,

@@ -12,10 +12,27 @@
 
 ## O que está pronto e verde
 
-Gates rodados na `develop`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (374), `pnpm build`,
-`pnpm db:seed`. E2E local: **87/87**.
+Gates rodados na `main`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (400), `pnpm build`,
+`pnpm db:seed`. E2E local: **88/88**.
 
-Entrega mais recente — **FASE 19, simplificação** (vinda de um teste real em produção):
+Entrega mais recente — **Release automática por Conventional Commits**:
+
+- **Ninguém bumper versão à mão.** Todo push na `main` decide a versão pelos commits desde a
+  última tag: `feat` → minor, `fix`/`perf`/`refactor`/`revert` → patch, `!` ou
+  `BREAKING CHANGE:` → major, `docs`/`chore`/`test` → não publica. O workflow grava o
+  `package.json`, cria `chore(release): X.Y.Z` e publica a tag.
+- A regra mora em `src/lib/release.ts` — **pura e com 25 testes**, sem git nem I/O;
+  `scripts/release.mts` só executa a decisão. Erro de bump aparece em unitário, não depois da
+  tag publicada.
+- **Não cascateia** (o commit de release é `chore`, que não bumpa), é idempotente e roda sem
+  `pnpm install` — cabe no teto de 5 minutos.
+- Depuração local: `pnpm release:dry`. Escape para hotfix pontual: `VERSION=1.2.3`.
+- Dois bugs achados validando em clone real: o `%B` do git entrega a mensagem seguinte com
+  `\n` na frente (o Conventional Commits deixava de casar e **toda versão era pulada em
+  silêncio**), e o clone do Actions não tem identidade git (o commit de release morria depois do
+  `package.json` já estar alterado).
+
+Entrega anterior — **FASE 19, simplificação** (vinda de um teste real em produção):
 
 - **O botão "Usar câmera" nunca funcionou** (bug da FASE 05, não desta fase). O leitor lia a
   ref do `<video>` antes de o elemento existir, então o clique morria em silêncio: zero `<video>`
