@@ -45,6 +45,11 @@ describe("lookupCnpj", () => {
     });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("19131243000197");
+
+    // O WAF da BrasilAPI responde 403 ao User-Agent padrão do `fetch`: sem um
+    // UA próprio, a consulta funciona em teste mockado e quebra em produção.
+    const init = fetchMock.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined;
+    expect(init?.headers?.["user-agent"]).toContain("almo-erp/");
   });
 
   it("lança NOT_FOUND quando o CNPJ não existe (404)", async () => {
