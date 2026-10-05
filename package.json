@@ -1,8 +1,8 @@
 {
   "name": "almo-erp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Mini ERP de almoxarifado: estoque, solicita\u00e7\u00e3o de materiais e entrega, com matriz e unidades (filiais).",
+  "description": "Mini ERP de almoxarifado: estoque, solicitação de materiais e entrega, com matriz e unidades (filiais).",
   "packageManager": "pnpm@12.6.0",
   "engines": {
     "node": ">=22.0.0"
