@@ -30,7 +30,9 @@
     "db:reset": "prisma migrate reset --force && pnpm db:seed",
     "postinstall": "prisma generate",
     "prepare": "husky",
-    "db:seed:demo": "tsx prisma/seed-demo.ts"
+    "db:seed:demo": "tsx prisma/seed-demo.ts",
+    "release": "node --experimental-strip-types scripts/release.mts",
+    "release:dry": "DRY_RUN=1 node --experimental-strip-types scripts/release.mts"
   },
   "lint-staged": {
     "*.{ts,tsx,mjs}": [

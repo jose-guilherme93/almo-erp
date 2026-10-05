@@ -383,10 +383,24 @@ Cobertura mínima obrigatória de teste:
   pesadas, teto próprio). Um job que estouraria o teto deve **falhar rápido**, nunca
   pendurar meia hora.
 - O CI automático (`ci.yml`) é só: install, lint, typecheck, migrations, seed, test e build.
-- **Tag de release automática** (`tag-release.yml`): todo push na `main` lê o `version` do
-  `package.json` e publica a tag `vX.Y.Z` — **idempotente** (só cria se não existir). Na
-  prática, **bumpar a versão no `package.json` é o que gera a tag** (`pnpm version patch|minor|major`),
-  e o Dokploy pode publicar por tag. O job respeita o teto de 5 minutos.
+- **Release automática** (`tag-release.yml`): todo push na `main` **decide a versão sozinho** a
+  partir dos commits desde a última tag, grava no `package.json`, cria `chore(release): X.Y.Z` e
+  publica a tag `vX.Y.Z`. **Ninguém bumper versão à mão.**
+  - A regra está em `src/lib/release.ts` — **pura e testada** (`release.test.ts`), sem git nem
+    I/O. O `scripts/release.mts` só executa a decisão. Erro de regra aparece em unitário, não
+    depois da tag publicada.
+  - `feat:` → **minor** · `fix:`/`perf:`/`refactor:`/`revert:` → **patch** · `!` no tipo ou
+    `BREAKING CHANGE:` no corpo → **major** · `docs:`/`chore:`/`test:`/`ci:` → **não publica**.
+  - Merge é ignorado (é container de operação) e commit fora do formato é ignorado em silêncio:
+    falhar o release por causa de commit malformado seria pior que publicar uma versão a menos.
+  - **Não cascateia**: o commit de release é `chore`, que não bumpa. Sem isso, cada push geraria
+    outra tag, para sempre.
+  - Idempotente: se a tag já existe, não faz nada. `cancel-in-progress: false` — cancelar no
+    meio deixaria o `package.json` bumpado sem tag.
+  - Depuração local: `pnpm release:dry` (só imprime a decisão). Escape para hotfix pontual:
+    `VERSION=1.2.3`.
+  - O job respeita o teto de 5 minutos e **não roda `pnpm install`** (o Node faz o stripping de
+    tipos e a decisão pura não tem dependência).
 - **Deploy automático**: o **Auto Deploy do Dokploy** publica todo push na `main` (build pelo
   `Dockerfile`). As migrations rodam no **entrypoint** (1 réplica, zero-downtime desligado).
   O portão de qualidade fica **antes do push**: hook `pre-push` + CI no PR. Segredos e operação
@@ -412,6 +426,9 @@ Cobertura mínima obrigatória de teste:
 - Branch por fase: `feat/fase-06-estoque`.
 - Conventional Commits: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `build`, `perf`.
   Escopo opcional: `feat(estoque): launch de ajuste com justificativa`.
+- **O tipo do commit define a versão** (§9.1): `feat` → minor, `fix`/`perf`/`refactor`/`revert`
+  → patch, `docs`/`chore`/`test` → não publica. Escrever o commit no formato **é** o ato de
+  release; não existe bump manual de versão.
 - PR por fase, com a lista de critérios de aceite da fase como checklist.
 - Migration Prisma sempre versionada e revisada — nunca edite migration já aplicada.
 
