@@ -137,6 +137,10 @@ E2E_AUTH_BYPASS=true pnpm e2e --project=chromium
 
 Entregue antes:
 
+- **Versão visível.** `semver+SHA` no `/api/health`, no header `X-App-Version`, no rodapé da
+  sidebar e em `AuditLog.appVersion` (ADR-16). O SHA vem do build arg `GIT_SHA`.
+- **Cadastro de unidade — consulta de CNPJ.** Botão "Buscar dados" preenche razão social,
+  nome fantasia, CNAE e endereço via BrasilAPI (rota `/api/cnpj/[cnpj]`, ADR-15).
 - **FASE 14 — Setores e encaminhamento.** `Sector`, `Membership.sectorId`,
   `sectorId`/`serviceSectorId` em `Request`/`MaintenanceRequest`; `Delegation` +
   `DelegationEvent` (almoxarifado encaminha etapa → setor responde com laudo → comando

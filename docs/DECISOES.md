@@ -266,3 +266,26 @@ BrasilAPI sem rede.
 o cadastro continua funcionando à mão (aviso, sem bloquear o salvamento). A base é
 configurável por `CNPJ_API_URL`. O preenchimento é auxiliar — a pessoa confere antes de
 salvar.
+
+---
+
+## ADR-16 — Versão da aplicação no build (semver + SHA), visível em todo lugar
+
+**Contexto.** A primeira versão foi para produção e é preciso saber, sem abrir o servidor,
+qual versão está no ar — para correlacionar um comportamento relatado com o deploy que o
+introduziu.
+
+**Decisão.** No build, `next.config.ts` compõe
+`APP_VERSION = <semver do package.json>+<SHA curto>` e injeta `NEXT_PUBLIC_APP_VERSION`,
+`NEXT_PUBLIC_GIT_SHA` e `NEXT_PUBLIC_BUILD_TIME`. A versão aparece em: `/api/health`,
+cabeçalho `X-App-Version` de toda resposta, rodapé da sidebar e `AuditLog.appVersion`.
+
+**Por quê.** O `.dockerignore` exclui `.git`, então dentro da imagem não há repositório para
+descobrir o commit: o SHA chega como **build arg** `GIT_SHA`. Sem ele, cai em `unknown` e o
+semver continua legível. O semver vem do `package.json` (bump manual por release); o SHA é
+automático por build. Gravar a versão em cada `AuditLog` responde "em que versão isso
+aconteceu".
+
+**Consequência.** Bumpar o `package.json` a cada release é disciplina humana; o resto é
+automático. Rodar o Docker sem `--build-arg GIT_SHA` deixa o commit como `unknown` (a versão
+semver e a data continuam corretas).

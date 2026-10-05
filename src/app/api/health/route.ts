@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { APP_VERSION, BUILD_TIME, GIT_SHA } from "@/lib/version";
 
 /**
  * Healthcheck da aplicação.
@@ -9,8 +10,13 @@ import { prisma } from "@/lib/db";
  * dado de negócio: só confirma que o processo responde e que o banco aceita
  * uma consulta trivial. Fica fora do gate do `proxy.ts` (matcher), senão o
  * middleware redirecionaria para `/login` e o check nunca veria 200.
+ * Também informa a versão em execução (semver + commit + data do build).
  */
 export const dynamic = "force-dynamic";
+
+function versionInfo() {
+  return { version: APP_VERSION, commit: GIT_SHA, builtAt: BUILD_TIME };
+}
 
 const TIMEOUT_MS = 3_000;
 
@@ -33,8 +39,8 @@ export async function GET() {
   try {
     await checkDatabase();
 
-    return NextResponse.json({ status: "ok" }, { status: 200 });
+    return NextResponse.json({ status: "ok", ...versionInfo() }, { status: 200 });
   } catch {
-    return NextResponse.json({ status: "unavailable" }, { status: 503 });
+    return NextResponse.json({ status: "unavailable", ...versionInfo() }, { status: 503 });
   }
 }

@@ -603,6 +603,8 @@ model AuditLog {
   after      Json?
   ip         String?
   userAgent  String?  @map("user_agent")
+  /// Versão da aplicação que gerou o evento (semver+SHA), para correlacionar com o deploy.
+  appVersion String?  @map("app_version")
   createdAt  DateTime @default(now()) @map("created_at")
 
   actor  User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
