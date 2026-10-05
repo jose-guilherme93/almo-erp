@@ -351,6 +351,10 @@ Cobertura mínima obrigatória de teste:
   pesadas, teto próprio). Um job que estouraria o teto deve **falhar rápido**, nunca
   pendurar meia hora.
 - O CI automático (`ci.yml`) é só: install, lint, typecheck, migrations, seed, test e build.
+- **Tag de release automática** (`tag-release.yml`): todo push na `main` lê o `version` do
+  `package.json` e publica a tag `vX.Y.Z` — **idempotente** (só cria se não existir). Na
+  prática, **bumpar a versão no `package.json` é o que gera a tag** (`pnpm version patch|minor|major`),
+  e o Dokploy pode publicar por tag. O job respeita o teto de 5 minutos.
 - **Deploy automático**: o **Auto Deploy do Dokploy** publica todo push na `main` (build pelo
   `Dockerfile`). As migrations rodam no **entrypoint** (1 réplica, zero-downtime desligado).
   O portão de qualidade fica **antes do push**: hook `pre-push` + CI no PR. Segredos e operação

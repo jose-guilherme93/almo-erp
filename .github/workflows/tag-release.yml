@@ -1,0 +1,54 @@
+name: Tag de release
+
+# Cria a tag `vX.Y.Z` a partir do `version` do `package.json` sempre que a `main`
+# recebe um push. É idempotente: se a tag já existe, não faz nada — então só
+# nasce tag nova quando a versão é bumpada.
+#
+# O Dokploy pode publicar por tag (mais estável que acompanhar a `main`).
+on:
+  push:
+    branches: [main]
+
+# Criar e publicar tag exige escrita no repositório.
+permissions:
+  contents: write
+
+concurrency:
+  group: tag-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Criar tag da versão
+    runs-on: ubuntu-latest
+    # Regra do AGENTS §9.1: nenhum job passa de 5 minutos.
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Histórico completo: a tag aponta para o commit da `main`.
+          fetch-depth: 0
+
+      - name: Ler a versão do package.json
+        id: version
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Criar e publicar a tag (se não existir)
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -eu
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} já existe; nada a fazer."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"

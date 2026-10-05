@@ -51,6 +51,11 @@ de empurrar direto.
 - **Volume**: monte um volume em **`/data/uploads`** (precisa bater com a env
   `UPLOAD_DIR`). É onde os anexos de imagem ficam.
 - **Health check**: `http://localhost:3000/api/health`.
+- **Deploy por tag**: o workflow `tag-release.yml` cria a tag `vX.Y.Z` a partir do `version`
+  do `package.json` a cada push na `main` (só quando a versão muda — é idempotente). Aponte o
+  deploy do Dokploy para a tag desejada (`v0.1.0`, `v0.2.0`…): é mais previsível que
+  acompanhar a `main`. A versão em execução aparece em `/api/health` e no header
+  `X-App-Version`.
 - **Replicas**: **1**. **Zero-downtime: desligado.**
 - O entrypoint **espera o banco** (até ~60s, por `DB_WAIT_ATTEMPTS` ×
   `DB_WAIT_DELAY_SECONDS`) antes de migrar — evita crash-loop quando a VPS
