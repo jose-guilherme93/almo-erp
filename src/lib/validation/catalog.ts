@@ -134,6 +134,22 @@ export const itemSchema = z
 
 export type ItemInput = z.infer<typeof itemSchema>;
 
+/**
+ * Cadastro pelo caminho da doca: só o que é estritamente necessário.
+ *
+ * Usado quando o material nasce da leitura do código de barras — o usuário não
+ * escolhe categoria (cai em "Geral"), não digita SKU (o servidor gera) e não
+ * precisa preencher preço, descrição nem controles de lote. Tudo isso continua
+ * editável depois, na tela completa do material.
+ */
+export const itemQuickSchema = z.object({
+  name: nameField("Nome", 160),
+  unitId: z.string().trim().min(1, "Selecione a unidade de medida."),
+  barcode: barcodeField,
+});
+
+export type ItemQuickInput = z.infer<typeof itemQuickSchema>;
+
 export const itemUpdateSchema = z
   .object({
     itemId: z.string().trim().min(1),

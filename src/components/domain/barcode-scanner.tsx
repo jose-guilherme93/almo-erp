@@ -11,11 +11,18 @@ import { Label } from "@/components/ui/label";
  * Leitor de código de barras pela câmera.
  *
  * O `@zxing/browser` é carregado sob demanda (dynamic import): são ~200 kB que
- * não fazem sentido no bundle inicial de quem só vai digitar a quantidade.
+ * não fazem sentido no bundle inicial de quem só vai digitar a quantidade. É
+ * JavaScript puro, sem WebAssembly — por isso não depende de `wasm-unsafe-eval`
+ * na CSP.
  *
  * A entrada manual **não é um extra**: o notebook do almoxarifado
- * frequentemente não tem câmera, e a permissão pode estar negada. Sem esse
- * caminho, a tela ficaria inutilizável.
+ * frequentemente não tem câmera, a permissão pode estar negada e `getUserMedia`
+ * só existe em contexto seguro (HTTPS ou localhost). Sem esse caminho, a tela
+ * ficaria inutilizável.
+ *
+ * O leitor só é inicializado **depois** que o `<video>` existe. Ler a ref antes
+ * do `setMode("scanning")` devolve `null` e a câmera nunca sobe — foi exatamente
+ * o que aconteceu até o fluxo ser reescrito em efeito.
  */
 export function BarcodeScanner({
   onDetected,
@@ -24,19 +31,27 @@ export function BarcodeScanner({
   onDetected: (code: string) => void;
   label?: string;
 }) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   const controlsRef = useRef<{ stop: () => void } | null>(null);
 
   const [mode, setMode] = useState<"idle" | "scanning" | "manual">("idle");
   const [error, setError] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState("");
 
+  // O pai passa uma função nova a cada render; guardá-la em ref evita que o
+  // efeito da câmera reinicie o stream a cada tecla digitada na tela.
+  const detectedRef = useRef(onDetected);
+
+  useEffect(() => {
+    detectedRef.current = onDetected;
+  }, [onDetected]);
+
   const stopCamera = useCallback(() => {
     controlsRef.current?.stop();
     controlsRef.current = null;
   }, []);
 
-  const startCamera = useCallback(async () => {
+  const startCamera = useCallback(() => {
     setError(null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -45,32 +60,56 @@ export function BarcodeScanner({
       return;
     }
 
-    try {
-      const { BrowserMultiFormatReader } = await import("@zxing/browser");
-      const reader = new BrowserMultiFormatReader();
+    // Só monta o <video>; o stream é pedido no efeito abaixo.
+    setMode("scanning");
+  }, []);
 
-      const video = videoRef.current;
-      if (!video) return;
+  // Leitor ligado ao elemento já montado.
+  useEffect(() => {
+    if (mode !== "scanning" || !videoEl) return;
 
-      setMode("scanning");
+    let cancelled = false;
 
-      const controls = await reader.decodeFromConstraints(
-        { video: { facingMode: "environment" } },
-        video,
-        (result) => {
-          if (!result) return;
-          onDetected(result.getText());
-          stopCamera();
-          setMode("idle");
-        },
-      );
+    const start = async () => {
+      try {
+        const { BrowserMultiFormatReader } = await import("@zxing/browser");
 
-      controlsRef.current = controls;
-    } catch {
-      setError("Não foi possível acessar a câmera. Use a digitação manual.");
-      setMode("manual");
-    }
-  }, [onDetected, stopCamera]);
+        if (cancelled) return;
+
+        const reader = new BrowserMultiFormatReader();
+
+        const controls = await reader.decodeFromConstraints(
+          { video: { facingMode: "environment" } },
+          videoEl,
+          (result) => {
+            if (!result || cancelled) return;
+
+            detectedRef.current(result.getText());
+
+            stopCamera();
+            setMode("idle");
+          },
+        );
+
+        if (cancelled) controls.stop();
+        else controlsRef.current = controls;
+      } catch {
+        if (cancelled) return;
+
+        // Sem permissão, câmera ocupada ou contexto inseguro: cai no digitar.
+        setError("Não foi possível acessar a câmera. Use a digitação manual.");
+        setMode("manual");
+      }
+    };
+
+    void start();
+
+    return () => {
+      cancelled = true;
+      controlsRef.current?.stop();
+      controlsRef.current = null;
+    };
+  }, [mode, videoEl, stopCamera]);
 
   // Libera a câmera se o componente sair da tela — deixar a luz acesa é
   // constrangedor e consome bateria.
@@ -115,7 +154,7 @@ export function BarcodeScanner({
       {mode === "scanning" ? (
         <div className="overflow-hidden rounded-md border">
           <video
-            ref={videoRef}
+            ref={setVideoEl}
             className="bg-muted aspect-video w-full object-cover"
             muted
             playsInline
@@ -130,7 +169,7 @@ export function BarcodeScanner({
             event.preventDefault();
             const code = manualCode.trim();
             if (code.length === 0) return;
-            onDetected(code);
+            detectedRef.current(code);
             setManualCode("");
           }}
         >

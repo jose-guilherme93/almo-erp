@@ -15,9 +15,11 @@ import {
   deactivateItem,
   findItemByBarcode,
   generateItemCode,
+  getItemPickOption,
   listItems,
   searchItems,
 } from "@/server/services/catalog/item";
+import { GENERAL_CATEGORY_CODE, ensureGeneralCategory } from "@/server/services/catalog/category";
 
 const TEST_PREFIX = "TST";
 const ACTOR_EMAIL = "autor.catalogo@ator.teste.local";
@@ -77,8 +79,13 @@ async function cleanup(): Promise<void> {
 
   const items = await prisma.item.findMany({
     where: {
+      // Só o que a limpeza pode apagar de fato. Material com movimento no ledger
+      // é intocável (§3.3) — e o E2E da doca cria material de verdade no mesmo
+      // banco de desenvolvimento, então o filtro por autor é o que protege.
+      stockLines: { none: {} },
       OR: [
         { code: { startsWith: `${TEST_PREFIX}-` } },
+        ...(actorId ? [{ createdById: actorId }] : []),
         ...(categoryIds.length > 0 ? [{ categoryId: { in: categoryIds } }] : []),
       ],
     },
@@ -266,6 +273,66 @@ describe.runIf(process.env["DATABASE_URL"])("criação", () => {
     const found = await findItemByBarcode("2000 0000 00022");
 
     expect(found?.name).toBe("Material de Teste");
+  });
+});
+
+/**
+ * Caminho da doca: material que nasce da leitura do código de barras.
+ *
+ * A categoria é organização, não requisito — quem está no balcão informa nome e
+ * unidade, e o resto sai no padrão do sistema.
+ */
+describe.runIf(process.env["DATABASE_URL"])("cadastro rápido (doca)", () => {
+  it("cria em Geral com SKU gerado e sem exigir aprovação", async () => {
+    const created = await createItem(catalogContext(), {
+      name: "Luva de Raspa",
+      unitId,
+      barcode: TEST_BARCODES.c,
+    });
+
+    const saved = await prisma.item.findUniqueOrThrow({
+      where: { id: created.id },
+      include: { category: { select: { code: true } } },
+    });
+
+    expect(saved.category.code).toBe(GENERAL_CATEGORY_CODE);
+    expect(saved.code).toMatch(/^GERAL-\d+$/);
+    expect(saved.requiresApproval).toBe(false);
+    // Dinheiro é Decimal no banco (§3.5): a comparação vai por `.toNumber()`.
+    expect(saved.referencePrice.toNumber()).toBe(0);
+    expect(saved.controlledByLot).toBe(false);
+    expect(saved.active).toBe(true);
+    expect(saved.barcode).toBe(TEST_BARCODES.c);
+  });
+
+  it("cria a categoria Geral uma única vez", async () => {
+    const first = await ensureGeneralCategory();
+    const second = await ensureGeneralCategory();
+
+    expect(first.id).toBe(second.id);
+    expect(await prisma.category.count({ where: { code: GENERAL_CATEGORY_CODE } })).toBe(1);
+  });
+
+  it("devolve o material criado no formato do seletor", async () => {
+    const created = await createItem(catalogContext(), {
+      name: "Café em Pó",
+      unitId,
+      barcode: TEST_BARCODES.a,
+    });
+
+    const option = await getItemPickOption(created.id);
+
+    expect(option).toMatchObject({
+      id: created.id,
+      name: "Café em Pó",
+      barcode: TEST_BARCODES.a,
+      category: { name: "Geral" },
+    });
+    expect(option?.unit.id).toBe(unitId);
+  });
+
+  it("não encontra material para código de barras inexistente", async () => {
+    expect(await findItemByBarcode("2000000000099")).toBeNull();
   });
 });
 

@@ -4,8 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { actionSuccess, runAction, type ActionResult } from "@/lib/action-result";
+import { NotFoundError } from "@/lib/errors";
+import type { ItemPickOption } from "@/lib/item-option";
 import {
   itemLotSchema,
+  itemQuickSchema,
   itemSchema,
   itemStockPolicySchema,
   itemUpdateSchema,
@@ -27,6 +30,7 @@ import {
   deactivateItem,
   deactivateItemLot,
   findItemByBarcode,
+  getItemPickOption,
   removeStockPolicy,
   searchItems,
   updateItem,
@@ -259,16 +263,18 @@ const ITEM_PICKER_PERMISSIONS = [
   "estoque:ajuste",
 ] as const;
 
-/** Busca por código de barras — chamada pelo leitor da câmera. */
+/**
+ * Busca por código de barras — chamada pelo leitor da câmera.
+ *
+ * Devolve `null` quando o código não pertence a nenhum material: não é erro, é o
+ * caso normal da doca com produto novo, e o seletor oferece criar o material ali
+ * mesmo em vez de mandar o usuário para outra tela.
+ */
 export async function buscarPorCodigoBarrasAction(barcode: string) {
   return runAction(async () => {
     await requireAnyPermission(ITEM_PICKER_PERMISSIONS);
 
     const item = await findItemByBarcode(barcode);
-
-    if (!item) {
-      return { ok: false as const, error: "Nenhum material com este código de barras." };
-    }
 
     return actionSuccess(item);
   });
@@ -282,5 +288,43 @@ export async function buscarItensAction(term: string) {
     const items = await searchItems(term);
 
     return actionSuccess(items);
+  });
+}
+
+/**
+ * Cadastro rápido de material, direto do leitor da doca.
+ *
+ * Só o estritamente necessário: nome, unidade e o código de barras que acabou de
+ * ser lido. Categoria, SKU, preço e controles saem em "Geral" e nos padrões, e
+ * continuam editáveis depois na tela do material.
+ */
+export async function criarItemRapidoAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<ItemPickOption>> {
+  return runAction(async () => {
+    const context = await requirePermission("item:create");
+
+    const values = formDataToValues(formData);
+
+    const parsed = itemQuickSchema.safeParse({
+      name: readText(values, "name"),
+      unitId: readText(values, "unitId"),
+      barcode: readText(values, "barcode"),
+    });
+
+    if (!parsed.success) return validationFailure(parsed.error);
+
+    const metadata = await requestMetadata();
+    const created = await createItem(context, parsed.data, metadata);
+
+    const option = await getItemPickOption(created.id);
+
+    // Sem isto a linha do documento ficaria sem material e o lançamento quebraria.
+    if (!option) throw new NotFoundError("Material");
+
+    revalidatePath("/catalogo/itens");
+
+    return actionSuccess(option, `${option.name} cadastrado.`);
   });
 }

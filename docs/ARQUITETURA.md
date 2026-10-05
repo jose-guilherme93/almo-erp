@@ -93,7 +93,7 @@ A sessão carrega o **contexto ativo** (filial + papel) e permite trocar por um 
 | `ADMIN_MATRIZ` | matriz (visão de rede) | filiais, mínimos, transferências, estoque consolidado, aprova Anything da rede |
 | `ADMIN_FILIAL` | filial | itens locais, usuários da filial, aprova/entrega, inventário |
 | `GESTOR` | filial | aprova/rejeita solicitações, aprova transferências recebidas, relatórios da filial |
-| `ALMOXARIFE` | filial | entradas, saídas, ajustes, cria/envia transferências, recebe, entrega, inventário |
+| `ALMOXARIFE` | filial | entradas, saídas, ajustes, **cadastra o material que chega lendo o código de barras**, cria/envia transferências, recebe, entrega, inventário |
 | `TI` | filial | atende os chamados de TI e as etapas encaminhadas ao setor; sem visão geral do almoxarifado |
 | `SOLICITANTE` | filial | cria e acompanha **apenas** solicitações próprias; sem estoque, transferências nem catálogo |
 | `CONSULTA` | filial | leitura |
@@ -253,6 +253,12 @@ editável em `/admin/configuracoes`. Sem credencial Google (`AUTH_GOOGLE_ID`/
 | `INBOUND` (entrada) | + | ALMOXARIFE, ADMIN_FILIAL |
 | `ISSUE` (saída por entrega) | − | automático ao concluir entrega |
 | `ADJUSTMENT` (ajuste) | ± | ALMOXARIFE, ADMIN_FILIAL — exige justificativa |
+
+O leitor de código de barras (`src/components/domain/barcode-scanner.tsx`) é carregado sob demanda
+e é **JavaScript puro** — o `@zxing/browser` não usa WebAssembly, então a CSP não precisa de
+`wasm-unsafe-eval`. `getUserMedia` só existe em contexto seguro (HTTPS ou localhost) e pode ser
+negado; por isso a entrada manual é o caminho de fallback, não um extra. O stream só é pedido
+**depois** que o `<video>` está montado.
 | `TRANSFER_OUT` | − na origem | automático ao enviar transferência |
 | `TRANSFER_IN` | + no destino | automático ao receber transferência |
 | `RETURN` (devolução) | + | GESTOR, ADMIN_FILIAL |
@@ -339,6 +345,31 @@ DRAFT/SENT ──cancelar─▶ CANCELLED
   no destino. Notificação `TRANSFER_SENT` para todos os receptores do destino.
 
 ---
+
+### 5.1.2 Entrada pela doca (código de barras)
+
+O caminho principal de insumo não tem cadastro prévio. Em `/estoque/entradas/nova`, o
+`ItemCombobox` lê o código de barras com a câmera (ou o usuário digita) e resolve em três
+desfechos:
+
+| Situação | O que acontece |
+|---|---|
+| Código pertence a um material | a linha entra montada; o usuário só informa quantidade e custo |
+| Código sem material, usuário tem `item:create` | abre o cadastro mínimo **na própria tela** (nome + unidade); ao salvar, o material é criado e a linha entra |
+| Código sem material, usuário sem `item:create` | recusa com mensagem; o solicitante não cadastra catálogo |
+
+O material nascido da doca entra na categoria **"Geral"** (`code = GERAL`), criada sob demanda por
+`ensureGeneralCategory()`. `Item.categoryId` continua obrigatório no banco — a categoria é
+organização, não requisito de entrada, e ninguém escolhe categoria no caminho principal. O SKU é
+gerado pelo servidor a partir do prefixo da categoria (`GERAL-0001`). Tudo o que a doca não
+preenche (preço, descrição, lote, validade, série) fica no padrão e é editável depois na tela do
+material.
+
+Categoria "Geral" **não exige aprovação**: o pedido continua passando pela fila de quem responde
+(§3.5), só sem um clique extra de portão.
+
+Toda unidade criada pela interface nasce com o local `ALMOX — Almoxarifado Central`, para que a
+primeira entrada não dependa de um cadastro de local escondido na aba do cadastro da unidade.
 
 ## 6. Solicitação de materiais
 
@@ -487,7 +518,7 @@ link.
 | `/dashboard/unidade/[branchId]` | `solicitacao:approve` | ADMIN_FILIAL, GESTOR, SUPER_ADMIN, ADMIN_MATRIZ |
 | `/solicitar` | `solicitacao:create` ou `manutencao:create` | qualquer logado — escolha entre material e reparo |
 | `/solicitacoes/nova` | `solicitacao:create` | qualquer logado |
-| `/reparos` | `manutencao:read` | dono e setor de atendimento (ver §9.1) |
+| `/reparos` | `manutencao:read` | dono e setor de atendimento (ver §9.2) |
 | `/reparos/novo` | `manutencao:create` | qualquer logado |
 | `/reparos/[id]` | `manutencao:read` | dono, setor de atendimento, gestão da unidade |
 | `/solicitacoes` | `solicitacao:read` | as próprias; com `solicitacao:overview`, todo o escopo |
@@ -518,9 +549,33 @@ link.
 | `/admin/politicas-email` | `politica-email:manage` | SUPER_ADMIN |
 | `/admin/configuracoes` | `configuracao:manage` | SUPER_ADMIN |
 
+### 9.1 Navegação por tarefa
+
+O menu lateral (`src/lib/navigation.ts`) não segue o modelo de dados nem ordem alfabética:
+segue a ordem em que o trabalho acontece. Grupos, na ordem em que aparecem:
+
+| Grupo | Itens |
+|---|---|
+| **Ação** | Aprovar pedidos · Entregar · Chamados abertos |
+| **Insumo** | Registrar entrada · Ajustes · Inventário |
+| **Consumo** | Pedidos de material · Fazer um pedido |
+| **Manutenção** | Abrir chamado · Meus chamados |
+| **Monitoramento** | Saldos · Movimentações · Relatórios · Dashboard (só rede) |
+| **Configurações** | Materiais · Unidades · Usuários |
+| **Avançado** | Transferências · Categorias · Unidades de medida · Perfis · Políticas de e-mail · Auditoria |
+
+Regras de exibição:
+
+- Todo item declara uma permissão mínima e **não aparece** sem ela (UX; a decisão real é do
+  servidor).
+- **Transferências só aparece com 2+ unidades ativas.** Numa instalação de uma unidade só não há
+  o que transferir, e o item vira ruído.
+- Nenhum `href` aparece em dois grupos — o mesmo endereço repetido é ruído.
+- Telas de ajuste raro (Avançado) continuam acessíveis por URL e pelos links das próprias telas.
+
 ---
 
-## 9.1 Chamados de reparo
+## 9.2 Chamados de reparo
 
 Modelo próprio (`MaintenanceRequest`), separado da solicitação de material: um chamado
 não tem itens nem estoque, é um pedido de serviço. Misturar os dois obrigaria a inventar

@@ -168,6 +168,27 @@ provider tem freio de tentativas de força bruta (`src/server/auth/throttle.ts`)
 O login local **não** auto-provisiona usuário nem vínculo — quem cria é o
 administrador. As regras abaixo continuam valendo integralmente.
 
+No Auth.js **v5** `signIn` **lança** `AuthError` em vez de redirecionar com
+`?error=`. Toda action de login precisa traduzir o erro no formato que a tela lê
+(`/login?error=<tipo>`); deixar escapar derruba a tela no error boundary.
+
+### 3.11 A interface segue o pensamento, não o roteiro
+
+Regra de produto que vale para **toda** tela:
+
+- **Nada é obrigatório além do estritamente necessário.** Se um campo é opcional
+  na regra de negócio, a interface não pode abrir com asterisco nele. Se o
+  servidor consegue deduzir, o usuário não digita (SKU gerado, categoria padrão).
+- **Não existe caminho onde o usuário precise sair da tela para cumprir um
+  pré-requisito do sistema.** Se a ação principal é lançar entrada, o material
+  nasce ali. Um cadastro que força o desvio é um cadastro que ninguém preenche.
+- **A interface mostra o passo seguinte onde ele falta**, na tela vazia. Não
+  existe card de "primeiros passos" nem wizard que obrigue a seguir uma ordem.
+- **Papel e permissão não podem travar o trabalho de quem opera.** Quem recebe
+  mercadoria precisa poder registrar o material que chega.
+
+Ver `docs/ARQUITETURA.md` §5.1.2 (entrada pela doca) e §9.1 (navegação).
+
 ---
 
 ## 4. Estrutura de pastas
@@ -279,6 +300,17 @@ Existem **três** dashboards, com audiência distinta. **Não misture.**
 | `/dashboard/unidades` | `SUPER_ADMIN`, `ADMIN_MATRIZ` | uma linha por filial com seus KPIs; drill para o dashboard da unidade |
 | `/dashboard/unidade/[branchId]` | `ADMIN_FILIAL` (apenas a sua), `SUPER_ADMIN`, `ADMIN_MATRIZ` | fila de chamados da filial, pedidos aguardando aprovação, entregas pendentes, inventário em aberto, indicadores da filial |
 | `/meu` | qualquer usuário logado | minhas solicitações, status, histórico de entregas, perfil |
+
+O **menu lateral** é outra coisa e segue a ordem do trabalho, não o modelo de dados:
+**Ação** (aprovar, entregar, chamados abertos) → **Insumo** (entrada, ajuste, inventário) →
+**Consumo** (pedidos) → **Manutenção** (chamados) → **Monitoramento** (saldos, movimentações,
+relatórios) → **Configurações** (materiais, unidades, usuários) → **Avançado** (categorias,
+unidades de medida, transferências, papéis, políticas de e-mail, auditoria).
+
+Regras do menu: item sem permissão **não aparece**; **transferência só aparece com 2+ unidades
+ativas** (numa instalação de uma só não há o que transferir); **nenhum endereço pode aparecer em
+dois grupos**; nada de roteiro de "primeiros passos" — a interface mostra o passo seguinte onde
+ele falta. Fonte: `src/lib/navigation.ts` e `docs/ARQUITETURA.md` §9.1.
 
 Regras:
 

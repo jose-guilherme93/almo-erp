@@ -2,15 +2,18 @@ import { Prisma } from "@/generated/prisma/client";
 import type { Prisma as PrismaTypes } from "@/generated/prisma/client";
 import { BusinessRuleError, ConflictError, NotFoundError } from "@/lib/errors";
 import { prisma } from "@/lib/db";
+import type { ItemPickOption } from "@/lib/item-option";
 import type {
   ItemInput,
   ItemLotInput,
+  ItemQuickInput,
   ItemStockPolicyInput,
   ItemUpdateInput,
 } from "@/lib/validation/catalog";
 import { writeAuditLog } from "@/server/services/audit";
 import type { AuthContext } from "@/server/auth/context";
 import { assertBranchAccess, visibleBranchIds } from "@/server/auth/scope";
+import { ensureGeneralCategory } from "@/server/services/catalog/category";
 
 /** Serviço do catálogo de materiais. */
 
@@ -217,27 +220,41 @@ export async function getItemDetail(context: AuthContext, itemId: string) {
   return item;
 }
 
+/**
+ * Seleção única do material para o `ItemCombobox`.
+ *
+ * É o mesmo formato para a busca por nome e para a leitura de código de barras:
+ * o seletor não precisa remontar o objeto, e o material recém-criado na doca
+ * entra na linha do documento exatamente igual aos demais.
+ */
+const ITEM_PICK_SELECT = {
+  id: true,
+  code: true,
+  barcode: true,
+  name: true,
+  controlledByLot: true,
+  unit: { select: { id: true, code: true, name: true, allowsDecimals: true } },
+  category: { select: { id: true, name: true } },
+} as const;
+
 /** Busca de material por código de barras — usada pelo leitor. */
-export async function findItemByBarcode(barcode: string) {
+export async function findItemByBarcode(barcode: string): Promise<ItemPickOption | null> {
   const digits = barcode.replace(/\D+/g, "");
   if (digits.length === 0) return null;
 
   return prisma.item.findFirst({
     where: { active: true, barcode: digits },
-    select: {
-      id: true,
-      code: true,
-      barcode: true,
-      name: true,
-      unit: { select: { id: true, code: true, name: true } },
-      category: { select: { id: true, name: true } },
-      controlledByLot: true,
-    },
+    select: ITEM_PICK_SELECT,
   });
 }
 
+/** Material recém-criado no formato do seletor, para já entrar na linha. */
+export async function getItemPickOption(itemId: string): Promise<ItemPickOption | null> {
+  return prisma.item.findFirst({ where: { id: itemId }, select: ITEM_PICK_SELECT });
+}
+
 /** Autocomplete de material: nome, código ou código de barras. */
-export async function searchItems(term: string, limit = 20) {
+export async function searchItems(term: string, limit = 20): Promise<ItemPickOption[]> {
   const search = term.trim();
 
   const where: PrismaTypes.ItemWhereInput = {
@@ -257,38 +274,76 @@ export async function searchItems(term: string, limit = 20) {
     where,
     orderBy: { name: "asc" },
     take: limit,
-    select: {
-      id: true,
-      code: true,
-      barcode: true,
-      name: true,
-      controlledByLot: true,
-      unit: { select: { code: true, allowsDecimals: true } },
-      category: { select: { name: true } },
-    },
+    select: ITEM_PICK_SELECT,
   });
 }
 
+/**
+ * Cadastro de material pelos dois caminhos: o completo (tela de cadastro) e o
+ * rápido (nascido da leitura do código de barras na doca).
+ */
+export type CreateItemInput = ItemInput | ItemQuickInput;
+
+/** `ItemQuickInput` é o que não tem `categoryId` — é o que distingue os dois. */
+function isQuickInput(input: CreateItemInput): input is ItemQuickInput {
+  return !("categoryId" in input);
+}
+
+/**
+ * Completa o cadastro mínimo nos padrões do sistema.
+ *
+ * Categoria "Geral" (que não exige aprovação), SKU gerado pelo servidor, sem
+ * preço e sem controles de lote: o que quem está na doca não preencheu vira
+ * padrão, não erro.
+ */
+async function completeQuickInput(input: ItemQuickInput): Promise<ItemInput> {
+  const category = await ensureGeneralCategory(prisma);
+
+  return {
+    code: undefined,
+    barcode: input.barcode,
+    name: input.name,
+    description: undefined,
+    categoryId: category.id,
+    unitId: input.unitId,
+    referencePrice: 0,
+    controlledByLot: false,
+    perishable: false,
+    requiresApproval: category.requiresApproval,
+    hasSerialControl: false,
+    active: true,
+  };
+}
+
+/**
+ * Cria o material.
+ *
+ * A categoria é obrigatória no banco, mas não é escolha do usuário no caminho
+ * rápido: sem categoria informada, o material nasce em "Geral", que não exige
+ * aprovação — o pedido continua passando pela fila de quem responde.
+ */
 export async function createItem(
   context: AuthContext,
-  input: ItemInput,
+  input: CreateItemInput,
   metadata?: { ip?: string | null; userAgent?: string | null },
 ) {
+  const data = isQuickInput(input) ? await completeQuickInput(input) : input;
+
   const category = await prisma.category.findUnique({
-    where: { id: input.categoryId },
+    where: { id: data.categoryId },
     select: { id: true, requiresApproval: true },
   });
 
   if (!category) throw new NotFoundError("Categoria");
 
-  const code = input.code ?? (await generateItemCode(input.categoryId));
+  const code = data.code ?? (await generateItemCode(data.categoryId));
 
   const taken = await prisma.item.findUnique({ where: { code }, select: { id: true } });
   if (taken) throw new ConflictError(`Já existe um material com o código ${code}.`);
 
-  if (input.barcode) {
+  if (data.barcode) {
     const barcodeTaken = await prisma.item.findUnique({
-      where: { barcode: input.barcode },
+      where: { barcode: data.barcode },
       select: { id: true },
     });
 
@@ -301,18 +356,18 @@ export async function createItem(
     const item = await tx.item.create({
       data: {
         code,
-        barcode: input.barcode,
-        name: input.name,
-        description: input.description,
-        categoryId: input.categoryId,
-        unitId: input.unitId,
-        referencePrice: input.referencePrice,
-        controlledByLot: input.controlledByLot,
-        perishable: input.perishable,
+        barcode: data.barcode,
+        name: data.name,
+        description: data.description,
+        categoryId: data.categoryId,
+        unitId: data.unitId,
+        referencePrice: data.referencePrice,
+        controlledByLot: data.controlledByLot,
+        perishable: data.perishable,
         // A categoria define o padrão; o item pode sobrescrever.
-        requiresApproval: input.requiresApproval || category.requiresApproval,
-        hasSerialControl: input.hasSerialControl,
-        active: input.active,
+        requiresApproval: data.requiresApproval || category.requiresApproval,
+        hasSerialControl: data.hasSerialControl,
+        active: data.active,
         createdById: context.user.id,
       },
       select: { id: true, code: true },

@@ -231,7 +231,7 @@ export default async function ItensPage({ searchParams }: ItensPageProps) {
         emptyDescription={
           search || categoryId || unitId || status || onlyBelowMinimum || onlyWithoutPolicy
             ? "Ajuste os filtros para ver mais resultados."
-            : "Cadastre o primeiro material do almoxarifado."
+            : "O material pode ser cadastrado aqui, ou direto na entrada de estoque lendo o código de barras com a câmera."
         }
         emptyAction={
           canCreate ? (

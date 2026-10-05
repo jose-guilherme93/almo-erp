@@ -10,6 +10,7 @@ import {
 } from "@/components/data-table/table-filters";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatCurrency, formatQuantity } from "@/lib/format";
 import {
   firstParam,
@@ -243,7 +244,14 @@ export default async function SaldosPage({ searchParams }: SaldosPageProps) {
         emptyDescription={
           search || categoryId || locationId || onlyBelowMinimum || onlyStale
             ? "Ajuste os filtros para ver mais resultados."
-            : "Lance uma entrada para começar a formar estoque."
+            : "Lance uma entrada para começar a formar estoque. Na doca, a câmera lê o código de barras e o material entra junto."
+        }
+        emptyAction={
+          context.hasPermission("estoque:entrada") ? (
+            <Button asChild variant="outline">
+              <Link href="/estoque/entradas/nova">Registrar entrada</Link>
+            </Button>
+          ) : null
         }
       />
     </PageBody>

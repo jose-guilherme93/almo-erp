@@ -17,6 +17,10 @@ import { assertBranchAccess, visibleBranchIds } from "@/server/auth/scope";
  * Uma unidade enxerga os próprios dados; a rede enxerga todas.
  */
 
+/** Local de estoque criado junto com a unidade. */
+export const DEFAULT_LOCATION_CODE = "ALMOX";
+export const DEFAULT_LOCATION_NAME = "Almoxarifado Central";
+
 function branchVisibilityFilter(context: AuthContext): Prisma.BranchWhereInput {
   if (context.isNetworkScope) return {};
   return { id: { in: visibleBranchIds(context) } };
@@ -244,6 +248,19 @@ export async function createBranch(
       },
       tx,
     );
+
+    // Toda unidade nasce com o almoxarifado. Sem isso, a primeira entrada de
+    // estoque morre em "Nenhum local cadastrado" e manda o usuário para uma aba
+    // escondida do cadastro da unidade — o caminho inverso do esperado.
+    await tx.storageLocation.create({
+      data: {
+        branchId: branch.id,
+        code: DEFAULT_LOCATION_CODE,
+        name: DEFAULT_LOCATION_NAME,
+        type: "MAIN_WAREHOUSE",
+        description: "Local principal de guarda e distribuição de materiais.",
+      },
+    });
 
     return branch;
   });

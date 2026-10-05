@@ -7,7 +7,7 @@ import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePagePermission } from "@/server/auth/guards";
-import { listCategoryOptions } from "@/server/services/catalog/category";
+import { ensureGeneralCategory, listCategoryOptions } from "@/server/services/catalog/category";
 import { listUnits } from "@/server/services/catalog/unit";
 
 export const metadata: Metadata = {
@@ -17,16 +17,17 @@ export const metadata: Metadata = {
 export default async function NovoItemPage() {
   await requirePagePermission("item:create");
 
-  const [units, categories] = await Promise.all([
+  const [units, categories, general] = await Promise.all([
     listUnits({ onlyActive: true }),
     listCategoryOptions(),
+    ensureGeneralCategory(),
   ]);
 
   return (
     <PageBody className="max-w-4xl">
       <PageHeader
         title="Novo material"
-        description="Cadastre o material no catálogo do almoxarifado."
+        description="Nome e unidade bastam. O resto é opcional."
         action={
           <Button asChild variant="ghost" size="sm">
             <Link href="/catalogo/itens">
@@ -41,8 +42,8 @@ export default async function NovoItemPage() {
         <CardHeader>
           <CardTitle>Dados do material</CardTitle>
           <CardDescription>
-            O código pode ser gerado automaticamente. O código de barras é opcional, mas sem ele o
-            leitor não encontra o material no balcão.
+            O código é gerado sozinho e a categoria já vem preenchida. Na doca, nem precisa vir
+            aqui: a leitura do código de barras cadastra o material direto na entrada.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -51,15 +52,15 @@ export default async function NovoItemPage() {
             units={units.map((unit) => ({ id: unit.id, name: unit.name, code: unit.code }))}
             categories={categories.map((category) => ({
               id: category.id,
-              label: `${category.code} — ${category.label}`,
+              label: category.label,
               requiresApproval: category.requiresApproval,
             }))}
+            defaultCategoryId={general.id}
             defaultValues={{
               code: null,
               barcode: null,
               name: "",
               description: null,
-              categoryId: "",
               unitId: "",
               referencePrice: "0.00",
               controlledByLot: false,

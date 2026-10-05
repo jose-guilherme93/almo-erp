@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { APP_NAME } from "@/lib/constants";
 import { APP_VERSION, BUILD_TIME } from "@/lib/version";
+import { prisma } from "@/lib/db";
 import { visibleNavigation } from "@/lib/navigation";
 import { logoutAction } from "@/server/actions/auth";
 import { requirePageSession } from "@/server/auth/guards";
@@ -24,14 +25,6 @@ import { latestUnread, unreadCount } from "@/server/services/notification/inbox"
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const context = await requirePageSession();
 
-  const sections = visibleNavigation(
-    (permission) => context.hasPermission(permission),
-    context.isNetworkScope,
-  ).map((group) => ({
-    label: group.label,
-    items: group.items.map((item) => ({ label: item.label, href: item.href })),
-  }));
-
   const branchOptions: BranchOption[] = context.memberships.map((membership) => ({
     id: membership.branchId,
     code: membership.branchCode,
@@ -44,10 +37,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     : undefined;
 
   // Contador do sino e lista curta: mesma fonte usada pelo dashboard.
-  const [unread, latest] = await Promise.all([
+  // A contagem de unidades ativas é o que define se transferência é ruído.
+  const [unread, latest, activeBranchCount] = await Promise.all([
     unreadCount(context.user.id),
     latestUnread(context.user.id, 5),
+    prisma.branch.count({ where: { active: true, id: { in: context.branchIds } } }),
   ]);
+
+  const sections = visibleNavigation(
+    (permission) => context.hasPermission(permission),
+    context.isNetworkScope,
+    activeBranchCount,
+  ).map((group) => ({
+    label: group.label,
+    items: group.items.map((item) => ({ label: item.label, href: item.href })),
+  }));
 
   return (
     <div className="flex min-h-svh">

@@ -5,7 +5,11 @@ import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { FormError, FormField } from "@/components/domain/form-field";
-import { ItemCombobox, type ItemOption } from "@/components/domain/item-combobox";
+import {
+  ItemCombobox,
+  type ItemOption,
+  type ItemUnitOption,
+} from "@/components/domain/item-combobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -46,6 +50,8 @@ export function StockDocumentForm({
   branchCode,
   defaultLocationId,
   lots,
+  units,
+  canCreateItem,
 }: {
   mode: "inbound" | "adjustment";
   locations: LocationOption[];
@@ -53,6 +59,9 @@ export function StockDocumentForm({
   defaultLocationId: string | null;
   /** Lotes disponíveis por item controlado, para o select da linha. */
   lots: Record<string, Array<{ id: string; code: string; expirationDate: string | null }>>;
+  /** Unidades de medida, para o cadastro rápido de material pela doca. */
+  units: ItemUnitOption[];
+  canCreateItem: boolean;
 }) {
   const action = mode === "inbound" ? lancarEntradaAction : lancarAjusteAction;
 
@@ -202,12 +211,12 @@ export function StockDocumentForm({
 
       <div className="space-y-3 rounded-md border p-3">
         <p className="text-sm font-medium">Adicionar material</p>
-        <ItemCombobox onSelect={addItem} />
+        <ItemCombobox onSelect={addItem} units={units} canCreate={canCreateItem} />
       </div>
 
       {lines.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          Nenhum material adicionado. Busque acima por nome, código ou código de barras.
+          Nenhum material adicionado. Aponte a câmera para o código de barras, ou busque por nome.
         </p>
       ) : (
         <div className="space-y-3">

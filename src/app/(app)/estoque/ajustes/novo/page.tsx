@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { prisma } from "@/lib/db";
 import { requirePagePermission } from "@/server/auth/guards";
 import { resolveWorkingBranch } from "@/server/auth/scope";
+import { listUnits } from "@/server/services/catalog/unit";
 import { listActiveLots } from "@/server/services/stock/lots";
 
 export const metadata: Metadata = {
@@ -19,13 +20,14 @@ export default async function NovoAjustePage() {
   const context = await requirePagePermission("estoque:ajuste");
   const branchId = resolveWorkingBranch(context, null);
 
-  const [locations, lots] = await Promise.all([
+  const [locations, lots, units] = await Promise.all([
     prisma.storageLocation.findMany({
       where: { branchId, active: true },
       orderBy: [{ type: "asc" }, { name: "asc" }],
       select: { id: true, code: true, name: true },
     }),
     listActiveLots(branchId),
+    listUnits({ onlyActive: true }),
   ]);
 
   const branch = context.getMembership(branchId);
@@ -59,6 +61,8 @@ export default async function NovoAjustePage() {
             branchCode={branch?.branchCode ?? ""}
             defaultLocationId={locations[0]?.id ?? null}
             lots={lots}
+            units={units.map((unit) => ({ id: unit.id, code: unit.code, name: unit.name }))}
+            canCreateItem={context.hasPermission("item:create")}
           />
         </CardContent>
       </Card>

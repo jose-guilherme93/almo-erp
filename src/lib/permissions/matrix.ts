@@ -113,6 +113,11 @@ const ALMOXARIFE: readonly PermissionKey[] = [
   "categoria:read",
   "unidade-medida:read",
   "item:read",
+  // Registra o material que chega lendo o código de barras na doca. Sem isto o
+  // caminho natural do recebimento morre: o almoxarife não teria como cadastrar
+  // o produto novo que ele mesmo está anotando. O cadastro rápido só preenche
+  // nome, unidade e o código lido — o resto sai em "Geral".
+  "item:create",
   "estoque:read",
   "estoque:entrada",
   "estoque:saida",

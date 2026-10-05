@@ -1,5 +1,8 @@
 "use server";
 
+import { AuthError } from "next-auth";
+import { redirect } from "next/navigation";
+
 import { signIn, signOut } from "@/server/auth";
 
 /**
@@ -25,8 +28,13 @@ export async function logoutAction(): Promise<void> {
  * Login local (e-mail + senha).
  *
  * A validação de verdade é o `authorize` do provider `local`; aqui só
- * normalizamos o formulário. Em falha, o Auth.js redireciona para a tela de
- * erro com `error=CredentialsSignin`, que a página de login traduz.
+ * normalizamos o formulário.
+ *
+ * No Auth.js **v5** `signIn` **lança** `AuthError` quando o provider devolve
+ * `null` — ele não redireciona com `?error=` como na v4. Deixar o erro escapar
+ * derruba a tela inteira no error boundary ("Não foi possível carregar") quando
+ * o usuário só digitou a senha errada. Então traduzimos o tipo de erro no mesmo
+ * formato que a tela de login já sabe ler.
  */
 export async function loginWithCredentialsAction(formData: FormData): Promise<void> {
   const email = formData.get("email");
@@ -39,11 +47,22 @@ export async function loginWithCredentialsAction(formData: FormData): Promise<vo
 
   const redirectTo = typeof requested === "string" && requested.startsWith("/") ? requested : "/";
 
-  await signIn("local", {
-    email: email.trim().toLowerCase(),
-    password,
-    redirectTo,
-  });
+  try {
+    await signIn("local", {
+      email: email.trim().toLowerCase(),
+      password,
+      redirectTo,
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      const params = new URLSearchParams({ error: error.type ?? "CredentialsSignin" });
+      params.set("callbackUrl", redirectTo);
+
+      redirect(`/login?${params.toString()}`);
+    }
+
+    throw error;
+  }
 }
 
 /**

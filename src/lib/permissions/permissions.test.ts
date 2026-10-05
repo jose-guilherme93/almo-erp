@@ -147,6 +147,16 @@ describe("matriz papel × permissão", () => {
     expect(permissions).not.toContain("usuario:manage");
   });
 
+  // Quem recebe a mercadoria registra o material que chega: sem `item:create` o
+  // caminho da doca morre para o próprio almoxarife.
+  it("ALMOXARIFE cadastra material, mas não edita nem desativa", () => {
+    const permissions = permissionsForRole("ALMOXARIFE");
+
+    expect(permissions).toContain("item:create");
+    expect(permissions).not.toContain("item:update");
+    expect(permissions).not.toContain("item:manage");
+  });
+
   it("CONSULTA é somente leitura: nenhuma permissão de escrita", () => {
     const permissions = permissionsForRole("CONSULTA");
     const writeActions = [
