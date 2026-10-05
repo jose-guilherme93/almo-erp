@@ -1,6 +1,7 @@
 import { mapBrasilApiCnpj, type CnpjLookup } from "@/lib/cnpj";
 import { env } from "@/lib/env";
 import { AppError, BusinessRuleError, NotFoundError } from "@/lib/errors";
+import { APP_VERSION } from "@/lib/version";
 
 /**
  * Consulta um CNPJ na base pública (BrasilAPI por padrão).
@@ -21,7 +22,13 @@ export async function lookupCnpj(cnpj: string): Promise<CnpjLookup> {
   try {
     const response = await fetch(`${baseUrl}/${cnpj}`, {
       signal: controller.signal,
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        // O WAF da BrasilAPI (Vercel) responde **403** ao User-Agent padrão do
+        // `fetch` do Node. Um UA próprio (e identificável) libera a consulta —
+        // sem isto, a rota devolve 502 em produção.
+        "user-agent": `almo-erp/${APP_VERSION}`,
+      },
       cache: "no-store",
     });
 
