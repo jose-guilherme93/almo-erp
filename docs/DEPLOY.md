@@ -51,6 +51,11 @@ de empurrar direto.
 - **Volume**: monte um volume em **`/data/uploads`** (precisa bater com a env
   `UPLOAD_DIR`). É onde os anexos de imagem ficam.
 - **Health check**: `http://localhost:3000/api/health`.
+- **Deploy por tag**: o workflow `tag-release.yml` cria a tag `vX.Y.Z` a partir do `version`
+  do `package.json` a cada push na `main` (só quando a versão muda — é idempotente). Aponte o
+  deploy do Dokploy para a tag desejada (`v1.0.0`, `v1.1.0`…): é mais previsível que
+  acompanhar a `main`. A versão em execução aparece em `/api/health` e no header
+  `X-App-Version`.
 - **Replicas**: **1**. **Zero-downtime: desligado.**
 - O entrypoint **espera o banco** (até ~60s, por `DB_WAIT_ATTEMPTS` ×
   `DB_WAIT_DELAY_SECONDS`) antes de migrar — evita crash-loop quando a VPS
@@ -93,7 +98,7 @@ Settings → Secrets and variables → Actions.
    Isso cria permissões, papéis, unidades, setores, configurações, a filial
    `MATRIZ` e o administrador. É idempotente e não reescreve a senha depois.
 3. Verifique `curl -fsS https://colegiobatista.josetilabs.com/api/health` →
-   `{"status":"ok","version":"0.1.0+abc1234","commit":"abc1234","builtAt":"…"}` e faça login
+   `{"status":"ok","version":"1.0.0+abc1234","commit":"abc1234","builtAt":"…"}` e faça login
    em `/login` com o `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`.
 
 > Quer um ambiente de **preview** com dados de demonstração? Veja §11.
