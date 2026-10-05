@@ -46,6 +46,24 @@ const BUILD_TIME = new Date().toISOString();
  * injetarem estilo crítico. Já `script-src` fica restrito a `self`, que é onde
  * mora o risco real.
  */
+/**
+ * `script-src` em desenvolvimento.
+ *
+ * O runtime de desenvolvimento do React (servido por `next dev`, nos arquivos
+ * `*.development.js` do RSC) usa `eval()` para reconstruir call stacks e falar
+ * com o DevTools. Sem `unsafe-eval` ele reclama no console e perde a
+ * reconstrução de erro. **Não** é o leitor de código de barras: o `@zxing/browser`
+ * é JavaScript puro, sem WebAssembly.
+ *
+ * Produção nunca recebe `unsafe-eval` — o bundle de produção do React não usa
+ * `eval`, e essa é a diferença entre um headerSPD de verdade e um só de fachada.
+ */
+const isDevelopment = process.env.NODE_ENV !== "production";
+
+const scriptSrc = isDevelopment
+  ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+  : "script-src 'self' 'unsafe-inline'";
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -64,7 +82,7 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      scriptSrc,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://lh3.googleusercontent.com",
       "font-src 'self' data:",

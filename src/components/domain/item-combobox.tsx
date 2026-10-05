@@ -1,37 +1,56 @@
 "use client";
 
+import { useEffect, useRef, useState, useTransition } from "react";
 import { ScanBarcode, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { BarcodeScanner } from "@/components/domain/barcode-scanner";
+import { FormField } from "@/components/domain/form-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { buscarItensAction, buscarPorCodigoBarrasAction } from "@/server/actions/item";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { ActionResult } from "@/lib/action-result";
+import { onlyDigits } from "@/lib/format";
+import type { ItemPickOption } from "@/lib/item-option";
+import { isValidBarcode } from "@/lib/validation/catalog";
+import {
+  buscarItensAction,
+  buscarPorCodigoBarrasAction,
+  criarItemRapidoAction,
+} from "@/server/actions/item";
 
-export type ItemOption = {
-  id: string;
-  code: string;
-  barcode: string | null;
-  name: string;
-  controlledByLot: boolean;
-  unit: { code: string; allowsDecimals: boolean };
-  category: { name: string };
-};
+export type ItemOption = ItemPickOption;
+
+export type ItemUnitOption = { id: string; code: string; name: string };
 
 /**
  * Seletor de material com busca e leitura de código de barras.
  *
  * É o componente usado em todas as telas que precisam escolher um material
  * (solicitação, entrada, ajuste, transferência, inventário).
+ *
+ * Quando `canCreate` é verdadeiro, o leitor tem a continuação do caminho: código
+ * de barras que não pertence a nenhum material abre o cadastro mínimo **aqui**,
+ * sem obrigar o usuário a sair da tela de entrada e montar o material antes.
  */
 export function ItemCombobox({
   onSelect,
+  units,
+  canCreate = false,
   placeholder = "Buscar material por nome, código ou código de barras…",
   autoFocus,
 }: {
   onSelect: (item: ItemOption) => void;
+  /** Unidades para o cadastro rápido. Vazio (ou `canCreate` falso) desliga a criação. */
+  units?: ItemUnitOption[];
+  canCreate?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
 }) {
@@ -41,6 +60,8 @@ export function ItemCombobox({
     items: [],
   });
   const [showScanner, setShowScanner] = useState(false);
+  /** Código lido sem material correspondente: vira o cadastro rápido. */
+  const [unknownBarcode, setUnknownBarcode] = useState<string | null>(null);
   const requestId = useRef(0);
 
   // Só exibimos resultados que correspondem ao termo atual: enquanto a busca
@@ -72,6 +93,12 @@ export function ItemCombobox({
     onSelect(item);
     setTerm("");
     setResults({ term: "", items: [] });
+    setUnknownBarcode(null);
+  };
+
+  const closeScanner = () => {
+    setShowScanner(false);
+    setUnknownBarcode(null);
   };
 
   const handleBarcode = async (code: string) => {
@@ -82,18 +109,21 @@ export function ItemCombobox({
       return;
     }
 
-    const item = result.data;
+    // Material existe: entra direto na linha do documento.
+    if (result.data) {
+      pick(result.data);
+      setShowScanner(false);
+      return;
+    }
 
-    pick({
-      id: item.id,
-      code: item.code,
-      barcode: item.barcode,
-      name: item.name,
-      controlledByLot: item.controlledByLot,
-      unit: { code: item.unit.code, allowsDecimals: false },
-      category: item.category,
-    });
+    // Produto novo: sem material cadastrado, seguimos o mesmo caminho aqui.
+    if (!canCreate) {
+      toast.error("Nenhum material com este código de barras.");
+      setShowScanner(false);
+      return;
+    }
 
+    setUnknownBarcode(onlyDigits(code));
     setShowScanner(false);
   };
 
@@ -130,12 +160,38 @@ export function ItemCombobox({
 
       {showScanner ? <BarcodeScanner onDetected={handleBarcode} /> : null}
 
+      {unknownBarcode !== null ? (
+        <QuickItemForm
+          barcode={unknownBarcode}
+          units={units ?? []}
+          onCreated={pick}
+          onCancel={closeScanner}
+        />
+      ) : null}
+
       {isLoading ? <p className="text-muted-foreground text-xs">Buscando…</p> : null}
 
       {!isLoading && term.trim().length >= 2 && options.length === 0 ? (
-        <p className="text-muted-foreground text-xs">
-          Nenhum material encontrado. Verifique a escrita ou cadastre o material.
-        </p>
+        <div className="space-y-2">
+          <p className="text-muted-foreground text-xs">
+            Nenhum material encontrado. Verifique a escrita ou cadastre o material.
+          </p>
+
+          {/* Mesmo caminho da câmera, para quem está no balcão sem celular. */}
+          {canCreate && isValidBarcode(term) ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setUnknownBarcode(onlyDigits(term));
+                setTerm("");
+              }}
+            >
+              Cadastrar material com o código {onlyDigits(term)}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       {options.length > 0 ? (
@@ -168,6 +224,114 @@ export function ItemCombobox({
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Cadastro mínimo de material, aberto pelo leitor quando o código é desconhecido.
+ *
+ * Só pede o que não dá para adivinhar: nome e unidade. O SKU é gerado pelo
+ * servidor e a categoria é "Geral" — nada disso é responsabilidade de quem está
+ * na doca.
+ *
+ * Não é um `<form>`: este componente vive dentro do formulário do documento, e
+ * form aninhado é HTML inválido. A action é chamada direto.
+ */
+function QuickItemForm({
+  barcode,
+  units,
+  onCreated,
+  onCancel,
+}: {
+  barcode: string;
+  units: ItemUnitOption[];
+  onCreated: (item: ItemOption) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [unitId, setUnitId] = useState(
+    () => units.find((unit) => unit.code === "UN")?.id ?? units[0]?.id ?? "",
+  );
+  const [result, setResult] = useState<ActionResult<ItemOption> | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const canSubmit = name.trim().length >= 2 && unitId.length > 0;
+
+  const submit = () => {
+    if (!canSubmit) return;
+
+    const formData = new FormData();
+    formData.set("name", name);
+    formData.set("unitId", unitId);
+    formData.set("barcode", barcode);
+
+    startTransition(async () => {
+      const response = await criarItemRapidoAction(null, formData);
+
+      if (response.ok) onCreated(response.data);
+      else setResult(response);
+    });
+  };
+
+  const fieldErrors = result && !result.ok ? (result.fieldErrors ?? {}) : {};
+
+  return (
+    <div className="space-y-3 rounded-md border border-dashed p-3">
+      <p className="text-sm font-medium">Material novo</p>
+      <p className="text-muted-foreground text-xs">
+        Código {barcode} ainda não cadastrado. Informe o nome e a unidade para já adicionar à
+        entrada.
+      </p>
+
+      <FormField
+        id="quick-item-name"
+        label="Nome do material"
+        required
+        errors={fieldErrors["name"]}
+      >
+        <Input
+          id="quick-item-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submit();
+            }
+          }}
+          placeholder="Ex.: Luva de raspa"
+          aria-label="Nome do material"
+          autoFocus
+        />
+      </FormField>
+
+      <FormField id="quick-item-unit" label="Unidade" required errors={fieldErrors["unitId"]}>
+        <Select value={unitId} onValueChange={setUnitId}>
+          <SelectTrigger id="quick-item-unit" className="w-full">
+            <SelectValue placeholder="Selecione a unidade" />
+          </SelectTrigger>
+          <SelectContent>
+            {units.map((unit) => (
+              <SelectItem key={unit.id} value={unit.id}>
+                {unit.code} — {unit.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      {result && !result.ok ? <p className="text-destructive text-sm">{result.error}</p> : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" disabled={isPending || !canSubmit} onClick={submit}>
+          {isPending ? "Cadastrando…" : "Cadastrar e adicionar"}
+        </Button>
+
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={isPending}>
+          Cancelar
+        </Button>
+      </div>
     </div>
   );
 }

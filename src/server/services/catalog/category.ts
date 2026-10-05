@@ -1,3 +1,4 @@
+import type { Prisma as PrismaTypes } from "@/generated/prisma/client";
 import { BusinessRuleError, ConflictError, NotFoundError } from "@/lib/errors";
 import { prisma } from "@/lib/db";
 import type { CategoryInput } from "@/lib/validation/catalog";
@@ -5,6 +6,32 @@ import { writeAuditLog } from "@/server/services/audit";
 import type { AuthContext } from "@/server/auth/context";
 
 /** Serviço de categorias de material (hierárquicas). */
+
+/** Código da categoria que agrupa material sem classificação específica. */
+export const GENERAL_CATEGORY_CODE = "GERAL";
+
+/** Só a parte do cliente que a função precisa — serve para `prisma` e para `tx`. */
+type CategoryClient = Pick<PrismaTypes.TransactionClient, "category">;
+
+/**
+ * Garante que a categoria "Geral" exista.
+ *
+ * `Item.categoryId` é obrigatório no banco, mas o usuário não deve escolher
+ * categoria ao cadastrar material — ela é organização, não requisito. O caminho
+ * principal (criar material pela leitura do código de barras) cai aqui.
+ */
+export async function ensureGeneralCategory(client: CategoryClient = prisma) {
+  return client.category.upsert({
+    where: { code: GENERAL_CATEGORY_CODE },
+    update: {},
+    create: {
+      code: GENERAL_CATEGORY_CODE,
+      name: "Geral",
+      description: "Material sem classificação específica.",
+    },
+    select: { id: true, code: true, name: true, requiresApproval: true },
+  });
+}
 
 export async function listCategories() {
   const categories = await prisma.category.findMany({

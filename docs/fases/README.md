@@ -26,6 +26,7 @@ Não pule fase e não "adiante" parte de fase futura.
 | [16](FASE-16-anexos-imagem.md) | Anexos de imagem com compressão | foto do problema leve e segura |
 | [17](FASE-17-ti-e-pecas.md) | TI como setor prestador | chamado de TI, laudo e peças |
 | [18](FASE-18-duracao-e-relatorios.md) | Duração e observabilidade | demanda por setor e tempo por mês |
+| [19](FASE-19-simplificacao.md) | Simplificação | entrada pela câmera sem cadastro prév e menu por tarefa |
 
 ## Regras de execução das fases
 
@@ -57,6 +58,7 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 16 — Anexos de imagem
 - [x] FASE 17 — TI e peças
 - [x] FASE 18 — Duração e relatórios
+- [x] FASE 19 — Simplificação
 
 ## Dependências entre fases
 

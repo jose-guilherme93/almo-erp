@@ -10,6 +10,8 @@ import { prisma } from "@/lib/db";
 import type { CreateBranchInput, UpdateBranchInput } from "@/lib/validation/branch";
 import { makeAuthContext } from "@/test-utils/auth-context";
 import {
+  DEFAULT_LOCATION_CODE,
+  DEFAULT_LOCATION_NAME,
   createBranch,
   deactivateBranch,
   listBranches,
@@ -221,6 +223,23 @@ describe.runIf(process.env["DATABASE_URL"])("cadastro de unidade", () => {
 
     expect(result.items.map((item) => item.id)).toEqual([realBranchId]);
   });
+
+  // Sem isto, a primeira entrada de estoque morre em "nenhum local cadastrado".
+  it("cria a unidade já com o almoxarifado", async () => {
+    const branch = await createBranch(
+      await networkContext(),
+      baseInput(`${TEST_PREFIX}006`, "99999999000191"),
+    );
+
+    const locations = await prisma.storageLocation.findMany({
+      where: { branchId: branch.id },
+      select: { code: true, name: true, type: true },
+    });
+
+    expect(locations).toEqual([
+      { code: DEFAULT_LOCATION_CODE, name: DEFAULT_LOCATION_NAME, type: "MAIN_WAREHOUSE" },
+    ]);
+  });
 });
 
 describe.runIf(process.env["DATABASE_URL"])("hierarquia", () => {
@@ -272,8 +291,9 @@ describe.runIf(process.env["DATABASE_URL"])("desativação", () => {
       baseInput(`${TEST_PREFIX}D`, "99999999000191"),
     );
 
-    const location = await prisma.storageLocation.create({
-      data: { branchId: branch.id, code: "ALMOX", name: "Almoxarifado Central" },
+    // A unidade nasce com o almoxarifado: usa o local que `createBranch` criou.
+    const location = await prisma.storageLocation.findFirstOrThrow({
+      where: { branchId: branch.id },
       select: { id: true },
     });
 

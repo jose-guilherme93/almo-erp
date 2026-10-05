@@ -17,6 +17,7 @@ import { PrismaClient } from "../src/generated/prisma/client";
 import { PASSWORD_MIN_LENGTH, hashPassword, isAcceptablePassword } from "../src/lib/password";
 import { PERMISSIONS } from "../src/lib/permissions/catalog";
 import { ROLES, permissionsForRole } from "../src/lib/permissions/matrix";
+import { DEFAULT_LOCATION_CODE, DEFAULT_LOCATION_NAME } from "../src/server/services/branch";
 
 const connectionString = process.env["DATABASE_URL"];
 
@@ -493,12 +494,12 @@ async function seedBranches(): Promise<Record<string, string>> {
     ids[branch.code] = saved.id;
 
     await prisma.storageLocation.upsert({
-      where: { branchId_code: { branchId: saved.id, code: "ALMOX" } },
-      update: { name: "Almoxarifado Central", active: true },
+      where: { branchId_code: { branchId: saved.id, code: DEFAULT_LOCATION_CODE } },
+      update: { name: DEFAULT_LOCATION_NAME, active: true },
       create: {
         branchId: saved.id,
-        code: "ALMOX",
-        name: "Almoxarifado Central",
+        code: DEFAULT_LOCATION_CODE,
+        name: DEFAULT_LOCATION_NAME,
         type: "MAIN_WAREHOUSE",
         description: "Local principal de guarda e distribuição de materiais.",
       },

@@ -1,6 +1,6 @@
 # Handoff — estado do trabalho
 
-> Última atualização: 2026-09-29. Leia isto antes de retomar; evita redescobrir o contexto.
+> Última atualização: 2026-10-05. Leia isto antes de retomar; evita redescobrir o contexto.
 
 ## Onde estamos
 
@@ -12,10 +12,41 @@
 
 ## O que está pronto e verde
 
-Gates rodados na `develop`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (330), `pnpm build`,
-`pnpm db:seed`. O CI do GitHub rodou o mesmo pipeline: **sucesso em 2m43s**.
+Gates rodados na `develop`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (374), `pnpm build`,
+`pnpm db:seed`. E2E local: **87/87**.
 
-Entrega mais recente — **Login local (e-mail + senha), sem Google**:
+Entrega mais recente — **FASE 19, simplificação** (vinda de um teste real em produção):
+
+- **O botão "Usar câmera" nunca funcionou** (bug da FASE 05, não desta fase). O leitor lia a
+  ref do `<video>` antes de o elemento existir, então o clique morria em silêncio: zero `<video>`
+  na tela e `getUserMedia` nunca chamado. O leitor agora só inicializa em efeito, depois que o
+  elemento está montado. E2E cobre o stream real chegando ao vídeo (`e2e/estoque.spec.ts`, com a
+  câmera sintética do Chromium ligada no `playwright.config.ts`) e a liberação do stream ao
+  parar. O `@zxing/browser` é JavaScript puro, sem WebAssembly.
+- **`unsafe-eval` na CSP só em desenvolvimento.** O runtime dev do React usa `eval()` para
+  reconstruir call stacks e falar com o DevTools; sem ele, o console chia a cada navegação.
+  Produção segue estrita — o bundle de produção não usa `eval`.
+
+Entrega anterior a esta fase — **a entrada pela doca não tem cadastro prévio.** Ler o código de barras de um produto novo
+  abre o cadastro mínimo (nome + unidade) **na própria tela** e já adiciona a linha. Antes o
+  caminho morria em "Nenhum material com este código de barras" e obrigava sair da entrada.
+  Mesmo caminho ao digitar o código, para o balcão sem celular.
+- **Categoria "Geral" automática** (`ensureGeneralCategory()`), sem migration: em produção não
+  existia categoria nenhuma, então `/catalogo/itens/novo` abria com o select vazio e nenhuma
+  explicação. Ela **não exige aprovação** — o pedido continua na fila de quem responde.
+- **`item:create` no papel ALMOXARIFE.** Sem isso o caminho da doca morre para quem opera.
+- **Unidade nasce com o almoxarifado** (`ALMOX`), na mesma transação de `createBranch`.
+- **Formulário de material enxuto:** nome, unidade e categoria (já preenchida); código, preço,
+  código de barras, descrição e controles em "Opções avançadas".
+- **Menu por tarefa:** Ação → Insumo → Consumo → Manutenção → Monitoramento → Configurações →
+  Avançado. De ~20 itens para 6 grupos; transferência só aparece com 2+ unidades ativas.
+- Bugs **pré-existentes** corrigidos no caminho: login local com senha errada caía no error
+  boundary em vez de dizer "e-mail ou senha inválidos" (Auth.js v5 lança o `AuthError`); e o
+  E2E de TI usava um e-mail que o seed não cria.
+- Decisão consciente: **não** houve migration, **não** houve OCR, e o formulário de unidade
+  ficou como está. Hubs com abas foram descartados — ver a FASE 19 para o porquê.
+
+Entrega anterior — **Login local (e-mail + senha), sem Google**:
 
 - Nova porta de acesso: provider `local` (Credentials) + `User.passwordHash`
   (scrypt em `src/lib/password.ts`). **Não** auto-provisiona e **não** aplica a

@@ -14,7 +14,8 @@ import { openAs } from "./helpers/flows";
 // Troca de usuário no meio do fluxo: o default de 30s é apertado.
 test.describe.configure({ timeout: 120_000 });
 
-const TI_EMAIL = "ti@batistaonline.com.br";
+// E-mail do técnico criado pelo seed (`prisma/seed.ts`), no setor de TI.
+const TI_EMAIL = "ti@exemplo.com.br";
 
 test.describe("chamado de TI", () => {
   test("roteia para o técnico de TI da unidade e ele o enxerga", async ({ browser }) => {

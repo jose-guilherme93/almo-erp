@@ -30,11 +30,26 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        permissions: ["camera"],
+        // Câmera sintética do Chromium e permissão concedida sem diálogo. É o que
+        // permite testar o leitor de código de barras de verdade, em vez de só
+        // clicar no botão e torcer.
+        launchOptions: {
+          args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+        },
+      },
     },
     {
       name: "mobile",
-      use: { ...devices["Pixel 7"] },
+      use: {
+        ...devices["Pixel 7"],
+        permissions: ["camera"],
+        launchOptions: {
+          args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+        },
+      },
     },
   ],
 
