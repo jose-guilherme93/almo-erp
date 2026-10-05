@@ -13,7 +13,9 @@ env:
   DATABASE_URL: postgresql://almo:almo_dev_password@localhost:5432/almo_erp?schema=public
   AUTH_SECRET: ci-secret-nao-usar-em-producao
   AUTH_ALLOWED_DOMAINS: exemplo.com.br
+
   NEXT_PUBLIC_APP_URL: http://localhost:3001
+
   AUTH_TRUST_HOST: "true"
   # O bypass de autenticação de teste (`E2E_AUTH_BYPASS`) só existe fora de
   # produção (`src/lib/env.ts`), então o E2E roda com `pnpm dev` (comando padrão
