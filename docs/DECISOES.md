@@ -242,3 +242,27 @@ de rede). Há uma única matriz global e um único limite de aprovação da matr
 (`request.matrixApprovalThreshold`), não um por empresa. A decisão é reversível: para
 agrupar por empresa no futuro, `Branch.companyId` já existe (nullable) — basta o
 cadastro de `Company` e o filtro nos relatórios; nada de estoque ou autorização muda.
+
+---
+
+## ADR-15 — Consulta de CNPJ via BrasilAPI, mediada pelo servidor
+
+**Contexto.** O cadastro de filial tem muitos campos fiscais e de endereço (razão social,
+nome fantasia, CNAE, CEP, logradouro, bairro, município, UF). Digitar tudo à mão é lento e
+propenso a erro.
+
+**Decisão.** Um botão **"Buscar dados"** no cadastro consulta a **BrasilAPI**
+(`/api/cnpj/v1/{cnpj}`, pública e sem chave) por meio de uma rota nossa
+(`/api/cnpj/[cnpj]`) e preenche os campos. A rota exige `filial:create`/`filial:manage` e
+devolve um payload normalizado; o mapper puro (`src/lib/cnpj.ts`) isola a tradução do
+formato externo.
+
+**Por quê.** O CSP do projeto restringe `connect-src` a `self`, então o navegador não pode
+chamar a API externa direto — e é bom que não: a rota própria concentra permissão,
+validação de CNPJ e tratamento de erro. Manter a tradução pura permite testar o formato da
+BrasilAPI sem rede.
+
+**Consequência.** É uma dependência externa **opcional**: se a BrasilAPI estiver fora do ar,
+o cadastro continua funcionando à mão (aviso, sem bloquear o salvamento). A base é
+configurável por `CNPJ_API_URL`. O preenchimento é auxiliar — a pessoa confere antes de
+salvar.

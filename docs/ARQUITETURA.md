@@ -66,6 +66,9 @@ Regras:
 
 - `code` é único e imutável após o primeiro uso em documento.
 - CNPJ e CEP são validados e normalizados (somente dígitos) com Zod.
+- O CNPJ pode ser consultado na base pública (BrasilAPI) pelo botão **"Buscar dados"**:
+  a consulta passa pelo servidor (CSP restringe `connect-src` a `self`) e exige
+  `filial:create`/`filial:manage`; a base é configurável por `CNPJ_API_URL`.
 - Ao desativar uma filial (`active = false`), ela **não** aceita novas solicitações nem
   movimentações, mas continua legível para auditoria.
 - Filiais com transferência pendente são bloqueadas para desativação.

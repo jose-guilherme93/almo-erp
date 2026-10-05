@@ -68,6 +68,9 @@ const serverSchema = z.object({
   STOCK_BELOW_MIN_DEDUP_DAYS: z.coerce.number().int().positive().default(7),
   MATRIX_APPROVAL_THRESHOLD: z.coerce.number().nonnegative().default(1000),
 
+  /** Base da API pública de consulta de CNPJ (padrão: BrasilAPI). */
+  CNPJ_API_URL: z.string().url().optional(),
+
   SMTP_HOST: optionalString,
   SMTP_PORT: optionalNumber,
   SMTP_USER: optionalString,
