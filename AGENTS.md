@@ -423,6 +423,33 @@ Cobertura mínima obrigatória de teste:
 
 ## 10. Git
 
+> **Regra que não se negocia: a base é sempre `develop`. `main` nunca recebe push direto.**
+
+### 10.1 Fluxo de trabalho
+
+```
+develop  ──(trabalho)──▶  feat/fase-NN-slug  ──(PR + merge)──▶  main
+   ▲                                                            │
+   └──────────────(main volta para develop, sempre)─────────────┘
+```
+
+- **Nasce da `develop`**, nunca da `main`. Antes de começar trabalho novo:
+  `git checkout develop && git pull`.
+- **A `main` só recebe merge por PR** — merge de branch de trabalho, com a lista de critérios de
+  aceite da fase como checklist. **Push direto na `main` é erro**, mesmo que "já esteja tudo
+  verde" e mesmo em hotfix de uma linha.
+- **Depois do merge, a `main` volta para a `develop`** (`git checkout develop && git merge
+  main`). Sem essa volta, a `develop` envelhece e a base do próximo trabalho fica atrás do que já
+  está em produção.
+- **Branch de trabalho é temporária.** Depois do merge, apague local e remoto
+  (`git branch -d` / `git push origin --delete`). Leftover de branch já mergeada é ruído que faz
+  a próxima pessoa (ou o próximo agente) achar que existe trabalho não publicado.
+- Antes de apagar qualquer branch, confirme que ela é ancestral da `main`
+  (`git merge-base --is-ancestor <branch> main`). Apagar branch com trabalho não mergeado é
+  **perda de código**.
+
+### 10.2 Commits
+
 - Branch por fase: `feat/fase-06-estoque`.
 - Conventional Commits: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `build`, `perf`.
   Escopo opcional: `feat(estoque): launch de ajuste com justificativa`.
