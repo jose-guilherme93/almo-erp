@@ -27,6 +27,7 @@ Não pule fase e não "adiante" parte de fase futura.
 | [17](FASE-17-ti-e-pecas.md) | TI como setor prestador | chamado de TI, laudo e peças |
 | [18](FASE-18-duracao-e-relatorios.md) | Duração e observabilidade | demanda por setor e tempo por mês |
 | [19](FASE-19-simplificacao.md) | Simplificação | entrada pela câmera sem cadastro prév e menu por tarefa |
+| [20](FASE-20-observabilidade-erros.md) | Observabilidade | erro de servidor visível, com o digest que o usuário viu |
 
 ## Regras de execução das fases
 
@@ -59,6 +60,7 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 17 — TI e peças
 - [x] FASE 18 — Duração e relatórios
 - [x] FASE 19 — Simplificação
+- [x] FASE 20 — Observabilidade de erro
 
 ## Dependências entre fases
 

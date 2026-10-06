@@ -204,6 +204,10 @@ enum NotificationType {
   DELEGATION_ACCEPTED
   DELEGATION_COMPLETED
   DELEGATION_RETURNED
+  /// Erro de servidor novo, capturado pelo gancho `onRequestError`.
+  /// Notifica **só na primeira ocorrência**: repetir a cada vez transformaria o
+  /// alerta em ruído justamente quando o problema é mais grave.
+  ERROR_REPORTED
 }
 
 /// Papel do setor no fluxo: quem pede, quem atende, ou os dois.
@@ -318,6 +322,7 @@ model Branch {
   deliveries              Delivery[]
   notifications           Notification[]
   auditLogs               AuditLog[]
+  errorLogs               ErrorLog[]
   emailPolicies           EmailPolicy[]
   maintenanceRequests     MaintenanceRequest[]
 
@@ -418,6 +423,9 @@ model User {
   invitesAccepted Invite[] @relation("InviteAcceptedBy")
 
   auditLogs      AuditLog[]
+
+  errorLogs       ErrorLog[]
+  resolvedErrors  ErrorLog[]    @relation("ErrorLogResolvedBy")
   itemsCreated   Item[]
   configsUpdated Config[]
 
@@ -614,6 +622,45 @@ model AuditLog {
   @@index([branchId, createdAt])
   @@index([actorId, createdAt])
   @@map("audit_logs")
+}
+
+/// Erro de servidor observado pelo gancho `onRequestError` do Next.
+///
+/// Uma linha por **erro único**, não por ocorrência: `fingerprint` deduplica e
+/// `count` acumula. Sem isso, um erro em render repetido por vários usuários
+/// enche a tabela e esconde o resto.
+model ErrorLog {
+  id String @id @default(cuid())
+  /// Hash estável de rota + digest + mensagem. Único: é a chave de deduplicação.
+  fingerprint String  @unique
+  /// Código que o usuário vê na tela ("Referência: …"). É por ele que se
+  /// encontra a linha quando alguém relata o erro.
+  digest      String? @map("digest")
+  routePath   String  @map("route_path")
+  /// `render` | `route` | `action` | `proxy`, conforme o Next.
+  routeType   String  @map("route_type")
+  method      String?
+  message     String
+  /// Limitado no serviço: stack ocupa espaço e ninguém lê além do topo.
+  stack       String?
+  count       Int     @default(1)
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+  /// Marcado pelo admin: sai da frente em vez de ser visto toda hora.
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedById String?  @map("resolved_by_id")
+  appVersion   String?  @map("app_version")
+
+  actor      User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorId    String?  @map("actor_id")
+  branchId   String?  @map("branch_id")
+  branch     Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  resolvedBy User?   @relation("ErrorLogResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([resolvedAt, lastSeenAt])
+  @@index([routePath, lastSeenAt])
+  @@index([digest])
+  @@map("error_logs")
 }
 
 // -----------------------------------------------------------------------------

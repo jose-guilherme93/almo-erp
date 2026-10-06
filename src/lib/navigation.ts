@@ -144,11 +144,21 @@ export const ADVANCED_NAVIGATION: NavGroup = {
     { label: "Unidades de medida", href: "/catalogo/unidades", permission: "unidade-medida:read" },
     { label: "Perfis e permissões", href: "/admin/papeis", permission: "papel:read" },
     {
+      label: "Auditoria",
+      href: "/admin/auditoria",
+      permission: "papel:manage",
+    },
+    {
+      label: "Erros",
+      href: "/admin/erros",
+      permission: "papel:manage",
+      description: "Erros de servidor capturados",
+    },
+    {
       label: "Políticas de e-mail",
       href: "/admin/politicas-email",
       permission: "politica-email:read",
     },
-    { label: "Auditoria", href: "/admin/auditoria", permission: "papel:manage" },
   ],
 };
 
