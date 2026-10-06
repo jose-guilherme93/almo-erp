@@ -15,17 +15,30 @@
 Gates rodados na `main`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (400), `pnpm build`,
 `pnpm db:seed`. E2E local: **88/88**.
 
-Entrega mais recente — **Release automática por Conventional Commits**:
+Entrega mais recente — **GitHub Actions fora do caminho do dia a dia**:
 
-- **Ninguém bumper versão à mão.** Todo push na `main` decide a versão pelos commits desde a
-  última tag: `feat` → minor, `fix`/`perf`/`refactor`/`revert` → patch, `!` ou
-  `BREAKING CHANGE:` → major, `docs`/`chore`/`test` → não publica. O workflow grava o
-  `package.json`, cria `chore(release): X.Y.Z` e publica a tag.
+- **Nenhum workflow roda em push ou pull request.** O portão de qualidade já é local: o hook
+  `pre-push` roda `lint + typecheck + test + build`, e o E2E é local. Rodar o mesmo no runner
+  remoto só queimava os **2.000 min/mês** do plano gratuito sem acrescentar nada — o código já
+  passou local antes de subir.
+  - `tag-release.yml` **removido**: a versão passou a ser publicada por script local.
+  - `ci.yml` e `e2e.yml` viraram `workflow_dispatch` (manuais, 0 minutos). `backup.yml` segue
+    agendado — esse precisa estar remoto.
+- **Fluxo, todo local:** `develop` → `feat/slug` → gates locais → PR → `main` →
+  `pnpm release:publish` → tag → Dokploy faz o deploy. O operador só mergeia o PR.
+- **Ação sobre o Dokploy (pendente, é no painel):** apontar o Auto Deploy **por tag** em vez de
+  por push na `main`. Hoje ele dispara no push; a intenção é que a tag `vX.Y.Z` seja o sinal.
+
+Entrega anterior — **Release automática por Conventional Commits**:
+
+- **Ninguém bumper versão à mão.** A versão é derivada dos commits desde a última tag: `feat` →
+  minor, `fix`/`perf`/`refactor`/`revert` → patch, `!` ou `BREAKING CHANGE:` → major,
+  `docs`/`chore`/`test` → não publica. `pnpm release:publish` grava o `package.json`, cria
+  `chore(release): X.Y.Z` e publica a tag.
 - A regra mora em `src/lib/release.ts` — **pura e com 25 testes**, sem git nem I/O;
   `scripts/release.mts` só executa a decisão. Erro de bump aparece em unitário, não depois da
   tag publicada.
-- **Não cascateia** (o commit de release é `chore`, que não bumpa), é idempotente e roda sem
-  `pnpm install` — cabe no teto de 5 minutos.
+- **Não cascateia** (o commit de release é `chore`, que não bumpa) e é idempotente.
 - Depuração local: `pnpm release:dry`. Escape para hotfix pontual: `VERSION=1.2.3`.
 - Dois bugs achados validando em clone real: o `%B` do git entrega a mensagem seguinte com
   `\n` na frente (o Conventional Commits deixava de casar e **toda versão era pulada em

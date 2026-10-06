@@ -1,16 +1,23 @@
 /**
- * CLI de release: decide a versão, grava no `package.json`, commita e cria a tag.
+ * CLI de release: decide a versão, grava no `package.json`, commita, cria a tag
+ * e publica.
  *
  * Toda a decisão mora em `src/lib/release.ts` (pura e testada). Este script só
  * fala com o git e o disco — para o erro de regra aparecer no unitário, não
  * depois da tag publicada.
  *
- * Uso (o CI chama; rodar à mão é para depurar):
- *   node --experimental-strip-types scripts/release.mts
+ * Roda **localmente**, não no GitHub Actions: o portão de qualidade já passou
+ * no hook `pre-push` e no E2E local, então não há o que um runner remoto
+ * acrescentar — só minutos do plano gratuito.
+ *
+ *   pnpm release:dry      imprime a decisão, não escreve nada
+ *   pnpm release          commita e tagueia localmente
+ *   pnpm release:publish  commita, tagueia e sobe `main` + a tag
  *
  * Variáveis de ambiente:
  *   VERSION=1.2.0  escreve a tag `v1.2.0` em vez de derivar dos commits.
  *   DRY_RUN=1       só imprime a decisão, não commita nem cria tag.
+ *   PUSH=1          publica `main` e a tag no remoto.
  */
 
 import { execFileSync } from "node:child_process";
