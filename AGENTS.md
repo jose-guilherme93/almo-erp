@@ -401,9 +401,10 @@ agendados:
 Regras que valem para todos:
 
 - **Nenhum job passa de 5 minutos**, com **uma exceção documentada**: o `e2e` declara
-  `timeout-minutes: 15`. São 93 cenários e o setup sozinho leva ~3 min; sharding não resolve,
-  porque cada shard paga o setup inteiro de novo. O teto protege do outro extremo — já houve
-  E2E de 40 minutos pendurado.
+  `timeout-minutes: 25`. Medido: o setup (instalar, migrar, semear, subir o servidor) leva ~4 min,
+  e como a suíte roda contra `next dev` — o bypass de autenticação de teste exige fora de produção
+  — a compilação de cada rota sob demanda é parte do tempo. O teto existe para o job não pendurar
+  meia hora: já houve E2E de 40 minutos. Se precisar subir de novo, o problema é a suíte.
 - **Custo é controlado por gatilho, não por economização.** O E2E dispara em `pull_request`
   (não em `push` livre: empurrar para branch várias vezes estoura a cota), ignora `docs/**` e
   `**.md`, e tem `concurrency` com `cancel-in-progress` — empurrar cinco vezes no mesmo PR

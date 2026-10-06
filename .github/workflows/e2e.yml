@@ -53,12 +53,16 @@ jobs:
 
     # Exceção documentada ao teto de 5 min de AGENTS.md §9.1.
     #
-    # A suíte são 93 cenários, e o setup sozinho (instalar, migrar, semear,
-    # subir o servidor) leva ~3 min. Sharding não resolve: cada shard paga o
-    # setup inteiro de novo, então o job não fica abaixo de 5 min — só custa
-    # três vezes mais minuto. O que este teto protege é o outro: transformar o
-    # E2E em job de 40 min pendurado, que foi o que aconteceu antes.
-    timeout-minutes: 15
+    # Medido, não chutado: o setup (instalar, migrar, semear, subir o servidor)
+    # leva ~4 min e, com 2 workers, 11 min de execução **não** fecharam os 93
+    # cenários — o teto de 15 min cancelou o job no meio e o relatório se perdeu
+    # junto. Como a suíte roda contra `next dev` (o bypass de autenticação de
+    # teste exige fora de produção), a compilação de cada rota sob demanda é parte
+    # do tempo e não dá para "buildar antes".
+    #
+    # O teto existe para o job não pendurar meia hora; se ele precisar subir de
+    # novo, o problema é a suíte, não este número.
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -113,6 +117,11 @@ jobs:
         run: pnpm db:seed
         env:
           SEED_ADMIN_EMAIL: admin@exemplo.com.br
+          # `login-local.spec.ts` entra com esta senha. Sem ela o seed cria o
+          # admin **sem** `passwordHash`, o provider de credenciais recusa, e o
+          # teste falha com `?error=CredentialsSignin` — que parece defeito de
+          # login e é só variável faltando no workflow.
+          SEED_ADMIN_PASSWORD: dev-senha-1234
 
       - name: Instalar Chromium
         # Sem `--with-deps`: o runner do GitHub já tem as bibliotecas do Chromium.

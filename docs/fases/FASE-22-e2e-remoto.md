@@ -53,7 +53,11 @@ problema por construção, em vez de administrá-lo.
       `paths-ignore` para documentação, mais `workflow_dispatch` para rodar à mão.
 - [x] `concurrency` com `cancel-in-progress`: empurrar cinco vezes no mesmo PR
       custa **um** run completo, não cinco. É o que segura a cota.
-- [x] `timeout-minutes: 15`, com exceção documentada ao teto de 5 min de §9.1.
+- [x] `timeout-minutes: 25`, com exceção documentada ao teto de 5 min de §9.1.
+- [x] `SEED_ADMIN_PASSWORD` no workflow. **Furo pré-existente:** `login-local.spec.ts` entra com
+      `dev-senha-1234`, mas o seed só grava `passwordHash` quando essa variável existe. O spec
+      nunca poderia ter passado no Actions — e o sintoma (`?error=CredentialsSignin`) parece
+      defeito de login quando é só variável faltando.
 - [x] `pnpm db:generate` explícito. Já houve run que falhou com `count: 0` vindo de
       um client do Prisma desatualizado — falha silenciosa, em que a suíte passa
       em parte e quebra em outra, e parece defeito de teste.
@@ -74,19 +78,19 @@ problema por construção, em vez de administrá-lo.
   imposição. A saída gratuita é mover o portão para o lado do operador: um script
   de merge que consulta `gh pr checks` e recusa enquanto não estiver verde.
   Fica como pendência, não como esforço escondido.
-- **Warm-up das rotas.** A compilação sob demanda de ~30 rotas num runner de 2 vCPU
-  é a suspeita óbvia de flake, mas o histórico de "40 minutos" é de configuração
-  antiga. A ordem correta é subir com `workers: 2` + `timeout` + `retries: 1`, ler
-  o tempo real do primeiro run, e só então decidir entre warm-up e sharding. Mesmo
-  princípio do teto de memória: medir, não chutar.
-- **Sharding.** Só faz sentido se o tempo de parede incomodar; custa 3× os minutos
-  e não resolve o teto de 5 min, porque o setup (install + migrate + seed) domina
-  e se repete em cada shard.
+- **Warm-up das rotas e sharding.** O primeiro run de verdade bateu o teto de 15 min: o setup
+  levou ~4 min e 11 min de execução não fecharam os 93 cenários. Foi o teto que cancelou o job no
+  meio — e com o cancelamento o **relatório se perdeu**, o que é o pior sintoma possível: não se
+  sabe o que passou e o que falhou. O teto subiu para 25 min para **medir** o tempo real com um run
+  completo. Só com esse número faz sentido decidir entre warm-up de rotas (que paraleliza a
+  compilação em vez de deixá-la dentro do timeout de cada teste) e sharding (que custa 3× os
+  minutos). Medir, não chutar.
 
 ## Critérios de aceite
 
-- [ ] PR aberto para `develop` dispara o workflow.
-- [ ] Documentação-only não dispara (custa zero minuto).
-- [ ] Empurrar de novo cancela o run anterior.
-- [ ] Run passa dentro dos 15 minutos.
+- [x] PR aberto para `develop` dispara o workflow.
+- [x] Documentação-only não dispara (custa zero minuto).
+- [ ] Empurrar de novo cancela o run anterior em vez de enfileirar.
+- [ ] Run completa e passa, dentro do teto de 25 min.
 - [ ] Tempo real registrado, para decidir warm-up/sharding com número.
+- [x] `login-local.spec.ts` deixa de falhar por variável faltando no workflow.
