@@ -1,11 +1,16 @@
-name: CI
+name: Qualidade (manual)
 
-# Apenas `main` dispara CI. `develop` e branches de trabalho não rodam nada.
+# NÃO roda em push nem em pull request. É opcional e disparado à mão.
+#
+# Motivo: o portão de qualidade real é o hook `pre-push`, que roda
+# `lint + typecheck + test + build` na máquina antes de qualquer push. Rodar a
+# mesma coisa no GitHub só duplicaria o gasto de minutos do plano gratuito — o
+# plano Free dá 2.000 min/mês para repositório privado, e este projeto não tem
+# por que queimá-los num check que já passou localmente.
+#
+# Use este workflow quando quiser uma segunda opinião em outro ambiente (por
+# exemplo, antes de uma release ou depois de mexer no Postgres).
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 # Um push novo cancela o run anterior da mesma ref: nunca fica fila acumulada.

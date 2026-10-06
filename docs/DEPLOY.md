@@ -51,13 +51,16 @@ de empurrar direto.
 - **Volume**: monte um volume em **`/data/uploads`** (precisa bater com a env
   `UPLOAD_DIR`). É onde os anexos de imagem ficam.
 - **Health check**: `http://localhost:3000/api/health`.
-- **Deploy por tag**: o workflow `tag-release.yml` **decide a versão sozinho** a cada push na
-  `main`, lendo os commits desde a última tag (Conventional Commits — `feat` → minor,
-  `fix`/`perf`/`refactor` → patch, `!` → major, `docs`/`chore` → não publica). Ele grava o
-  `package.json`, cria o commit `chore(release)` e publica a tag `vX.Y.Z`. **Ninguém bumper
-  versão à mão.** Aponte o deploy do Dokploy para a tag (`v1.0.0`, `v1.1.0`…): é mais
-  previsível que acompanhar a `main`. A versão em execução aparece em `/api/health` e no
-  header `X-App-Version`. Para inspecionar a decisão antes de mergear: `pnpm release:dry`.
+- **Deploy por tag**: a versão é decidida localmente por `pnpm release:publish`, que lê os
+  commits desde a última tag (Conventional Commits — `feat` → minor, `fix`/`perf`/`refactor` →
+  patch, `!` → major, `docs`/`chore` → não publica), grava o `package.json`, cria o commit
+  `chore(release)` e publica a tag `vX.Y.Z`. **Ninguém bumper versão à mão.** Aponte o deploy do
+  Dokploy para a tag (`v1.0.0`, `v1.1.0`…): a tag é o sinal de deploy. A versão em execução
+  aparece em `/api/health` e no header `X-App-Version`. Para inspecionar a decisão antes:
+  `pnpm release:dry`.
+- **Nada de GitHub Actions no caminho do deploy.** O workflow `tag-release.yml` foi removido:
+  gastar minutos de runner remoto para decidir o que os commits locais já dizem é custo sem
+  retorno. Os workflows que restam (`ci.yml`, `e2e.yml`) são manuais; `backup.yml` é agendado.
 - **Replicas**: **1**. **Zero-downtime: desligado.**
 - O entrypoint **espera o banco** (até ~60s, por `DB_WAIT_ATTEMPTS` ×
   `DB_WAIT_DELAY_SECONDS`) antes de migrar — evita crash-loop quando a VPS

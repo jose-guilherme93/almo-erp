@@ -357,8 +357,8 @@ pnpm db:seed         # seed idempotente
 
 > O hook **`pre-push`** (`.husky/pre-push`) roda `lint + typecheck + test + build` antes de
 > **todo** push — se algo falhar, o push não sai. Ele exige o Postgres local de pé
-> (`docker compose up -d`) e pode ser pulado com `git push --no-verify`, mas o CI é a
-> barreira que ninguém pula.
+> (`docker compose up -d`) e pode ser pulado com `git push --no-verify`, mas **não deve ser**:
+> o hook local **é** o portão de qualidade deste projeto (ver §9.2).
 
 Definição de Pronto de uma fase: os comandos acima passam, a fase está marcada como concluída
 em `docs/fases/README.md`, e a doc correspondente foi atualizada se houve mudança de regra.
@@ -375,36 +375,64 @@ Cobertura mínima obrigatória de teste:
 - Autorização: matriz de papel × permissão, e negação fora do escopo de filial.
 - Regra de e-mail corporativo: domínio permitido, domínio bloqueado, usuário não aprovado.
 
-### 9.1 CI (GitHub Actions)
+### 9.1 GitHub Actions — só o que precisa estar remoto
 
-- **Só `main` dispara CI.** Pushes em `develop` ou em branches de trabalho não rodam
-  Actions. O PR para `main` roda o job de qualidade.
-- **Nenhum job passa de 5 minutos.** Todo job declara `timeout-minutes: 5` (e as etapas
-  pesadas, teto próprio). Um job que estouraria o teto deve **falhar rápido**, nunca
-  pendurar meia hora.
-- O CI automático (`ci.yml`) é só: install, lint, typecheck, migrations, seed, test e build.
-- **Release automática** (`tag-release.yml`): todo push na `main` **decide a versão sozinho** a
-  partir dos commits desde a última tag, grava no `package.json`, cria `chore(release): X.Y.Z` e
-  publica a tag `vX.Y.Z`. **Ninguém bumper versão à mão.**
-  - A regra está em `src/lib/release.ts` — **pura e testada** (`release.test.ts`), sem git nem
-    I/O. O `scripts/release.mts` só executa a decisão. Erro de regra aparece em unitário, não
-    depois da tag publicada.
-  - `feat:` → **minor** · `fix:`/`perf:`/`refactor:`/`revert:` → **patch** · `!` no tipo ou
-    `BREAKING CHANGE:` no corpo → **major** · `docs:`/`chore:`/`test:`/`ci:` → **não publica**.
-  - Merge é ignorado (é container de operação) e commit fora do formato é ignorado em silêncio:
-    falhar o release por causa de commit malformado seria pior que publicar uma versão a menos.
-  - **Não cascateia**: o commit de release é `chore`, que não bumpa. Sem isso, cada push geraria
-    outra tag, para sempre.
-  - Idempotente: se a tag já existe, não faz nada. `cancel-in-progress: false` — cancelar no
-    meio deixaria o `package.json` bumpado sem tag.
-  - Depuração local: `pnpm release:dry` (só imprime a decisão). Escape para hotfix pontual:
-    `VERSION=1.2.3`.
-  - O job respeita o teto de 5 minutos e **não roda `pnpm install`** (o Node faz o stripping de
-    tipos e a decisão pura não tem dependência).
-- **Deploy automático**: o **Auto Deploy do Dokploy** publica todo push na `main` (build pelo
-  `Dockerfile`). As migrations rodam no **entrypoint** (1 réplica, zero-downtime desligado).
-  O portão de qualidade fica **antes do push**: hook `pre-push` + CI no PR. Segredos e operação
-  em `docs/DEPLOY.md`. Backup: Dokploy → S3 (principal) + `backup.yml` (cópia cifrada, secundária).
+**A qualidade deste projeto roda local.** O hook `pre-push` (§9) já executa
+`lint + typecheck + test + build`, e o E2E é local por decisão (§9.3). Rodar a mesma coisa num
+runner remoto só duplicaria o gasto dos 2.000 min/mês do plano gratuito — sem acrescentar
+segurança, porque o código já passou aqui antes de subir.
+
+Por isso **nenhum workflow roda em push ou pull request.** Todos os que sobraram são manuais
+(`workflow_dispatch`) ou agendados:
+
+| Workflow | Quando roda | Para quê |
+|---|---|---|
+| `ci.yml` | à mão | segunda opinião de ambiente (ex.: antes de uma release, ou depois de mexer no Postgres) |
+| `e2e.yml` | à mão | E2E num ambiente limpo |
+| `backup.yml` | agendado | cópia cifrada do banco para fora da VPS |
+
+Regras que continuam valendo:
+
+- **Nenhum job passa de 5 minutos.** Todo job declara `timeout-minutes: 5` (e as etapas pesadas,
+  teto próprio). Job que estouraria deve **falhar rápido**, nunca pendurar meia hora.
+- **Deploy não é action.** Publicar é o Dokploy, não é o GitHub.
+- Antes de adicionar um workflow novo, responder: *isso precisa estar remoto?* Se a resposta é
+  não, ele não vai.
+
+### 9.2 Release — versão decidida pelo commit, publicada localmente
+
+A versão **nunca é digitada**. Ela é derivada dos commits desde a última tag e publicada por
+script local, depois que os gates locais passaram:
+
+```bash
+pnpm release:dry      # imprime a decisão — não escreve nada
+pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
+```
+
+- A regra está em `src/lib/release.ts` — **pura e testada** (`release.test.ts`, 25 casos), sem
+  git nem I/O. O `scripts/release.mts` só executa a decisão. Erro de regra aparece em unitário,
+  não depois da tag publicada.
+- `feat:` → **minor** · `fix:`/`perf:`/`refactor:`/`revert:` → **patch** · `!` no tipo ou
+  `BREAKING CHANGE:` no corpo → **major** · `docs:`/`chore:`/`test:`/`ci:` → **não publica**.
+- Merge é ignorado (é container de operação) e commit fora do formato é ignorado em silêncio:
+  falhar o release por causa de commit malformado seria pior do que publicar uma versão a menos.
+- **Não cascateia**: o commit de release é `chore`, que não bumpa. Sem isso, cada rodada geraria
+  outra tag, para sempre.
+- Idempotente: tag existente não faz nada.
+- Escape para hotfix pontual: `VERSION=1.2.3 pnpm release:publish`.
+- **O `chore(release)` é a única exceção ao PR** (§10.1): ele vai direto na `main` junto com a
+  tag. É gerado por script já testado e revisado por humano, então não é o que uma revisão de PR
+  acrescentaria — e é ele que dá ao Dokploy o que observar.
+
+### 9.3 Deploy
+
+- **O Dokploy publica por tag.** A tag `vX.Y.Z` é o sinal de deploy; a `main` é a fonte da
+  verdade do código. Configuração em `docs/DEPLOY.md`.
+- As migrations rodam no **entrypoint** (1 réplica, zero-downtime desligado).
+- O portão de qualidade fica **antes** do merge: hook `pre-push` + E2E local + gates locais.
+
+### 9.4 E2E — local, e manual no Actions quando quiser
+
 - **O E2E é local e faz parte do fechamento do trabalho.** Rode ao final de toda mudança de
   fluxo, com o servidor de desenvolvimento:
 
@@ -428,32 +456,49 @@ Cobertura mínima obrigatória de teste:
 ### 10.1 Fluxo de trabalho
 
 ```
-develop  ──(trabalho)──▶  feat/fase-NN-slug  ──(PR + merge)──▶  main
-   ▲                                                            │
-   └──────────────(main volta para develop, sempre)─────────────┘
+develop ──▶ feat/slug ──gates locais──▶ PR + merge ──▶ main
+   ▲                                                    │
+   │                                          pnpm release:publish
+   │                                                    │
+   └──────────── main volta para develop ────────────────┘
+                                                     ↓
+                                          tag vX.Y.Z → Dokploy faz deploy
 ```
 
-- **Nasce da `develop`**, nunca da `main`. Antes de começar trabalho novo:
-  `git checkout develop && git pull`.
-- **A `main` só recebe merge por PR** — merge de branch de trabalho, com a lista de critérios de
-  aceite da fase como checklist. **Push direto na `main` é erro**, mesmo que "já esteja tudo
-  verde" e mesmo em hotfix de uma linha.
-- **Depois do merge, a `main` volta para a `develop`** (`git checkout develop && git merge
-  main`). Sem essa volta, a `develop` envelhece e a base do próximo trabalho fica atrás do que já
-  está em produção.
-- **Branch de trabalho é temporária.** Depois do merge, apague local e remoto
-  (`git branch -d` / `git push origin --delete`). Leftover de branch já mergeada é ruído que faz
-  a próxima pessoa (ou o próximo agente) achar que existe trabalho não publicado.
-- Antes de apagar qualquer branch, confirme que ela é ancestral da `main`
-  (`git merge-base --is-ancestor <branch> main`). Apagar branch com trabalho não mergeado é
-  **perda de código**.
+Passos, na ordem:
 
-### 10.2 Commits
+1. **Nasce da `develop`**, nunca da `main`:
+   `git checkout develop && git pull`, depois `git checkout -b feat/slug`.
+2. **Trabalha e roda os gates locais** (§9): `lint`, `typecheck`, `test`, `build`, `db:seed` e o
+   E2E quando mexe em fluxo. O hook `pre-push` repete os principais no push.
+3. **Commita e abre PR para a `main`.** A `main` só recebe merge por PR — **push direto na
+   `main` é erro**, mesmo "já estando tudo verde" e mesmo em hotfix de uma linha.
+4. **Publica a versão:** `pnpm release:publish`. O script decide a versão pelos commits (§9.2),
+   grava o `package.json`, cria `chore(release)` e a tag, e sobe `main` + tag. É a **única**
+   exceção documentada ao PR: commit gerado por script testado, que existe justamente para dar
+   ao Dokploy a tag que dispara o deploy.
+5. **`main` volta para `develop`:** `git checkout develop && git merge main` e push. Sem essa
+   volta a `develop` envelhece e a base do próximo trabalho fica atrás do que já está em produção.
+6. **Apaga a branch de trabalho**, local e remoto (`git branch -d` / `git push origin
+   --delete`). Leftover de branch já mergeada é ruído que faz a próxima pessoa achar que existe
+   trabalho não publicado.
+
+Antes de apagar qualquer branch, confirme que ela é ancestral da `main`
+(`git merge-base --is-ancestor <branch> main`). Apagar branch com trabalho não mergeado é
+**perda de código**.
+
+### 10.2 O que o operador não faz
+
+Nada acima exige intervenção humana. O operador **mergeia o PR** (ou pede o merge) e pronto: a
+versão, a tag e o deploy seguem sozinhos. Se o `release:publish` falhar, a causa é do lado do
+ambiente (cota, rede) e não da regra — a regra em si é testada.
+
+### 10.3 Commits
 
 - Branch por fase: `feat/fase-06-estoque`.
 - Conventional Commits: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `build`, `perf`.
   Escopo opcional: `feat(estoque): launch de ajuste com justificativa`.
-- **O tipo do commit define a versão** (§9.1): `feat` → minor, `fix`/`perf`/`refactor`/`revert`
+- **O tipo do commit define a versão** (§9.2): `feat` → minor, `fix`/`perf`/`refactor`/`revert`
   → patch, `docs`/`chore`/`test` → não publica. Escrever o commit no formato **é** o ato de
   release; não existe bump manual de versão.
 - PR por fase, com a lista de critérios de aceite da fase como checklist.
