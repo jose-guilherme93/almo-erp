@@ -363,7 +363,7 @@ pnpm db:seed         # seed idempotente
 Definição de Pronto de uma fase: os comandos acima passam, a fase está marcada como concluída
 em `docs/fases/README.md`, e a doc correspondente foi atualizada se houve mudança de regra.
 
-**Ao fechar qualquer mudança de fluxo de usuário, rode também o E2E local** (§9.1). Ele é a
+**Ao fechar qualquer mudança de fluxo de usuário, abra o PR e confira o E2E** (§9.4). Ele é a
 única camada que prova o caminho de ponta a ponta pela interface; os testes de serviço não
 pegam erro de permissão de Server Action, locator quebrado ou ordem de tela.
 
@@ -375,29 +375,48 @@ Cobertura mínima obrigatória de teste:
 - Autorização: matriz de papel × permissão, e negação fora do escopo de filial.
 - Regra de e-mail corporativo: domínio permitido, domínio bloqueado, usuário não aprovado.
 
-### 9.1 GitHub Actions — só o que precisa estar remoto
+### 9.1 GitHub Actions — o E2E roda aqui, o resto é à mão
 
-**A qualidade deste projeto roda local.** O hook `pre-push` (§9) já executa
-`lint + typecheck + test + build`, e o E2E é local por decisão (§9.3). Rodar a mesma coisa num
-runner remoto só duplicaria o gasto dos 2.000 min/mês do plano gratuito — sem acrescentar
-segurança, porque o código já passou aqui antes de subir.
+**A qualidade síncrona deste projeto roda local.** O hook `pre-push` (§9) já executa
+`lint + typecheck + test + build`, e recusa o push se algo falhar. Isso **não** vai para o GitHub:
+repetir localmente o que já passou aqui só consumiria os 2.000 min/mês do plano gratuito, sem
+acrescentar nada.
 
-Por isso **nenhum workflow roda em push ou pull request.** Todos os que sobraram são manuais
-(`workflow_dispatch`) ou agendados:
+**O E2E é a exceção, e é uma exceção de lugar, não de qualidade.** Rodar a suíte de interface
+naquela máquina **derrubou a VPS** — carga 78 em 4 cores, `next dev` com 2,3 GB (39,8% da
+máquina) e um Chromium por worker, competindo com os outros usuários do mesmo servidor. Teste de
+interface não tem relação com o hardware que serve o ERP.
+
+> Carga descartável e isolada pertence a runner descartável.
+
+Por isso **só o `e2e.yml` roda em pull request.** Os outros são manuais (`workflow_dispatch`) ou
+agendados:
 
 | Workflow | Quando roda | Para quê |
 |---|---|---|
+| `e2e.yml` | **a cada PR** para `develop` e `main` | a prova de ponta a ponta pela interface |
 | `ci.yml` | à mão | segunda opinião de ambiente (ex.: antes de uma release, ou depois de mexer no Postgres) |
-| `e2e.yml` | à mão | E2E num ambiente limpo |
 | `backup.yml` | agendado | cópia cifrada do banco para fora da VPS |
 
-Regras que continuam valendo:
+Regras que valem para todos:
 
-- **Nenhum job passa de 5 minutos.** Todo job declara `timeout-minutes: 5` (e as etapas pesadas,
-  teto próprio). Job que estouraria deve **falhar rápido**, nunca pendurar meia hora.
-- **Deploy não é action.** Publicar é o Dokploy, não é o GitHub.
+- **Nenhum job passa de 5 minutos**, com **uma exceção documentada**: o `e2e` declara
+  `timeout-minutes: 15`. São 93 cenários e o setup sozinho leva ~3 min; sharding não resolve,
+  porque cada shard paga o setup inteiro de novo. O teto protege do outro extremo — já houve
+  E2E de 40 minutos pendurado.
+- **Custo é controlado por gatilho, não por economização.** O E2E dispara em `pull_request`
+  (não em `push` livre: empurrar para branch várias vezes estoura a cota), ignora `docs/**` e
+  `**.md`, e tem `concurrency` com `cancel-in-progress` — empurrar cinco vezes no mesmo PR
+  custa **um** run, não cinco.
+- **Deploy não é action.** Publicar é o Dokploy, não o GitHub.
 - Antes de adicionar um workflow novo, responder: *isso precisa estar remoto?* Se a resposta é
   não, ele não vai.
+
+**O que não existe, e por quê:** branch protection não está disponível para repositório privado
+no GitHub Free (é feature do Pro/Team). Então **nada impede um merge com o E2E vermelho**. O check
+aparece no PR — a visibilidade existe; a imposição não. A saída gratuita é mover o portão para
+o lado do operador: um script de merge que consulta `gh pr checks` e recusa enquanto não estiver
+verde. Pendência conhecida, não omissão.
 
 ### 9.2 Release — versão decidida pelo commit, publicada localmente
 
@@ -429,47 +448,84 @@ pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
 - **O Dokploy publica por tag.** A tag `vX.Y.Z` é o sinal de deploy; a `main` é a fonte da
   verdade do código. Configuração em `docs/DEPLOY.md`.
 - As migrations rodam no **entrypoint** (1 réplica, zero-downtime desligado).
-- O portão de qualidade fica **antes** do merge: hook `pre-push` + E2E local + gates locais.
+- O portão de qualidade fica **antes** do merge, em duas camadas: os gates locais
+  (`pre-push`) são síncronos e imediatos; a prova de ponta a ponta pela interface é o E2E do
+  GitHub Actions, que roda no PR (§9.4). O princípio não mudou — o portão é antes do merge, e
+  não depois da tag.
 
-### 9.4 E2E — local, e manual no Actions quando quiser
+### 9.4 E2E — remoto, a cada pull request
 
-- **O E2E é local e faz parte do fechamento do trabalho.** Rode ao final de toda mudança de
-  fluxo, com o servidor de desenvolvimento:
+- **O E2E roda no GitHub Actions**, a cada PR para `develop` e para `main` (`e2e.yml`). Ele é a
+  única camada que prova o caminho de ponta a ponta pela interface: os testes de serviço não pegam
+  erro de permissão de Server Action, locator quebrado ou ordem de tela.
+- **O motivo é de lugar, não de qualidade.** A máquina de desenvolvimento é uma VPS de 6 GB
+  dividida com outros usuários. Rodar a suíte completa ali **derrubou a VPS**: carga 78 em 4
+  cores, `next dev` com 2,3 GB e um Chromium por worker. Teste de interface não tem relação com o
+  hardware que serve o ERP.
+- **O bypass de autenticação de teste só existe fora de produção** (`src/lib/env.ts`), então o E2E
+  roda com `pnpm dev` — nunca com `pnpm build && pnpm start`, nem no CI.
+- **Localmente, rode um spec de cada vez**, para depurar:
 
   ```bash
-  E2E_AUTH_BYPASS=true pnpm e2e --project=chromium
+  E2E_AUTH_BYPASS=true pnpm e2e --project=chromium --grep="solicitação"
   ```
 
-  O bypass de autenticação de teste **só existe fora de produção** (`src/lib/env.ts`), por
-  isso o E2E nunca roda contra `pnpm build && pnpm start`.
-- **No GitHub Actions, o E2E é opcional e manual** (`e2e.yml`, `workflow_dispatch`), com teto
-  de 5 minutos e cache dos navegadores. Não roda em push nem em PR. E2E no Actions **nunca**
-  pode virar um job longo (o histórico era de 40 minutos): se um cenário não couber em 5
-  minutos, rode-o local.
+  A suíte completa é do runner. `pnpm e2e` sem `--grep` aqui abre vários Chromium ao mesmo tempo
+  numa máquina compartilhada — foi exatamente isso que derrubou a VPS.
+- **Antes de dar um PR como pronto, confira o check do E2E.** Sem branch protection (§9.1), nada
+  impede o merge vermelho: quem lê o PR é quem decide, então ler o check é parte do trabalho.
+- Cache dos navegadores no runner, `timeout-minutes: 15`, e `concurrency` com
+  `cancel-in-progress` para que empurrar de novo não multiplique custo.
 
-### 9.5 Erro de servidor é observável
+### 9.5 Erro é observável, e chega no celular
 
-**Nenhuma rota pode quebrar em silêncio.** O gancho `onRequestError` (`src/instrumentation.ts`)
-grava todo erro de render, route e action em `ErrorLog`, e a tela `/admin/erros` mostra — com o
-`digest` que o usuário viu na tela como chave de busca. `docs/ARQUITETURA.md` §10.1 tem o desenho.
+**Nenhuma rota pode quebrar em silêncio, e nenhum erro pode ficar só no `console` do navegador.**
+Tudo que quebra sai pelo funil de incidentes (`src/server/services/observability/`), que entrega o
+mesmo evento a vários destinos ao mesmo tempo. `docs/ARQUITETURA.md` §10 tem o desenho.
+
+```
+instrumentation ─▶ dispatchIncident ─▶ error-log      (sempre; sem cota; dentro da VPS)
+   onRequestError          │         ├▶ better-stack  (SDK do Sentry apontado para o DSN)
+   runAction               │         └▶ otel          (pronto, desligado: é o caminho do Grafana)
+   process-guards          │
+   global-error / error.tsx┘
+```
+
+O funil **não conhece os destinos** — por isso trocar de fornecedor, inclusive para um Grafana na
+própria VPS, é mudar variável de ambiente e não reescrever instrumentação.
 
 Regras que valem para quem mexer nessa área:
 
 - **`onRequestError` nunca lança.** Se falhar, o Next registra `Error in
   instrumentation.onRequestError` e o erro original se perde.
-- **O serviço que fala com Prisma entra por `import()` dinâmico**, guardado por
-  `NEXT_RUNTIME === "nodejs"`. O arquivo roda na edge também, e a edge não tem Prisma: importar no
-  topo quebra a aplicação.
-- **Ruído não é erro.** `isIgnorableError` filtra cancelamento de navegação. Antes de gravar
-  qualquer coisa, perguntar "isso é defeito ou é o Next descrevendo uma navegação normal?".
+- **O que fala com Prisma entra por `import()` dinâmico, guardado por
+  `NEXT_RUNTIME === "nodejs"`.** `instrumentation.ts` roda na edge também, e a edge não tem Prisma
+  nem `node:crypto`. O guard não é preciosismo: é ele que permite ao compilador eliminar o código
+  na build da edge. Sem o guard, o bundle da edge carrega o cliente de banco e a aplicação quebra
+  ao subir — não no relatório de erro. Confira com `pnpm build`: **zero** aviso de Edge Runtime.
+- **Ruído não é erro.** `isIgnorableError` (em `observability/ignorable.ts`) filtra cancelamento
+  de navegação. A lista mora num módulo só porque a instrumentação e o gravador consultam a
+  mesma — duas listas divergem, e a divergência aparece como erro escondido ou ruído novo.
 - **Nunca alargar o filtro.** Um padrão amplo demais esconde o erro que a tela existe para mostrar.
-- **Uma linha por erro, não por ocorrência.** Sem `fingerprint`, a tela vira parede. O alerta vai
-  só na primeira ocorrência.
-- **Credencial não entra em log.** `REDACTED` cobre senha, token, cookie e documento.
-- Erro de **cliente** (tela branca, hidratação) segue fora: exige entrada não confiável no banco, com
-  Zod, limite de tamanho e trava anti-loop. Quando entrar, observar as três.
-- `/admin/erros` é **reativa**: não avisa sozinha. O complemento é um monitor externo de uptime em
+- **Uma linha por erro, não por ocorrência.** Sem `fingerprint`, a tela vira parede. O sino e o
+  Telegram vão **só** na primeira ocorrência, e saem do mesmo `outcome` — os três nunca divergem.
+- **Credencial e dado pessoal não entram em log.** A régua está em `observability/scrub.ts` e é a
+  **única** saída do processo: senha, token, cookie, `authorization`, JWT, CPF, CNPJ e e-mail —
+  inclusive em texto solto, onde não há nome de campo para filtrar. Descarta a query string (em
+  relatório ela carrega filtro de pessoa). A régua é larga demais de propósito: melhor perder um
+  campo útil do que deixar vazar um CPF. Um sink novo que esqueça de chamar `scrubIncident` vaza,
+  e a falha só apareceria em produção.
+- **Erro de cliente não escreve no banco.** O que vem do navegador é entrada não confiável; o
+  relatório vai direto ao destino externo, que tem cota, filtro e `beforeSend`. Gravar no
+  `ErrorLog` abriria a tela de observabilidade para injeção de dados falsos.
+- **`dispatchIncident` nunca lança.** Destino que falha (rede, cota, credencial) não pode derrubar
+  a requisição que já estava falhando.
+- **`/admin/erros` avisa por Telegram**, com freio de 15 min por rota+mensagem: erro em laço não
+  pode virar 500 mensagens no mesmo chat. O complemento é um monitor externo de uptime em
   `/api/health`, que não exige código.
+- **`ErrorLog` tem retenção** (`observability/retention.ts`), sem cron: roda junto com a gravação,
+  no máximo uma vez por hora. Só leva o que é resolvido **e** não volta há 90 dias, e um teto
+  absoluto corta do mais antigo para o mais novo.
 
 ---
 
@@ -480,36 +536,48 @@ Regras que valem para quem mexer nessa área:
 ### 10.1 Fluxo de trabalho
 
 ```
-develop ──▶ feat/slug ──gates locais──▶ PR + merge ──▶ main
+develop ──▶ feat/fase-NN-slug ──PR──▶ [E2E no Actions] ──verde──▶ develop
+                                                                     │
+                                                        PR de release (uma vez por versão)
+                                                                     │
+main ◀───────────────────────────────────────────────────────────────┘
    ▲                                                    │
    │                                          pnpm release:publish
    │                                                    │
    └──────────── main volta para develop ────────────────┘
-                                                     ↓
-                                          tag vX.Y.Z → Dokploy faz deploy
+                                                      ↓
+                                           tag vX.Y.Z → Dokploy faz deploy
 ```
+
+O trabalho acontece na `develop`. A `main` recebe código **já verificado**, e só uma vez por
+versão. Feature direto para `main` é incomum, e foi por isso que mudou: a verificação saiu do
+ambiente de desenvolvimento e foi para o PR, e a `main` deixou de receber PR de feature.
 
 Passos, na ordem:
 
 1. **Nasce da `develop`**, nunca da `main`:
-   `git checkout develop && git pull`, depois `git checkout -b feat/slug`.
-2. **Trabalha e roda os gates locais** (§9): `lint`, `typecheck`, `test`, `build`, `db:seed` e o
-   E2E quando mexe em fluxo. O hook `pre-push` repete os principais no push.
-3. **Commita e abre PR para a `main`.** A `main` só recebe merge por PR — **push direto na
-   `main` é erro**, mesmo "já estando tudo verde" e mesmo em hotfix de uma linha.
-4. **Publica a versão:** `pnpm release:publish`. O script decide a versão pelos commits (§9.2),
-   grava o `package.json`, cria `chore(release)` e a tag, e sobe `main` + tag. É a **única**
-   exceção documentada ao PR: commit gerado por script testado, que existe justamente para dar
-   ao Dokploy a tag que dispara o deploy.
+   `git checkout develop && git pull`, depois `git checkout -b feat/fase-NN-slug`.
+2. **Trabalha e roda os gates locais** (§9): `lint`, `typecheck`, `test`, `build`, `db:seed`. O
+   hook `pre-push` repete os principais no push. **Não** rode a suíte de E2E aqui: ela é remota
+   (§9.4), e a máquina não aguenta.
+3. **Commita e abre PR para a `develop`.** Com o check do E2E verde, faz o merge.
+4. **No release:** abre PR da `develop` para a `main`. Ele também roda o E2E, e é ali que se
+   confirma exatamente o que vai virar tag. Merge, e então `pnpm release:publish` — o script
+   decide a versão pelos commits (§9.2), grava o `package.json`, cria `chore(release)` e a tag, e
+   sobe `main` + tag. É a **única** exceção documentada ao PR: commit gerado por script testado,
+   que existe justamente para dar ao Dokploy a tag que dispara o deploy.
 5. **`main` volta para `develop`:** `git checkout develop && git merge main` e push. Sem essa
    volta a `develop` envelhece e a base do próximo trabalho fica atrás do que já está em produção.
 6. **Apaga a branch de trabalho**, local e remoto (`git branch -d` / `git push origin
    --delete`). Leftover de branch já mergeada é ruído que faz a próxima pessoa achar que existe
    trabalho não publicado.
 
-Antes de apagar qualquer branch, confirme que ela é ancestral da `main`
-(`git merge-base --is-ancestor <branch> main`). Apagar branch com trabalho não mergeado é
-**perda de código**.
+A `main` **só** recebe merge por PR — **push direto na `main` é erro**, mesmo "já estando tudo
+verde" e mesmo em hotfix de uma linha. Sem branch protection (§9.1) isso não é garantido pelo
+GitHub: é garantido por este contrato, e por ser o fluxo que o projeto segue.
+
+Antes de apagar qualquer branch, confirme que ela já foi integrada (`git merge-base --is-ancestor
+<branch> develop`). Apagar branch com trabalho não mergeado é **perda de código**.
 
 ### 10.2 O que o operador não faz
 

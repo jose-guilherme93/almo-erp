@@ -23,10 +23,11 @@ push na main
 
 O seed **não** roda a cada deploy: é um passo único (ver §5).
 
-**O portão de qualidade fica antes do push**, não no deploy: o hook `pre-push` roda
-`lint + typecheck + test + build` e o CI roda no PR para a `main`. O Auto Deploy publica
-o que chega na `main` — então o hábito é **abrir PR e mergear só com o CI verde**, em vez
-de empurrar direto.
+**O portão de qualidade fica antes do merge, não no deploy.** O hook `pre-push` roda
+`lint + typecheck + test + build` localmente, e o E2E roda no PR (`e2e.yml`) — que é a única
+camada que prova o caminho pela interface. O Auto Deploy publica o que chega na `main`, então o
+hábito é **abrir PR, ler o check do E2E e só então mergear**: o PR de release vai da `develop` para
+a `main`, e ele também roda o E2E (ver `AGENTS.md` §9.1, §9.4 e §10.1).
 
 ## 2. Pré-requisitos (uma vez)
 

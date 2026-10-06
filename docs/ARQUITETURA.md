@@ -643,11 +643,94 @@ aplicação: se o banco cai, o registro cai junto — justo quando mais importa.
 **O alerta notifica só a primeira ocorrência.** Um erro que se repete 500 vezes continua sendo um
 erro só; notificar cada vez transformaria o sino em ruído e esconderia o problema mais grave.
 
-Esta fase cobre o **servidor**. Erro de JavaScript no navegador (tela branca, falha de hidratação)
-continua fora: exigiria entrada não confiável no banco, com Zod, limite de tamanho e trava
-anti-loop no cliente. `/admin/erros` é também reativa — ela não avisa sozinha. O complemento
-natural é um monitor externo de uptime em `/api/health`, que não exige código.
+O **alerta** é a §10.2, junto com o funil.
 
+---
+
+## 10.2 O funil de incidentes
+
+A §10.1 fechou o ciclo **dentro** do ERP: dá para descobrir o que quebrou. Faltava a pergunta
+seguinte — o erro chega até mim sem que eu abra nada? E faltava a lacuna estrutural: com um
+fornecedor só, trocar de fornecedor significava reescrever a instrumentação.
+
+A resposta é o **funil**: um formato único de incidente e vários destinos, configurados por
+variável de ambiente.
+
+```
+                      ┌─ error-log      sempre ligado · sem cota · dentro da VPS
+dispatchIncident ─────┼─ better-stack   SDK do Sentry apontado para o DSN deles
+                      └─ otel           pronto, desligado: é o caminho do Grafana
+```
+
+| Peça | Papel |
+|---|---|
+| `observability/index.ts` | tipo `Incident`, contrato `IncidentSink`, `dispatchIncident` |
+| `observability/scrub.ts` | remoção de credencial e dado pessoal — **a única saída do processo** |
+| `observability/ignorable.ts` | filtro de ruído do Next, numa lista só |
+| `observability/alert.ts` | Telegram, com freio por rota+mensagem |
+| `observability/retention.ts` | poda do `ErrorLog`, sem cron |
+| `observability/report.ts`, `process-guards.ts` | relato de requisição e de erro fatal de processo |
+| `sink-error-log.ts`, `sink-sentry.ts`, `sink-otel.ts` | um arquivo por destino |
+
+Cinco decisões que não são óbvias:
+
+- **A captação não conhece os destinos.** Por isso trocar de fornecedor — inclusive para um Grafana
+  na própria VPS — é mudar variável de ambiente. O destino OTLP já está escrito e desligado, com
+  teste de integração que sobe um servidor HTTP e prova que o evento chega no formato certo:
+  descobrir porta fechada no dia da migração seria o pior momento possível.
+- **O `ErrorLog` é o destino que nunca pode faltar.** Não depende de terceiro, não tem cota e não
+  sai da VPS — é o que garante que o erro não se perca quando a cota do fornecedor acabar ou a rede
+  cair. Por isso ele vem **primeiro** na lista.
+- **A política de alerta mora no destino local**, não na instrumentação. "Erro novo" só existe
+  depois do agrupamento por fingerprint, que é o que o `ErrorLog` faz. Assim o sino, o Telegram e a
+  tela contam a mesma coisa: saem do mesmo `outcome`.
+- **`runAction` foi para `src/server/actions/`.** Uma Server Action não propaga exceção: devolve
+  `{ ok: false }` ao componente. O `onRequestError` só enxerga o que foi lançado na requisição, e o
+  erro já tinha sido engolido antes — então os ~105 call sites em 21 arquivos eram a maior classe
+  de erro invisível do sistema. `lib` não pode importar `server/` (§4), então mover a função foi o
+  que permitiu ao relato conhecer o funil **sem** que nenhum call site mudasse: só a linha de
+  import de cada arquivo.
+- **Erro de cliente não escreve no banco.** O que vem do navegador é entrada não confiável; gravar
+  no `ErrorLog` abriria a tela de observabilidade para injeção de dados falsos. Vai direto ao
+  destino externo, que tem cota, filtro e `beforeSend`.
+
+### Porta de dado pessoal
+
+`scrub.ts` é a barreira LGPD, e é a **única** saída do processo — um sink novo que esqueça de
+chamar `scrubIncident` vazaria, e a falha só apareceria em produção. Remove senha, token, cookie,
+`authorization`, JWT, hex longo, credencial em URL, **CPF, CNPJ e e-mail**, inclusive em texto
+solto (onde não há nome de campo para filtrar). Descarta a query string, que em tela de relatório
+carrega filtro de pessoa. A régua é larga demais de propósito: melhor perder um campo útil do que
+deixar vazar um CPF.
+
+Uma lição que veio da execução: a §10.1 tinha a **sua própria** regra de remoção, e ela descartava
+a linha inteira ao ver a palavra "CPF" — matando o diagnóstico junto. Duas regras divergem, e a
+divergência aparece como vazamento. Agora há uma, e `error-log.ts` reexporta dela.
+
+### A borda da edge
+
+`instrumentation.ts` roda em **dois** runtimes, e a edge não tem Prisma nem `node:crypto`. Tudo
+que depende de Node entra por `import()` dinâmico **guardado por `NEXT_RUNTIME === "nodejs"`** — o
+guard é o que permite ao compilador eliminar o código na build da edge. Sem ele, o Turbopack
+inclui o cliente de banco no bundle da edge e a aplicação quebra ao subir, não no relatório de
+erro. `pnpm build` precisa sair com **zero** aviso de Edge Runtime; é esse o teste.
+
+### Retenção
+
+Poda agendada exigiria worker, `cron` do Dokploy ou um agendador no boot — nenhum vale o custo de
+operação para apagar linha velha. O `ErrorLog` é escrito quando acontece um erro, e erro é raro em
+sistema saudável, então a poda roda junto, no máximo uma vez por hora, por processo. Só leva o que
+é resolvido **e** não volta há 90 dias — erro resolvido que continua voltando tem o `lastSeenAt`
+atualizado e sobrevive, que é o comportamento correto — e um teto absoluto corta do mais antigo
+para o mais novo, porque quando o sistema está quebrando o erro de agora vale mais que o de ontem.
+
+### Alerta que não precisa de plano pago
+
+O plano gratuito do Better Stack **não** integra Telegram: o alerta sai do plano pago. Como este
+projeto roda numa VPS de 2 vCPU e não pode pagar, o aviso sai de código próprio — e sai de graça,
+porque Telegram também é. Um alerta que derruba a requisição que já estava falhando troca um erro
+visível por dois invisíveis, então `sendAlert` nunca lança; e um alerta que enche o chat esconde o
+incidente seguinte, então há freio de 15 min por rota+mensagem.
 ---
 
 ## 11. Relatórios consolidados e exportação
