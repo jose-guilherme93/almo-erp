@@ -78,13 +78,18 @@ problema por construção, em vez de administrá-lo.
   imposição. A saída gratuita é mover o portão para o lado do operador: um script
   de merge que consulta `gh pr checks` e recusa enquanto não estiver verde.
   Fica como pendência, não como esforço escondido.
-- **Warm-up das rotas e sharding.** O primeiro run de verdade bateu o teto de 15 min: o setup
-  levou ~4 min e 11 min de execução não fecharam os 93 cenários. Foi o teto que cancelou o job no
-  meio — e com o cancelamento o **relatório se perdeu**, o que é o pior sintoma possível: não se
-  sabe o que passou e o que falhou. O teto subiu para 25 min para **medir** o tempo real com um run
-  completo. Só com esse número faz sentido decidir entre warm-up de rotas (que paraleliza a
-  compilação em vez de deixá-la dentro do timeout de cada teste) e sharding (que custa 3× os
-  minutos). Medir, não chutar.
+- **Warm-up das rotas — feito, e foi o que faltava.** O primeiro run bateu o teto de 15 min; o
+  segundo, o de 25. O setup leva ~4 min, então a suíte passava de 20 min de execução. A causa não
+  era o runner: `next dev` compila cada rota na primeira visita, e com ~32 telas essa compilação
+  acontecia **dentro** do `expect.timeout` de cada teste — falha por lentidão que não é defeito de
+  ninguém, e o `retries` repetia cada uma dobrando o custo. Agora `e2e/global-setup.ts` faz login
+  uma vez e visita todas as telas antes do primeiro teste. Um login basta porque a compilação é por
+  **rota**, não por permissão.
+- **Sharding.** Continua descartado enquanto o warm-up der conta: custa 3× os minutos, e cada
+  shard paga o setup inteiro de novo.
+- **Diagnóstico preservado.** O relatório subia com `!cancelled()`, que é falso justamente no
+  cancelamento — as duas primeiras execuções ficaram sem nenhum dado sobre o que passou e o que
+  falhou. Agora é `always()`, e o reporter `list` transmite o progresso ao log.
 
 ## Critérios de aceite
 
@@ -92,5 +97,7 @@ problema por construção, em vez de administrá-lo.
 - [x] Documentação-only não dispara (custa zero minuto).
 - [ ] Empurrar de novo cancela o run anterior em vez de enfileirar.
 - [ ] Run completa e passa, dentro do teto de 25 min.
+- [x] Relatório disponível mesmo quando o job é cancelado.
+- [x] Lista de telas num lugar só, sem duplicar com `mobile.spec.ts`.
 - [ ] Tempo real registrado, para decidir warm-up/sharding com número.
 - [x] `login-local.spec.ts` deixa de falhar por variável faltando no workflow.

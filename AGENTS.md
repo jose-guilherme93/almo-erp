@@ -475,7 +475,16 @@ pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
   numa máquina compartilhada — foi exatamente isso que derrubou a VPS.
 - **Antes de dar um PR como pronto, confira o check do E2E.** Sem branch protection (§9.1), nada
   impede o merge vermelho: quem lê o PR é quem decide, então ler o check é parte do trabalho.
-- Cache dos navegadores no runner, `timeout-minutes: 15`, e `concurrency` com
+- **As telas são compiladas antes do primeiro teste** (`e2e/global-setup.ts`). `next dev`
+  compila cada rota na primeira visita, e com ~32 telas isso acontecia dentro do
+  `expect.timeout` de cada teste: falha por lentidão que não é defeito de ninguém, que o
+  `retries` então repetia dobrando o custo. Foi assim que a suíte passou de 25 minutos sem
+  fechar. A lista de telas mora em `e2e/helpers/routes.ts` e é a **fonte única** — `mobile.spec.ts`
+  usa o perfil e o rótulo, o warm-up usa o caminho.
+- **O relatório sobe com `always()`**, nunca `!cancelled()`: quando o job estoura o teto, o
+  cancelamento é exatamente quando o relatório mais importa. Perder o diagnóstico foi o pior
+  sintoma das primeiras execuções.
+- Cache dos navegadores no runner, `timeout-minutes: 25`, e `concurrency` com
   `cancel-in-progress` para que empurrar de novo não multiplique custo.
 
 ### 9.5 Erro é observável, e chega no celular
