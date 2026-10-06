@@ -64,6 +64,33 @@ const scriptSrc = isDevelopment
   ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
   : "script-src 'self' 'unsafe-inline'";
 
+/**
+ * Origem que recebe o evento de erro do navegador.
+ *
+ * `connect-src 'self'` sozinho **derruba silenciosamente** o SDK: o navegador
+ * bloqueia o `fetch` para o destino, o SDK não recebe confirmação, e a única
+ * pista é um aviso no console de quem já está com pressa. Melhor deixar a
+ * origem explícita aqui — e melhor ainda deriving do DSN, para que trocar de
+ * fornecedor não exija lembrar de mexer neste arquivo.
+ *
+ * Sem DSN, a lista fica `'self'` e a CSP não abre nada.
+ */
+function ingestOrigin(): string[] {
+  const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN?.trim();
+
+  if (!dsn) return [];
+
+  try {
+    return [new URL(dsn).origin];
+  } catch {
+    // DSN malformado é erro de configuração do ambiente, e `src/lib/env.ts` já
+    // o valida. Aqui não vale derrubar o build por isso.
+    return [];
+  }
+}
+
+const connectSrc = ["'self'", ...ingestOrigin()].join(" ");
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -86,7 +113,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://lh3.googleusercontent.com",
       "font-src 'self' data:",
-      "connect-src 'self'",
+      `connect-src ${connectSrc}`,
       "media-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",
