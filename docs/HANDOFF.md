@@ -12,10 +12,31 @@
 
 ## O que está pronto e verde
 
-Gates rodados na `main`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (400), `pnpm build`,
-`pnpm db:seed`. E2E local: **88/88**.
+Gates rodados na `main`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (434), `pnpm build`,
+`pnpm db:seed`. E2E local: **93/93**.
 
-Entrega mais recente — **GitHub Actions fora do caminho do dia a dia**:
+Entrega mais recente — **FASE 20, observabilidade de erro**:
+
+- **Erro de rota não some mais.** O gancho `onRequestError` do Next grava todo erro de render, route
+  e action em `ErrorLog`, e a tela `/admin/erros` mostra. O `digest` que o usuário viu na tela
+  ("Referência: abc123") é a chave de busca — fecha o ciclo do relato de suporte.
+- **Uma linha por erro, não por ocorrência.** `fingerprint` único (rota sem query + digest +
+  mensagem normalizada); o repetido soma em "Vezes". Sem isso, um erro alcançado por dez usuários
+  viraria dez linhas e a tela viraria parede.
+- **Alerta no sino só na primeira ocorrência**, para quem tem `papel:manage`. Notificar cada vez
+  transformaria o sino em ruído justamente quando o problema é mais grave.
+- **Dois achados que só aparecem rodando de verdade** (e que nenhum unitário pegaria):
+  `The destination stream closed early.` — o Next descreve assim uma navegação RSC abandonada, que
+  é comportamento normal e chega em volume alto; e `?_rsc=<hash>` na rota, que mudaria a cada
+  visita e criaria uma linha nova por carregamento. Ambos viraram regra com teste.
+- `instrumentation.ts` importa o serviço por `import()` dinâmico, guardado por
+  `NEXT_RUNTIME === "nodejs"`: o arquivo roda na edge também, e a edge não tem Prisma.
+- O registro no banco e o stdout são **complementares**: `ErrorLog` cai junto com o Postgres, e é
+  justo quando mais importa. O `console.error` estruturado continua.
+- Fora do escopo, por decisão: erro do **cliente** (tela branca) e log de uso. `/admin/erros` é
+  reativa — o complemento seria um monitor externo de uptime em `/api/health`, sem código.
+
+Entrega anterior — **GitHub Actions fora do caminho do dia a dia**:
 
 - **Nenhum workflow roda em push ou pull request.** O portão de qualidade já é local: o hook
   `pre-push` roda `lint + typecheck + test + build`, e o E2E é local. Rodar o mesmo no runner

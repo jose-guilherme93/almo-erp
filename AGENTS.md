@@ -447,6 +447,30 @@ pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
   pode virar um job longo (o histórico era de 40 minutos): se um cenário não couber em 5
   minutos, rode-o local.
 
+### 9.5 Erro de servidor é observável
+
+**Nenhuma rota pode quebrar em silêncio.** O gancho `onRequestError` (`src/instrumentation.ts`)
+grava todo erro de render, route e action em `ErrorLog`, e a tela `/admin/erros` mostra — com o
+`digest` que o usuário viu na tela como chave de busca. `docs/ARQUITETURA.md` §10.1 tem o desenho.
+
+Regras que valem para quem mexer nessa área:
+
+- **`onRequestError` nunca lança.** Se falhar, o Next registra `Error in
+  instrumentation.onRequestError` e o erro original se perde.
+- **O serviço que fala com Prisma entra por `import()` dinâmico**, guardado por
+  `NEXT_RUNTIME === "nodejs"`. O arquivo roda na edge também, e a edge não tem Prisma: importar no
+  topo quebra a aplicação.
+- **Ruído não é erro.** `isIgnorableError` filtra cancelamento de navegação. Antes de gravar
+  qualquer coisa, perguntar "isso é defeito ou é o Next descrevendo uma navegação normal?".
+- **Nunca alargar o filtro.** Um padrão amplo demais esconde o erro que a tela existe para mostrar.
+- **Uma linha por erro, não por ocorrência.** Sem `fingerprint`, a tela vira parede. O alerta vai
+  só na primeira ocorrência.
+- **Credencial não entra em log.** `REDACTED` cobre senha, token, cookie e documento.
+- Erro de **cliente** (tela branca, hidratação) segue fora: exige entrada não confiável no banco, com
+  Zod, limite de tamanho e trava anti-loop. Quando entrar, observar as três.
+- `/admin/erros` é **reativa**: não avisa sozinha. O complemento é um monitor externo de uptime em
+  `/api/health`, que não exige código.
+
 ---
 
 ## 10. Git

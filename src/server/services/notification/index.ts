@@ -159,6 +159,15 @@ const TEMPLATES: Record<
       `${data["toSectorName"] ?? "O setor"} devolveu a etapa${data["report"] ? `: ${data["report"]}` : "."}`,
     link: (_e, _i, data) => `/encaminhamentos/${data["delegationId"] ?? ""}`,
   },
+  ERROR_REPORTED: {
+    title: (data) => `Erro no servidor — ${data["routePath"] ?? "rota desconhecida"}`,
+    body: (data) => {
+      const vezes = data["count"] ?? "1";
+
+      return `${data["message"] ?? "Erro desconhecido"}. Ocorreu ${vezes}x. Abra /admin/erros para ver o detalhe.`;
+    },
+    link: (_e, entityId) => `/admin/erros?busca=${entityId}`,
+  },
 };
 
 /** Rótulo de prioridade, para o texto da notificação. */
@@ -383,6 +392,12 @@ export async function resolveRecipients(
 
       return recipients.filter((id) => !exclude.has(id));
     }
+
+    // Erro de servidor é do sistema, não de uma unidade: quem responde por ele é
+    // quem administra o sistema. `papel:manage` é a mesma porta de
+    // `/admin/auditoria`, então quem já vê a auditoria vê os erros.
+    case "ERROR_REPORTED":
+      return usersWithNetworkPermission("papel:manage", client);
 
     default:
       return [];

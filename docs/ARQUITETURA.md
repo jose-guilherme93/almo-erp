@@ -602,6 +602,52 @@ Aparece no dashboard da unidade junto com a fila de aprovação, e no sino de qu
 `after` (json), `ip`, `userAgent`, `createdAt`. Escrita em toda ação de escrita
 (atributo `createdById` nas entidades já é obrigatório).
 
+## 10.1 Observabilidade de erro
+
+Auditoria responde "quem fez o quê". Ela **não** responde "quebrou alguma coisa?" — e essa era a
+lacuna: um erro de render só existia como linha no stdout do container, sem busca e sem alerta,
+enquanto o usuário via apenas `Referência: abc123` que ninguém conseguia decifrar.
+
+`src/instrumentation.ts` (gancho `onRequestError` do Next) fecha o ciclo. Ele entrega erro de
+**render**, **route** e **action**, com rota, método e — o detalhe que importa — o `digest`, que é
+**o mesmo código que o usuário viu na tela**. Digitar o código em `/admin/erros` acha a linha.
+
+`ErrorLog` (migration própria) guarda **uma linha por erro único**, não por ocorrência:
+
+| Campo | Papel |
+|---|---|
+| `fingerprint` (único) | rota sem query + digest + mensagem normalizada |
+| `count`, `firstSeenAt`, `lastSeenAt` | quantas vezes, desde quando |
+| `digest` (indexado) | o código que o usuário relata |
+| `routePath`, `routeType`, `method` | onde quebrou (`render`/`route`/`action`/`proxy`) |
+| `message`, `stack` | o quê, com linha sensível omitida |
+| `resolvedAt`, `resolvedById` | triagem: sai da fila sem apagar histórico |
+| `actorId`, `branchId`, `appVersion` | quem viu, em qual release |
+
+Quatro decisões que não são óbvias:
+
+- **Deduplicar é obrigatório.** `fingerprint` é único e o repetido faz `count += 1`. Sem isso, um
+  erro em render alcançado por dez usuários criaria dez linhas e a tela viraria parede.
+- **Ruído é filtrado.** O Next emite `The destination stream closed early.` quando uma navegação RSC
+  é abandonada (o usuário sai antes do stream terminar). Não é defeito, chega em volume alto e
+  esconderia o erro real. `isIgnorableError` é uma lista curta e específica de propósito.
+- **Query string fora.** O Next anexa `?_rsc=<hash>` a cada navegação, e o hash muda sempre; sem
+  `normalizeRoutePath` a mesma tela viria uma linha nova por visita.
+- **Recurso dinâmico fora.** Linha de stack ou mensagem que case
+  `password|token|secret|cookie|cpf|cnpj` é substituída por marcador — credencial não vai para log.
+
+**O registro no banco e o stdout são complementares.** `ErrorLog` vive no mesmo Postgres da
+aplicação: se o banco cai, o registro cai junto — justo quando mais importa. Por isso o
+`console.error` estruturado continua existindo, e `recordServerError` nunca propaga exceção.
+
+**O alerta notifica só a primeira ocorrência.** Um erro que se repete 500 vezes continua sendo um
+erro só; notificar cada vez transformaria o sino em ruído e esconderia o problema mais grave.
+
+Esta fase cobre o **servidor**. Erro de JavaScript no navegador (tela branca, falha de hidratação)
+continua fora: exigiria entrada não confiável no banco, com Zod, limite de tamanho e trava
+anti-loop no cliente. `/admin/erros` é também reativa — ela não avisa sozinha. O complemento
+natural é um monitor externo de uptime em `/api/health`, que não exige código.
+
 ---
 
 ## 11. Relatórios consolidados e exportação
