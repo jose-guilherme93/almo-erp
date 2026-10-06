@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 
 import { Prisma } from "@/generated/prisma/client";
 
-import { actionSuccess, runAction, type ActionResult } from "@/lib/action-result";
+import { actionSuccess, type ActionResult } from "@/lib/action-result";
+import { runAction } from "@/server/actions/run";
 import { prisma } from "@/lib/db";
 import { availableQuantity } from "@/server/services/stock/average-cost";
 import { requirePermission } from "@/server/auth/guards";

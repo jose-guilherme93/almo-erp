@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { actionSuccess, runAction, type ActionResult } from "@/lib/action-result";
+import { actionSuccess, type ActionResult } from "@/lib/action-result";
+import { runAction } from "@/server/actions/run";
 import {
   createBranchSchema,
   deactivateBranchSchema,

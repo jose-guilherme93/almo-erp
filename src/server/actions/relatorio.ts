@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 
-import { actionSuccess, runAction, type ActionResult } from "@/lib/action-result";
+import { actionSuccess, type ActionResult } from "@/lib/action-result";
+import { runAction } from "@/server/actions/run";
 import { PERIOD_PRESETS, resolvePreset } from "@/lib/csv";
 import { consolidateReportSchema, driveExportSchema } from "@/lib/validation/report";
 import {
