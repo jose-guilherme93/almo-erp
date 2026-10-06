@@ -1,11 +1,33 @@
-name: E2E (manual)
+name: E2E (pull request)
 
-# NÃO roda em push nem em pull request. É opcional e disparado à mão; assim o
-# CI automático (só `main`) fica dentro dos 5 minutos.
+# O E2E roda aqui, e não na máquina de desenvolvimento (AGENTS.md §9.4).
+#
+# Motivo: a máquina é uma VPS de 6 GB dividida com outros usuários, e Playwright
+# abre um Chromium por worker ao lado do `next dev`. Rodar a suíte completa de
+# lá chegou a derrubar a VPS inteira — e teste de interface não tem nada a ver
+# com o hardware que roda o ERP. Runner descartável é o lugar certo para carga
+# descartável.
+#
+# Consequência aceita: o feedback chega depois do push, em vez de antes. O
+# `pre-push` continua cobrindo lint, typecheck, test e build de forma síncrona e
+# imediata; só o E2E é remoto.
 on:
+  pull_request:
+    # `develop` é onde o trabalho acontece; `main` recebe o PR de release, e é
+    # lá que o E2E confirma exatamente o que vai virar tag.
+    branches:
+      - develop
+      - main
+    # Documentação não muda interface, então não pode gastar minuto de runner.
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
   workflow_dispatch:
 
 concurrency:
+  # Um push novo cancela o run anterior do mesmo PR: abrir PR e empurrar cinco
+  # vezes custa um run completo, não cinco. É o que segura a cota de 2.000
+  # min/mês do plano gratuito.
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
 
@@ -19,16 +41,24 @@ env:
   AUTH_TRUST_HOST: "true"
   # O bypass de autenticação de teste (`E2E_AUTH_BYPASS`) só existe fora de
   # produção (`src/lib/env.ts`), então o E2E roda com `pnpm dev` (comando padrão
-  # do playwright.config). Nunca com `pnpm build && pnpm start`.
+  # do playwright.config). Nunca com `pnpm build && pnpm start`, nem aqui.
   #
-  # E2E é local-first (AGENTS §9.1): este workflow é manual e opcional. Se um
-  # cenário não couber no teto de 5 minutos, rode local.
+  # O runner é descartável justamente porque a máquina de desenvolvimento não é:
+  # ver o cabeçalho deste arquivo.
 
 jobs:
   e2e:
     name: Playwright (chromium)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+
+    # Exceção documentada ao teto de 5 min de AGENTS.md §9.1.
+    #
+    # A suíte são 93 cenários, e o setup sozinho (instalar, migrar, semear,
+    # subir o servidor) leva ~3 min. Sharding não resolve: cada shard paga o
+    # setup inteiro de novo, então o job não fica abaixo de 5 min — só custa
+    # três vezes mais minuto. O que este teto protege é o outro: transformar o
+    # E2E em job de 40 min pendurado, que foi o que aconteceu antes.
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -70,6 +100,14 @@ jobs:
 
       - name: Aplicar migrations
         run: pnpm db:deploy
+
+      - name: Gerar o client do Prisma
+        # Explícito, mesmo com o `postinstall` fazendo isso. Já houve run que
+        # falhou com `count: 0` vindo de um client desatualizado: falha
+        # silenciosa, a suíte passa em parte e quebra em outra, e parece
+        # problema de teste. Um segundo `generate` custa segundos e elimina a
+        # hipótese.
+        run: pnpm db:generate
 
       - name: Seed
         run: pnpm db:seed

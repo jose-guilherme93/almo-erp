@@ -7,9 +7,18 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  // Em CI, um retry só: o teto de 5 minutos não comporta duas reexecuções.
+  // Um retry só. No runner, um primeiro acesso perdido costuma ser a rota ainda
+  // compilando, e o segundo passe é o que separa "flake de infra" de defeito.
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Dois workers no runner, um local.
+  //
+  // O CI usava 1 porque a cota de minutos era a preocupação da época. Hoje o
+  // E2E roda num runner efêmero e descartável: a restrição real é a CPU do
+  // runner (2 vCPU), não a máquina de desenvolvimento. Mais de 2 ali só gera
+  // contenção e flake.
+  //
+  // Localmente 1, porque o uso local é depurar um spec de cada vez (§9.4).
+  workers: process.env.CI ? 2 : 1,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
 
   // O primeiro acesso a cada rota em `next dev` compila o segmento sob demanda;
@@ -54,8 +63,13 @@ export default defineConfig({
   ],
 
   webServer: {
-    // Em CI usamos build + start (servidor de produção): muito mais rápido que
-    // o `next dev`, que compila cada rota sob demanda.
+    // Sempre `next dev`, no CI e local. O comentário que existia aqui prometia
+    // `build && start` no CI: isso nunca esteve ligado, e é proibido de qualquer
+    // forma — o bypass de autenticação de teste só existe fora de produção
+    // (`src/lib/env.ts`), e `next start` roda com `NODE_ENV=production`.
+    //
+    // A variável continua existindo para depurar contra um servidor já no ar,
+    // mas o padrão é — e tem de ser — desenvolvimento.
     command: process.env.E2E_WEB_SERVER_COMMAND ?? "pnpm dev",
     url: baseURL,
     reuseExistingServer: !process.env.CI,
