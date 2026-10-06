@@ -127,13 +127,25 @@ jobs:
         # Sem `--with-deps`: o runner do GitHub já tem as bibliotecas do Chromium.
         run: pnpm exec playwright install chromium
 
+      - name: Dimensionar os workers
+        # Medido, não suposto: o tamanho do runner não é uma constante do projeto.
+        # O número fica impresso no log, então a próxima pessoa não precisa
+        # adivinhar de novo.
+        run: |
+          echo "runner: $(nproc) vCPU, $(awk '/MemTotal/{printf "%.1f GiB", $2/1048576}' /proc/meminfo)"
+          echo "E2E_WORKERS=$(nproc)" >> "$GITHUB_ENV"
+
       - name: Rodar e2e
         run: pnpm e2e --project=chromium
         env:
           E2E_AUTH_BYPASS: "true"
 
       - name: Publicar relatório do Playwright
-        if: ${{ !cancelled() }}
+        # `always()` e não `!cancelled()`: quando o job estoura o teto, o
+        # cancelamento é exatamente quando o relatório mais importa — e `!cancelled()`
+        # é falso nesse momento. Foi assim que duas execuções ficaram sem
+        # diagnóstico nenhum, sem saber o que passou e o que falhou.
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report

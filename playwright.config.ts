@@ -10,16 +10,16 @@ export default defineConfig({
   // Um retry só. No runner, um primeiro acesso perdido costuma ser a rota ainda
   // compilando, e o segundo passe é o que separa "flake de infra" de defeito.
   retries: process.env.CI ? 1 : 0,
-  // Dois workers no runner, um local.
-  //
-  // O CI usava 1 porque a cota de minutos era a preocupação da época. Hoje o
-  // E2E roda num runner efêmero e descartável: a restrição real é a CPU do
-  // runner (2 vCPU), não a máquina de desenvolvimento. Mais de 2 ali só gera
-  // contenção e flake.
-  //
-  // Localmente 1, porque o uso local é depurar um spec de cada vez (§9.4).
-  workers: process.env.CI ? 2 : 1,
-  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
+
+  // Compila todas as telas antes do primeiro teste — ver `e2e/global-setup.ts`.
+  // Sem isso a compilação sob demanda acontece dentro do timeout de cada teste.
+  globalSetup: "./e2e/global-setup.ts",
+
+  // Workers: o workflow mede com `nproc` e exporta `E2E_WORKERS`, para não
+  // depender de suposição sobre o tamanho do runner. Localmente é 1, porque o uso
+  // local é depurar um spec de cada vez (§9.4).
+  workers: Number(process.env["E2E_WORKERS"] ?? 1),
+  reporter: process.env.CI ? [["github"], ["list"], ["html", { open: "never" }]] : [["list"]],
 
   // O primeiro acesso a cada rota em `next dev` compila o segmento sob demanda;
   // 15s evita flakiness sem afrouxar a verificação.

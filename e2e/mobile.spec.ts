@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { loginAs, TEST_USERS } from "./helpers/auth";
+import { APP_ROUTES } from "./helpers/routes";
 
 /**
  * Responsividade para uso no celular.
@@ -15,36 +16,10 @@ import { loginAs, TEST_USERS } from "./helpers/auth";
 
 const MOBILE = { width: 390, height: 844 };
 
-/** Telas por perfil — cada uma é verificada na largura de celular. */
-const SCREENS: Array<{ user: Parameters<typeof loginAs>[1]; path: string; label: string }> = [
-  { user: "superAdmin", path: "/dashboard", label: "Dashboard da matriz" },
-  { user: "superAdmin", path: "/dashboard/unidades", label: "Visão por unidade" },
-  { user: "superAdmin", path: "/admin/usuarios", label: "Usuários" },
-  { user: "superAdmin", path: "/admin/auditoria", label: "Auditoria" },
-  { user: "superAdmin", path: "/filiais", label: "Unidades" },
-  { user: "superAdmin", path: "/catalogo/itens", label: "Materiais" },
-  { user: "adminFilial", path: "/dashboard/unidade/x", label: "Dashboard da unidade" },
-  { user: "adminFilial", path: "/solicitacoes/fila", label: "Fila de aprovação" },
-  { user: "adminFilial", path: "/entregas", label: "Entregas" },
-  { user: "almoxarife", path: "/estoque/saldos", label: "Saldos" },
-  { user: "almoxarife", path: "/estoque/movimentacoes", label: "Movimentações" },
-  { user: "almoxarife", path: "/estoque/entradas/nova", label: "Nova entrada" },
-  { user: "almoxarife", path: "/inventario", label: "Inventário" },
-  { user: "almoxarife", path: "/transferencias", label: "Transferências" },
-  { user: "almoxarife", path: "/reparos", label: "Chamados de reparo" },
-  { user: "solicitante", path: "/solicitar", label: "Escolha do pedido" },
-  { user: "solicitante", path: "/solicitacoes/nova", label: "Solicitar material" },
-  { user: "solicitante", path: "/reparos/novo", label: "Abrir reparo" },
-  { user: "solicitante", path: "/solicitacoes", label: "Minhas solicitações" },
-  { user: "solicitante", path: "/meu", label: "Meu painel" },
-  { user: "solicitante", path: "/notificacoes", label: "Notificações" },
-  { user: "superAdmin", path: "/relatorios", label: "Relatórios" },
-];
-
 test.use({ viewport: MOBILE });
 
 test.describe("mobile 390px", () => {
-  for (const screen of SCREENS) {
+  for (const screen of APP_ROUTES) {
     test(`${screen.label} (${screen.path}) não tem rolagem horizontal`, async ({ page }) => {
       await loginAs(page, screen.user);
       await page.goto(screen.path);
