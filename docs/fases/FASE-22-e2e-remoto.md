@@ -78,13 +78,31 @@ problema por construção, em vez de administrá-lo.
   imposição. A saída gratuita é mover o portão para o lado do operador: um script
   de merge que consulta `gh pr checks` e recusa enquanto não estiver verde.
   Fica como pendência, não como esforço escondido.
-- **Warm-up das rotas — feito, e foi o que faltava.** O primeiro run bateu o teto de 15 min; o
-  segundo, o de 25. O setup leva ~4 min, então a suíte passava de 20 min de execução. A causa não
-  era o runner: `next dev` compila cada rota na primeira visita, e com ~32 telas essa compilação
-  acontecia **dentro** do `expect.timeout` de cada teste — falha por lentidão que não é defeito de
-  ninguém, e o `retries` repetia cada uma dobrando o custo. Agora `e2e/global-setup.ts` faz login
-  uma vez e visita todas as telas antes do primeiro teste. Um login basta porque a compilação é por
-  **rota**, não por permissão.
+- **Warm-up das rotas.** `next dev` compila cada rota na primeira visita, e com ~32 telas essa
+  compilação acontece dentro do `expect.timeout` de cada teste — lentidão que não é defeito de
+  ninguém, que o `retries` então repete. `e2e/global-setup.ts` faz login uma vez e visita todas as
+  telas antes do primeiro teste; um login basta porque a compilação é por **rota**, não por
+  permissão.
+
+### O erro que custou três execuções
+
+O `globalSetup` roda **fora** do contexto de teste e não herda o `use` da configuração.
+`browser.newPage()` sem `baseURL` não resolve URL relativa, então `page.goto("/login")` lançava
+`Cannot navigate to invalid URL` — e como o login estava **fora** do `try`, o `globalSetup` morria
+na primeira linha e levava a suíte inteira: **zero testes rodaram**, em três execuções.
+
+O sintoma era enganoso. O job morria no teto de tempo, e a leitura natural era "a suíte não
+cabe". Eu escrevi essa conclusão na documentação — que a compilação sob demanda estourava o
+timeout dos testes — **sem nenhum teste ter executado**. Uma conclusão errada, registrada no
+repositório, que a próxima pessoa leria como fato.
+
+Duas regras nasceram disso:
+
+1. **Warm-up não é fatal, mas não é silencioso.** Aquecer é otimização; falhar nela não pode
+   impedir o teste de rodar. Mas o `console.warn` diz que falhou — o silêncio é que tornou o
+   diagnóstico impossível.
+2. **Teto de tempo não é medição.** O que está medido é o setup: **48 s**, com os caches quentes.
+   O tempo da suíte continua sem número, e a documentação diz isso em vez de inventar.
 - **Sharding.** Continua descartado enquanto o warm-up der conta: custa 3× os minutos, e cada
   shard paga o setup inteiro de novo.
 - **Diagnóstico preservado.** O relatório subia com `!cancelled()`, que é falso justamente no
@@ -96,8 +114,10 @@ problema por construção, em vez de administrá-lo.
 - [x] PR aberto para `develop` dispara o workflow.
 - [x] Documentação-only não dispara (custa zero minuto).
 - [ ] Empurrar de novo cancela o run anterior em vez de enfileirar.
+- [ ] **A suíte roda de verdade** — nenhum teste executou no Actions até agora.
 - [ ] Run completa e passa, dentro do teto de 25 min.
 - [x] Relatório disponível mesmo quando o job é cancelado.
 - [x] Lista de telas num lugar só, sem duplicar com `mobile.spec.ts`.
-- [ ] Tempo real registrado, para decidir warm-up/sharding com número.
+- [x] Setup medido: 48 s com caches quentes.
+- [ ] Tempo real da suíte registrado, para decidir sharding com número.
 - [x] `login-local.spec.ts` deixa de falhar por variável faltando no workflow.

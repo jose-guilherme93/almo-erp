@@ -401,10 +401,11 @@ agendados:
 Regras que valem para todos:
 
 - **Nenhum job passa de 5 minutos**, com **uma exceção documentada**: o `e2e` declara
-  `timeout-minutes: 25`. Medido: o setup (instalar, migrar, semear, subir o servidor) leva ~4 min,
-  e como a suíte roda contra `next dev` — o bypass de autenticação de teste exige fora de produção
-  — a compilação de cada rota sob demanda é parte do tempo. O teto existe para o job não pendurar
-  meia hora: já houve E2E de 40 minutos. Se precisar subir de novo, o problema é a suíte.
+  `timeout-minutes: 25`. O que foi medido até agora: o setup completo (instalar, migrar, gerar,
+  semear, instalar o Chromium) leva **48 s** com os caches quentes — não é ele o gargalo. O tempo
+  da suíte em si **ainda não foi medido**: as primeiras execuções morreram no teto sem rodar um
+  único teste, por causa de um warm-up quebrado. O teto existe para o job não pendurar meia hora
+  (já houve E2E de 40 minutos), não como conclusão sobre a suíte.
 - **Custo é controlado por gatilho, não por economização.** O E2E dispara em `pull_request`
   (não em `push` livre: empurrar para branch várias vezes estoura a cota), ignora `docs/**` e
   `**.md`, e tem `concurrency` com `cancel-in-progress` — empurrar cinco vezes no mesmo PR
@@ -475,12 +476,18 @@ pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
   numa máquina compartilhada — foi exatamente isso que derrubou a VPS.
 - **Antes de dar um PR como pronto, confira o check do E2E.** Sem branch protection (§9.1), nada
   impede o merge vermelho: quem lê o PR é quem decide, então ler o check é parte do trabalho.
-- **As telas são compiladas antes do primeiro teste** (`e2e/global-setup.ts`). `next dev`
-  compila cada rota na primeira visita, e com ~32 telas isso acontecia dentro do
-  `expect.timeout` de cada teste: falha por lentidão que não é defeito de ninguém, que o
-  `retries` então repetia dobrando o custo. Foi assim que a suíte passou de 25 minutos sem
-  fechar. A lista de telas mora em `e2e/helpers/routes.ts` e é a **fonte única** — `mobile.spec.ts`
-  usa o perfil e o rótulo, o warm-up usa o caminho.
+- **As telas são compiladas antes do primeiro teste** (`e2e/global-setup.ts`). `next dev` compila
+  cada rota na primeira visita, e com ~32 telas isso acontece dentro do `expect.timeout` de cada
+  teste — lentidão que não é defeito de ninguém e que o `retries` então repete. A lista de telas
+  mora em `e2e/helpers/routes.ts` e é a **fonte única**: `mobile.spec.ts` usa o perfil e o rótulo,
+  o warm-up usa o caminho.
+- **O warm-up não é fatal, mas não pode ser silencioso.** Ele é otimização: se falhar, os testes
+  rodam assim mesmo — e o `console.warn` diz que falhou. Um warm-up quebrado derrubou a suíte
+  inteira em três execuções, porque o `globalSetup` morria antes de qualquer teste e o sintoma
+  ("não cabe no tempo") apontava para o lugar errado.
+- **`globalSetup` não herda o `use` da configuração.** `browser.newPage()` sem `baseURL` não
+  resolve URL relativa. Qualquer coisa que abra página ali precisa passar o `baseURL` — está em
+  `resolveBaseUrl()`.
 - **O relatório sobe com `always()`**, nunca `!cancelled()`: quando o job estoura o teto, o
   cancelamento é exatamente quando o relatório mais importa. Perder o diagnóstico foi o pior
   sintoma das primeiras execuções.

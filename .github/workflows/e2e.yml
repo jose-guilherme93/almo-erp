@@ -53,15 +53,14 @@ jobs:
 
     # Exceção documentada ao teto de 5 min de AGENTS.md §9.1.
     #
-    # Medido, não chutado: o setup (instalar, migrar, semear, subir o servidor)
-    # leva ~4 min e, com 2 workers, 11 min de execução **não** fecharam os 93
-    # cenários — o teto de 15 min cancelou o job no meio e o relatório se perdeu
-    # junto. Como a suíte roda contra `next dev` (o bypass de autenticação de
-    # teste exige fora de produção), a compilação de cada rota sob demanda é parte
-    # do tempo e não dá para "buildar antes".
+    # O setup completo leva **48 s** com os caches quentes (medido), então ele não
+    # é o gargalo. O tempo da suíte em si **ainda não foi medido**: as primeiras
+    # execuções morreram no teto sem rodar um único teste, porque o `globalSetup`
+    # quebrava na primeira linha e levava a suíte junto.
     #
-    # O teto existe para o job não pendurar meia hora; se ele precisar subir de
-    # novo, o problema é a suíte, não este número.
+    # Este número é provisório, esperando a primeira execução que roda testes de
+    # verdade. O teto existe para o job não pendurar meia hora (já houve E2E de 40
+    # minutos), não como conclusão sobre a suíte.
     timeout-minutes: 25
 
     services:
