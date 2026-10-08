@@ -403,10 +403,15 @@ Regras (FASE 23):
   devolve) o bem.
 - **Escopo de filial** vale para tudo: `listAssets`/`getAsset` filtram por `branchFilter`, e um
   responsável só pode ter vínculo ativo na unidade do bem.
+- **O chamado de TI se liga ao bem pelo número de patrimônio.** Ao abrir um chamado, se o
+  `assetTag` informado corresponder a um bem cadastrado daquela unidade, o chamado guarda
+  `MaintenanceRequest.assetId` e o bem entra em `IN_MAINTENANCE`; concluir, recusar ou cancelar o
+  chamado o **devolve ao estado anterior** (em posse, se estava com alguém; senão, ao
+  almoxarifado). Texto que não corresponde a bem nenhum continua sendo só anotação.
 
 Telas: `/patrimonio` (lista com filtros, inclusive "sem responsável") e `/patrimonio/[id]`
-(ficha, responsável, local, estado e histórico). O link do chamado de TI ao bem
-(`MaintenanceRequest.assetId`) fica para a próxima etapa.
+(ficha, responsável, local, estado e histórico). No chamado, a etiqueta vira link para a ficha do
+bem quando há vínculo.
 
 ## 6. Solicitação de materiais
 

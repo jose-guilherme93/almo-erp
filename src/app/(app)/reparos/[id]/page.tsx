@@ -127,7 +127,15 @@ export default async function ReparoDetalhePage({ params, searchParams }: Reparo
               <MapPin className="size-3.5" aria-hidden />
               {request.location}
             </span>
-            {request.assetTag ? (
+            {request.asset ? (
+              <Link
+                href={`/patrimonio/${request.asset.id}`}
+                className="flex items-center gap-1 hover:underline"
+              >
+                <Tag className="size-3.5" aria-hidden />
+                {request.asset.item.name} · {request.asset.tag}
+              </Link>
+            ) : request.assetTag ? (
               <span className="flex items-center gap-1">
                 <Tag className="size-3.5" aria-hidden />
                 {request.assetTag}

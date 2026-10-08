@@ -18,6 +18,11 @@ import {
   retireAsset,
   returnAsset,
 } from "./index";
+import {
+  assignMaintenanceRequest,
+  completeMaintenanceRequest,
+  createMaintenanceRequest,
+} from "@/server/services/maintenance";
 
 const PREFIX = "TST-PAT";
 const ACTOR_EMAIL = "autor.patrimonio@ator.teste.local";
@@ -100,7 +105,29 @@ async function createAssets(
   );
 }
 
+/** Primeiro bem de um material (o teste usa apenas um bem por material). */
+async function assetForItem(itemId: string) {
+  return prisma.asset.findFirstOrThrow({
+    where: { itemId },
+    orderBy: { tag: "asc" },
+    select: { id: true, tag: true },
+  });
+}
+
 async function cleanup(): Promise<void> {
+  // Chamados abertos pelo ator do teste (referenciam o bem e o usuário).
+  const requests = await prisma.maintenanceRequest.findMany({
+    where: { requesterId: actorId },
+    select: { id: true },
+  });
+  const requestIds = requests.map((request) => request.id);
+  if (requestIds.length > 0) {
+    await prisma.notification.deleteMany({
+      where: { entityType: "MaintenanceRequest", entityId: { in: requestIds } },
+    });
+    await prisma.maintenanceRequest.deleteMany({ where: { id: { in: requestIds } } });
+  }
+
   const items = await prisma.item.findMany({
     where: { code: { startsWith: PREFIX } },
     select: { id: true },
@@ -389,5 +416,86 @@ describe.runIf(process.env["DATABASE_URL"])("escopo e histórico", () => {
     await prisma.asset.delete({ where: { id: asset.id } });
 
     expect(await prisma.assetEvent.count({ where: { assetId: asset.id } })).toBe(0);
+  });
+});
+
+describe.runIf(process.env["DATABASE_URL"])("chamado vinculado ao bem", () => {
+  it("abrir o chamado põe o bem em manutenção e concluir devolve ao estado anterior", async () => {
+    const item = await makeItem();
+    await createAssets(item.id, ["SN-8000"]);
+    const asset = await assetForItem(item.id);
+
+    // O bem estava em posse de alguém: a manutenção deve devolvê-lo a IN_USE.
+    await assignAsset(context(), { assetId: asset.id, custodianUserId: custodianId });
+
+    const request = await createMaintenanceRequest(context(), {
+      branchId,
+      category: "IT",
+      title: "Notebook não liga",
+      description: "O notebook da recepção não liga desde ontem.",
+      location: "Recepção",
+      assetTag: asset.tag,
+    });
+
+    const inMaintenance = await getAsset(context(), asset.id);
+    expect(inMaintenance.status).toBe("IN_MAINTENANCE");
+    expect(inMaintenance.events.map((event) => event.type)).toContain("MAINTENANCE_STARTED");
+
+    await assignMaintenanceRequest(context(), {
+      requestId: request.id,
+      assignedToId: custodianId,
+    });
+    await completeMaintenanceRequest(context(), {
+      requestId: request.id,
+      resolution: "Trocada a fonte de alimentação.",
+    });
+
+    const back = await getAsset(context(), asset.id);
+    expect(back.status).toBe("IN_USE");
+    expect(back.custodian?.id).toBe(custodianId);
+    expect(back.events.map((event) => event.type)).toContain("MAINTENANCE_DONE");
+  });
+
+  it("aceita a etiqueta na forma legível e ignora texto que não é bem", async () => {
+    const item = await makeItem();
+    await createAssets(item.id, ["SN-8100"]);
+    const asset = await assetForItem(item.id);
+
+    // Forma legível: `PAT 000 123`.
+    const linked = await createMaintenanceRequest(context(), {
+      branchId,
+      category: "IT",
+      title: "Monitor sem imagem",
+      description: "O monitor não liga de jeito nenhum.",
+      location: "Sala 2",
+      assetTag: `PAT ${asset.tag.slice(4, 7)} ${asset.tag.slice(7)}`,
+    });
+
+    expect((await getAsset(context(), asset.id)).status).toBe("IN_MAINTENANCE");
+
+    await assignMaintenanceRequest(context(), {
+      requestId: linked.id,
+      assignedToId: custodianId,
+    });
+    await completeMaintenanceRequest(context(), {
+      requestId: linked.id,
+      resolution: "Cabo HDMI trocado.",
+    });
+
+    // Texto que não corresponde a bem nenhum continua só como anotação.
+    const unlinked = await createMaintenanceRequest(context(), {
+      branchId,
+      category: "IT",
+      title: "Projetor com defeito",
+      description: "O projetor da sala de reunião pisca.",
+      location: "Sala de reunião",
+      assetTag: "sem-etiqueta-9999",
+    });
+
+    const row = await prisma.maintenanceRequest.findUniqueOrThrow({
+      where: { id: unlinked.id },
+      select: { assetId: true },
+    });
+    expect(row.assetId).toBeNull();
   });
 });

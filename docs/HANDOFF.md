@@ -50,8 +50,9 @@ chamado — a de patrimônio ainda é **desenho, não código**.
   padrão. O bem nasce na entrada de item com número de série; **atribuir não gera saída de
   estoque** (posse ≠ propriedade); série implica patrimônio salvo `Item.trackAsAsset = false`.
   Telas `/patrimonio` e `/patrimonio/[id]` (ficha + histórico), no grupo **Insumo**. Permissões
-  `patrimonio:read`/`patrimonio:manage`. Ficou para depois: vínculo do chamado ao bem e
-  transferência de bem entre unidades. Ver `docs/fases/FASE-23-patrimonio.md`.
+  `patrimonio:read`/`patrimonio:manage`. O **chamado de TI se liga ao bem**: informar a etiqueta
+  ao abrir o chamado põe o bem em `IN_MAINTENANCE` e encerrar o devolve ao estado anterior. Ficou
+  para depois só a transferência de bem entre unidades. Ver `docs/fases/FASE-23-patrimonio.md`.
 
 ## Entrega pronta, ainda não publicada — **CI/CD da imagem (GHCR)**
 

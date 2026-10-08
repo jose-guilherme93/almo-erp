@@ -37,6 +37,18 @@ export function parseAssetTag(tag: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/**
+ * Normaliza o que o usuário digitou para a etiqueta canônica.
+ *
+ * Tolera a forma legível (`PAT 000 123`) e zeros à esquerda, para quem informa a
+ * etiqueta do rótulo no chamado não precisar saber o formato interno.
+ */
+export function parseAssetTagInput(value: string): string | null {
+  const compact = value.replace(/\s+/g, "");
+  const match = /^PAT-?0*(\d+)$/i.exec(compact);
+  return match ? formatAssetTag(Number(match[1])) : null;
+}
+
 /** Maior sequencial já usado, ou 0 quando não há nenhum bem. */
 export async function currentAssetSequence(
   client: Prisma.TransactionClient | typeof prisma = prisma,

@@ -842,6 +842,7 @@ model Asset {
   custodian       User?           @relation("AssetCustodian", fields: [custodianUserId], references: [id], onDelete: SetNull)
   createdBy       User?           @relation("AssetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   events          AssetEvent[]
+  maintenanceRequests MaintenanceRequest[] @relation("AssetMaintenanceRequests")
 
   @@index([branchId, status])
   @@index([itemId])
@@ -1289,7 +1290,10 @@ model MaintenanceRequest {
 
   /// Onde exatamente o problema está (sala, andar, equipamento).
   location    String
+  /// Número de patrimônio informado à mão (equipamento sem cadastro de bem).
   assetTag    String? @map("asset_tag")
+  /// Bem cadastrado vinculado ao chamado (FASE 23). Abre em manutenção e volta.
+  assetId     String? @map("asset_id")
   title       String
   description String
 
@@ -1319,6 +1323,7 @@ model MaintenanceRequest {
   responsible   User?              @relation("MaintenanceResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
   claimedBy     User?              @relation("MaintenanceClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
   assignedTo    User?              @relation("MaintenanceAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  asset         Asset?             @relation("AssetMaintenanceRequests", fields: [assetId], references: [id], onDelete: SetNull)
   events        MaintenanceEvent[]
   delegations   Delegation[]       @relation("MaintenanceDelegations")
   attachments   Attachment[]
@@ -1329,6 +1334,7 @@ model MaintenanceRequest {
   @@index([assignedToId, status])
   @@index([sectorId])
   @@index([serviceSectorId])
+  @@index([assetId])
   @@index([status, priority, createdAt])
   @@map("maintenance_requests")
 }

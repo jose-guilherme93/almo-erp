@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAssetTag, formatAssetTagLabel, parseAssetTag } from "./tag";
+import { formatAssetTag, formatAssetTagLabel, parseAssetTag, parseAssetTagInput } from "./tag";
 
 describe("etiqueta de patrimônio", () => {
   it("monta a etiqueta com o sequencial preenchido", () => {
@@ -25,5 +25,17 @@ describe("etiqueta de patrimônio", () => {
 
   it("devolve o valor original quando não reconhece a etiqueta", () => {
     expect(formatAssetTagLabel("sem-formato")).toBe("sem-formato");
+  });
+
+  it("normaliza a etiqueta digitada (forma legível e zeros à esquerda)", () => {
+    expect(parseAssetTagInput("PAT-000123")).toBe("PAT-000123");
+    expect(parseAssetTagInput("PAT 000 123")).toBe("PAT-000123");
+    expect(parseAssetTagInput("pat123")).toBe("PAT-000123");
+    expect(parseAssetTagInput("  PAT-000001 ")).toBe("PAT-000001");
+  });
+
+  it("recusa texto que não é etiqueta de patrimônio", () => {
+    expect(parseAssetTagInput("SN-12345")).toBeNull();
+    expect(parseAssetTagInput("sem-etiqueta")).toBeNull();
   });
 });
