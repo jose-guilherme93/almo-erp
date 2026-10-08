@@ -1,9 +1,10 @@
 # FASE 23 — Patrimônio: bem rastreável com dono e histórico
 
 > **Status: implementada.** As três decisões foram respondidas pelo dono do produto e
-> estão registradas abaixo. O núcleo (schema, entrada por série, atribuição, devolução,
-> baixa, histórico e telas) está no ar. O vínculo do chamado de TI ao bem
-> (`MaintenanceRequest.assetId`) ficou para a próxima etapa.
+> estão registradas abaixo. Está no ar o núcleo (schema, entrada por série, atribuição,
+> devolução, baixa, histórico e telas) e o vínculo do chamado de TI ao bem
+> (`MaintenanceRequest.assetId`): abrir o chamado põe o bem em manutenção, encerrar o
+> devolve ao estado anterior.
 
 ## Contexto
 
@@ -116,9 +117,10 @@ dono padrão.
 2. **Atribuição.** `/patrimonio/[id]` → "Entregar a" escolhe o usuário → `IN_USE` + evento
    `ASSIGNED`. Não há `ISSUE`: o bem sai do "disponível" pelo `status`, não do saldo.
 3. **Devolução.** `IN_USE → IN_STOCK` + evento `RETURNED`.
-4. **Chamado de TI.** `MaintenanceRequest.assetId?` liga o chamado ao bem; abrir muda para
-   `IN_MAINTENANCE`, concluir volta ao estado anterior. O técnico vê a ficha e a série sem digitar
-   nada.
+4. **Chamado de TI.** Ao abrir um chamado informando o número de patrimônio, se ele corresponder
+   a um bem cadastrado da unidade, `MaintenanceRequest.assetId` é preenchido e o bem vai para
+   `IN_MAINTENANCE`; concluir, recusar ou cancelar o chamado devolve o bem ao estado anterior.
+   O técnico vê a etiqueta como link para a ficha do bem.
 5. **Baixa.** `RETIRED` exige justificativa e gera evento; o bem sai das listas operacionais.
    Só aqui, se um dia a operação pedir, entra um `ISSUE` de verdade.
 
@@ -141,6 +143,8 @@ dono padrão.
 - [x] `Item.trackAsAsset = false` impede a geração do bem, com teste.
 - [x] Toda transição de estado passa por `src/server/services/patrimonio/transitions.ts`, gera
       `AssetEvent` e notifica (atribuição e devolução).
+- [x] Abrir chamado com a etiqueta de um bem cadastrado põe o bem em `IN_MAINTENANCE`; concluir,
+      recusar ou cancelar o devolve ao estado anterior (testado).
 - [x] Toda query filtrada por filial (`branchFilter`, §3.2).
 - [x] Testes: criação na entrada, atribuição/devolução, transições válidas e inválidas, escopo,
       histórico imutável e não-alteração de saldo (`patrimonio.test.ts`, 21 casos).
@@ -148,8 +152,7 @@ dono padrão.
 
 ## Fora do escopo desta entrega
 
-- **Vínculo do chamado ao bem** (`MaintenanceRequest.assetId`): abrir chamado mudaria o bem para
-  `IN_MAINTENANCE` e concluir voltaria. Fica para a próxima etapa; o estado e a transição já
-  existem no serviço.
 - **Transferência de bem entre unidades**: o bem é da filial; mover entre unidades exigirá
   reconciliar o `Asset` com a transferência de estoque.
+
+O **vínculo do chamado ao bem** (`MaintenanceRequest.assetId`) já está implementado: ver o fluxo 4.

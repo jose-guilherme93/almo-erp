@@ -171,10 +171,10 @@ export function MaintenanceForm({
         <FormField
           id="maintenance-asset-tag"
           label="Identificação do equipamento"
-          hint="Opcional. Patrimônio ou número de série, se houver."
+          hint="Opcional. Se for a etiqueta de um bem cadastrado (ex.: PAT-000123), o chamado fica vinculado ao patrimônio e ele entra em manutenção."
           errors={fieldErrors["assetTag"]}
         >
-          <Input id="maintenance-asset-tag" name="assetTag" placeholder="PAT-001234" />
+          <Input id="maintenance-asset-tag" name="assetTag" placeholder="PAT-000123" />
         </FormField>
       </div>
 

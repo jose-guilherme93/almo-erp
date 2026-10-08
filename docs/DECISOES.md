@@ -315,4 +315,5 @@ almoxarifado realmente quiser.
 
 **Consequência.** Um bem em posse não aparece como disponível, mas segue no patrimônio da unidade;
 o histórico (`AssetEvent`) é append-only, com trigger que recusa alteração e apagamento direto. O
-vínculo do chamado de TI ao bem e a transferência de bem entre unidades ficaram para depois.
+chamado de TI se liga ao bem pelo número de patrimônio (abre em `IN_MAINTENANCE`, encerra
+devolvendo ao estado anterior). A transferência de bem entre unidades ficou para depois.

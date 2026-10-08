@@ -8,6 +8,11 @@ import { createAttachmentRows, type AttachmentInput } from "@/server/services/at
 import { notify } from "@/server/services/notification";
 import { getServiceSectorForCategory } from "@/server/services/sector";
 import { nextMaintenanceNumber } from "@/server/services/stock/numbering";
+import {
+  resolveAssetForMaintenance,
+  returnAssetFromMaintenance,
+  sendAssetToMaintenance,
+} from "@/server/services/patrimonio";
 import type { AuthContext } from "@/server/auth/context";
 import { assertBranchAccess, visibleBranchIds } from "@/server/auth/scope";
 
@@ -205,6 +210,7 @@ export async function getMaintenanceRequest(context: AuthContext, requestId: str
       description: true,
       location: true,
       assetTag: true,
+      assetId: true,
       category: true,
       status: true,
       priority: true,
@@ -216,6 +222,7 @@ export async function getMaintenanceRequest(context: AuthContext, requestId: str
       assignedAt: true,
       completedAt: true,
       branch: { select: { id: true, code: true, name: true } },
+      asset: { select: { id: true, tag: true, status: true, item: { select: { name: true } } } },
       sector: { select: { id: true, code: true, name: true } },
       serviceSector: { select: { id: true, code: true, name: true } },
       requester: { select: { id: true, name: true, email: true } },
@@ -410,6 +417,15 @@ export async function createMaintenanceRequest(
       const sectorId = input.sectorId ?? context.activeSectorId ?? null;
       const serviceSectorId = await getServiceSectorForCategory(input.category, tx);
 
+      // O patrimônio informado no chamado vira vínculo quando corresponde a um
+      // bem cadastrado dessa unidade; senão, fica só como texto (`assetTag`).
+      const linkedAsset = input.assetTag
+        ? await resolveAssetForMaintenance(tx, {
+            branchId: input.branchId,
+            assetTag: input.assetTag,
+          })
+        : null;
+
       const request = await tx.maintenanceRequest.create({
         data: {
           number,
@@ -423,10 +439,19 @@ export async function createMaintenanceRequest(
           description: input.description,
           location: input.location,
           assetTag: input.assetTag,
+          assetId: linkedAsset?.id ?? null,
           responsibleId,
         },
         select: { id: true, number: true },
       });
+
+      if (linkedAsset) {
+        await sendAssetToMaintenance(tx, {
+          assetId: linkedAsset.id,
+          actorId: context.user.id,
+          maintenanceId: request.id,
+        });
+      }
 
       await createAttachmentRows(tx, {
         attachments: input.attachments ?? [],
@@ -814,6 +839,7 @@ export async function completeMaintenanceRequest(
         status: true,
         branchId: true,
         requesterId: true,
+        assetId: true,
         createdAt: true,
       },
     });
@@ -880,6 +906,14 @@ export async function completeMaintenanceRequest(
       },
     });
 
+    if (request.assetId) {
+      await returnAssetFromMaintenance(tx, {
+        assetId: request.assetId,
+        actorId: context.user.id,
+        maintenanceId: request.id,
+      });
+    }
+
     return { number: request.number, resolutionHours };
   });
 }
@@ -893,7 +927,14 @@ export async function rejectMaintenanceRequest(
   return prisma.$transaction(async (tx) => {
     const request = await tx.maintenanceRequest.findUnique({
       where: { id: input.requestId },
-      select: { id: true, number: true, status: true, branchId: true, requesterId: true },
+      select: {
+        id: true,
+        number: true,
+        status: true,
+        branchId: true,
+        requesterId: true,
+        assetId: true,
+      },
     });
 
     if (!request) throw new NotFoundError("Chamado");
@@ -935,6 +976,14 @@ export async function rejectMaintenanceRequest(
       tx,
     );
 
+    if (request.assetId) {
+      await returnAssetFromMaintenance(tx, {
+        assetId: request.assetId,
+        actorId: context.user.id,
+        maintenanceId: request.id,
+      });
+    }
+
     return { number: request.number };
   });
 }
@@ -947,7 +996,14 @@ export async function cancelMaintenanceRequest(
   return prisma.$transaction(async (tx) => {
     const request = await tx.maintenanceRequest.findUnique({
       where: { id: input.requestId },
-      select: { id: true, number: true, status: true, branchId: true, requesterId: true },
+      select: {
+        id: true,
+        number: true,
+        status: true,
+        branchId: true,
+        requesterId: true,
+        assetId: true,
+      },
     });
 
     if (!request) throw new NotFoundError("Chamado");
@@ -994,6 +1050,14 @@ export async function cancelMaintenanceRequest(
       },
       tx,
     );
+
+    if (request.assetId) {
+      await returnAssetFromMaintenance(tx, {
+        assetId: request.assetId,
+        actorId: context.user.id,
+        maintenanceId: request.id,
+      });
+    }
 
     return { number: request.number };
   });

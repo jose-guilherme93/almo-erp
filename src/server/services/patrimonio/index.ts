@@ -6,7 +6,11 @@ import type { AuthContext } from "@/server/auth/context";
 import { assertBranchAccess, branchFilter } from "@/server/auth/scope";
 import { notify } from "@/server/services/notification";
 import { writeAuditLog } from "@/server/services/audit";
-import { currentAssetSequence, formatAssetTag } from "@/server/services/patrimonio/tag";
+import {
+  currentAssetSequence,
+  formatAssetTag,
+  parseAssetTagInput,
+} from "@/server/services/patrimonio/tag";
 import { assertAssetTransition } from "@/server/services/patrimonio/transitions";
 
 /**
@@ -397,6 +401,103 @@ export async function retireAsset(
     );
 
     return updated;
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Chamado de TI (manutenção)                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Resolve o bem de um chamado a partir do número de patrimônio informado.
+ *
+ * Devolve `null` quando o texto não corresponde a um bem cadastrado (equipamento
+ * sem registro — aí vale o `assetTag` livre). Aceita a etiqueta na forma legível.
+ */
+export async function resolveAssetForMaintenance(
+  tx: Prisma.TransactionClient,
+  input: { branchId: string; assetTag: string },
+): Promise<{ id: string } | null> {
+  const raw = input.assetTag.trim();
+  if (!raw) return null;
+
+  const canonical = parseAssetTagInput(raw);
+
+  return tx.asset.findFirst({
+    where: {
+      branchId: input.branchId,
+      OR: canonical ? [{ tag: canonical }] : [{ serialNumber: raw }],
+    },
+    select: { id: true },
+  });
+}
+
+/** Coloca o bem em manutenção. Roda na transação do chamado. */
+export async function sendAssetToMaintenance(
+  tx: Prisma.TransactionClient,
+  input: { assetId: string; actorId: string; maintenanceId: string },
+): Promise<void> {
+  const asset = await tx.asset.findUnique({
+    where: { id: input.assetId },
+    select: { id: true, status: true },
+  });
+
+  if (!asset) return;
+
+  assertAssetTransition(asset.status, "IN_MAINTENANCE");
+
+  await tx.asset.update({ where: { id: asset.id }, data: { status: "IN_MAINTENANCE" } });
+
+  await tx.assetEvent.create({
+    data: {
+      assetId: asset.id,
+      type: "MAINTENANCE_STARTED",
+      fromStatus: asset.status,
+      toStatus: "IN_MAINTENANCE",
+      referenceType: "MAINTENANCE",
+      referenceId: input.maintenanceId,
+      actorId: input.actorId,
+    },
+  });
+}
+
+/**
+ * Devolve o bem ao estado anterior quando o chamado encerra.
+ *
+ * O estado de origem está no último `MAINTENANCE_STARTED` do histórico: se o bem
+ * estava em posse de alguém, volta `IN_USE`; senão, `IN_STOCK`.
+ */
+export async function returnAssetFromMaintenance(
+  tx: Prisma.TransactionClient,
+  input: { assetId: string; actorId: string; maintenanceId: string },
+): Promise<void> {
+  const asset = await tx.asset.findUnique({
+    where: { id: input.assetId },
+    select: { id: true, status: true },
+  });
+
+  if (!asset || asset.status !== "IN_MAINTENANCE") return;
+
+  const start = await tx.assetEvent.findFirst({
+    where: { assetId: asset.id, type: "MAINTENANCE_STARTED" },
+    orderBy: { createdAt: "desc" },
+    select: { fromStatus: true },
+  });
+
+  const target: AssetStatus = start?.fromStatus === "IN_USE" ? "IN_USE" : "IN_STOCK";
+
+  await tx.asset.update({ where: { id: asset.id }, data: { status: target } });
+
+  await tx.assetEvent.create({
+    data: {
+      assetId: asset.id,
+      type: "MAINTENANCE_DONE",
+      fromStatus: "IN_MAINTENANCE",
+      toStatus: target,
+      referenceType: "MAINTENANCE",
+      referenceId: input.maintenanceId,
+      actorId: input.actorId,
+    },
   });
 }
 
