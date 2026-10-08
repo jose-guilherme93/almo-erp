@@ -48,7 +48,11 @@ env:
 jobs:
   build:
     name: Construir e publicar
-    runs-on: ubuntu-latest
+    # `ubuntu-24.04` explícito, não `ubuntu-latest`: o rótulo `latest` migra para
+    # Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de
+    # surpresa num workflow que publica produção. Trocar de imagem é decisão
+    # nossa, tomada aqui e testada — não um efeito colateral de data.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     outputs:
@@ -58,7 +62,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Definir a versão
         id: version
@@ -166,7 +170,11 @@ jobs:
     needs: build
     # Só release de verdade publica: `edge` é preview e tem o deploy manual.
     if: needs.build.outputs.is_release == 'true'
-    runs-on: ubuntu-latest
+    # `ubuntu-24.04` explícito, não `ubuntu-latest`: o rótulo `latest` migra para
+    # Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de
+    # surpresa num workflow que publica produção. Trocar de imagem é decisão
+    # nossa, tomada aqui e testada — não um efeito colateral de data.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:

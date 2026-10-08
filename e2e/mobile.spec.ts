@@ -24,8 +24,26 @@ test.describe("mobile 390px", () => {
       await loginAs(page, screen.user);
       await page.goto(screen.path);
 
-      // Espera o conteúdo principal renderizar antes de medir.
-      await page.waitForLoadState("networkidle");
+      // Espera **determinística**, não `networkidle`.
+      //
+      // `networkidle` significa "500 ms sem tráfego de rede". Num `next dev`, que
+      // mantém HMR, streaming de RSC e o SDK de erro, isso é uma condição que pode
+      // demorar ou simplesmente não chegar — e a medição acabava acontecendo num
+      // ponto indeterminado do layout. Era essa a causa dos testes flaky que
+      // apareciam em telas diferentes a cada execução: `stats.flaky` do relatório
+      // apontava um teste ora aqui, ora ali, sem padrão.
+      //
+      // O que a medição precisa é o conteúdo principal montado e as fontes
+      // carregadas (largura de texto depende delas). Duas animações de quadro
+      // depois disso assentam o layout.
+      await page.locator("main").first().waitFor({ state: "visible" });
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
 
       const overflow = await page.evaluate(() => {
         const root = document.documentElement;
