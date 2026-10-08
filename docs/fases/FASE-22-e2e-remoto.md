@@ -107,7 +107,37 @@ Duas regras nasceram disso:
 2. **Teto de tempo não é medição.** O que está medido é o setup: **48 s**, com os caches quentes.
    O tempo da suíte continua sem número, e a documentação diz isso em vez de inventar.
 
-### Quarta tentativa: a suíte passa, e o warm-up era o gargalo
+### O segundo gargalo: o job não encerrava
+
+Com o warm-up em 26 s e a suíte medida, o passo ainda batia o teto. Medindo **quando** cada teste
+aconteceu, e não somando durações, a resposta apareceu:
+
+| Momento | Horário |
+|---|---|
+| servidor sobe | 00:14:26 |
+| primeiro teste | 00:15:17 |
+| **último teste** | **00:19:50** |
+| passo termina (teto) | 00:38:55 |
+
+A suíte inteira — 103 cenários, todos passando — rodou em **4,5 min**. Depois disso, **19 minutos
+sem uma única linha**, até o teto matar o job. Não era lentidão: era o processo **não encerrando**.
+
+Confirmei que todos os testes reportaram (comparando a lista esperada com a que aparece no log),
+então o travamento é posterior a eles, no encerramento. E o log do runner já dizia isso desde a
+primeira execução, sem que eu entendesse o que era: `Terminate orphan process: (next-server)` no
+fim do job — o servidor sobreviveu ao Playwright.
+
+O conserto tira o servidor da mão do Playwright: o **workflow** sobe (`setsid`, sessão própria),
+espera ficar de pé, roda a suíte com `E2E_REUSE_SERVER=true` e mata o que sobrou num passo
+`always()`. O Playwright deixa de assinar o encerramento de um processo que não é dele.
+
+O `gracefulShutdown` fica declarado como segunda linha de defesa, para quando o Playwright **é**
+dono do servidor — o caso da execução local.
+
+O teto cai de 25 para **12 min**: mais que o dobro do medido, e um freio de tamanho honesto
+enquanto o encerramento não estiver confirmado no runner.
+
+### Terceira tentativa: a suíte passa, e o warm-up era o gargalo
 
 Com o `baseURL` corrigido, os testes rodaram — e o resultado foi **103 passando, zero falhando**.
 A leitura do tempo veio junto e contradisse o que eu vinha supondo:
@@ -137,8 +167,10 @@ problema que era um `await` dentro de um laço.
 - [x] Documentação-only não dispara (custa zero minuto).
 - [ ] Empurrar de novo cancela o run anterior em vez de enfileirar.
 - [x] **A suíte roda de verdade** — 103 cenários, todos passando.
-- [ ] Run completa **dentro do teto**, com o resumo impresso (a última morreu no teto já com os
-      103 aprovados, mas antes de o reporter fechar a conta).
+- [x] **A suíte inteira mede 4,5 min** — o teto nunca foi o problema.
+- [ ] O job **encerra sozinho**, com o resumo impresso (hoje trava ~19 min depois da suíte e só
+      acaba no teto). O servidor passou a ser do workflow; falta confirmar no runner.
+- [x] Teto reduzido de 25 para 12 min, para limitar o desperdício enquanto isso.
 - [x] Relatório disponível mesmo quando o job é cancelado.
 - [x] Lista de telas num lugar só, sem duplicar com `mobile.spec.ts`.
 - [x] Setup medido: 48 s com caches quentes.

@@ -67,12 +67,23 @@ export default defineConfig({
     // `build && start` no CI: isso nunca esteve ligado, e é proibido de qualquer
     // forma — o bypass de autenticação de teste só existe fora de produção
     // (`src/lib/env.ts`), e `next start` roda com `NODE_ENV=production`.
-    //
-    // A variável continua existindo para depurar contra um servidor já no ar,
-    // mas o padrão é — e tem de ser — desenvolvimento.
     command: process.env.E2E_WEB_SERVER_COMMAND ?? "pnpm dev",
+
+    // O padrão do Playwright já é `SIGKILL` no grupo de processos, e **não estava
+    // bastando**: depois de a suíte terminar (4,5 min, 103 verdes) o passo ficava
+    // 19 min em silêncio e só acabava no teto do job. O log do runner mostrou
+    // `Terminate orphan process: (next-server)` no encerramento — o servidor
+    // sobreviveu ao Playwright. Declarar o encerramento deixa sinal e prazo
+    // explícitos, com `SIGKILL` logo atrás para o que não morrer.
+    gracefulShutdown: {
+      signal: "SIGTERM",
+      timeout: 5_000,
+    },
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    // Quem sobe o servidor é o workflow (`e2e.yml`), e ele também é quem mata.
+    // Aqui só se reaproveita o que já está no ar — assinar o encerramento de um
+    // processo que não é nosso foi o que deixou o job 19 min pendurado.
+    reuseExistingServer: Boolean(process.env["E2E_REUSE_SERVER"]) || !process.env.CI,
     timeout: 120_000,
     stdout: "ignore",
     stderr: "pipe",

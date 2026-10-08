@@ -53,15 +53,13 @@ jobs:
 
     # Exceção documentada ao teto de 5 min de AGENTS.md §9.1.
     #
-    # O setup completo leva **48 s** com os caches quentes (medido), então ele não
-    # é o gargalo. O tempo da suíte em si **ainda não foi medido**: as primeiras
-    # execuções morreram no teto sem rodar um único teste, porque o `globalSetup`
-    # quebrava na primeira linha e levava a suíte junto.
+    # Medido no runner: setup 48 s, warm-up das telas 26 s, e a suíte inteira —
+    # 103 cenários — em **4,5 min**. O teto de 25 min existia quando eu supunha
+    # que a suíte não cabia; ela cabe com folga.
     #
-    # Este número é provisório, esperando a primeira execução que roda testes de
-    # verdade. O teto existe para o job não pendurar meia hora (já houve E2E de 40
-    # minutos), não como conclusão sobre a suíte.
-    timeout-minutes: 25
+    # Os 12 min são folga larga (mais que o dobro do medido) e servem de freio: se
+    # o encerramento voltar a pendurar, o desperdício é de 12 min, não de 25.
+    timeout-minutes: 12
 
     services:
       postgres:
@@ -134,10 +132,55 @@ jobs:
           echo "runner: $(nproc) vCPU, $(awk '/MemTotal/{printf "%.1f GiB", $2/1048576}' /proc/meminfo)"
           echo "E2E_WORKERS=$(nproc)" >> "$GITHUB_ENV"
 
+      - name: Subir o servidor de desenvolvimento
+        # O servidor é **nosso**, não do Playwright.
+        #
+        # Com o Playwright dono do processo, o job não encerrava: depois da suíte
+        # terminar (4,5 min, 103 verdes) o passo ficava ~19 min em silêncio e só
+        # acabava no teto. O log do runner já mostrava a causa desde a primeira
+        # execução — `Terminate orphan process: (next-server)` no fim do job: o
+        # servidor sobreviveu ao encerramento do Playwright.
+        #
+        # `setsid` põe o servidor na própria sessão, para que ele seja morto por
+        # inteiro depois, sem deixar órfão.
+        run: |
+          setsid nohup pnpm dev > /tmp/webserver.log 2>&1 < /dev/null &
+
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3001/login; then
+              echo "servidor de pé"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::o servidor não subiu em 120s"
+          tail -40 /tmp/webserver.log
+          exit 1
+        env:
+          E2E_AUTH_BYPASS: "true"
+
       - name: Rodar e2e
         run: pnpm e2e --project=chromium
         env:
           E2E_AUTH_BYPASS: "true"
+          # O servidor já está no ar (passo anterior): o Playwright usa o que
+          # existe e **não** assume o encerramento dele.
+          E2E_REUSE_SERVER: "true"
+
+      - name: Encerrar o servidor
+        # `always()`: roda mesmo com a suíte falhando, que é quando o servidor
+        # mais precisa morrer — e é quando o log dele mais importa.
+        if: ${{ always() }}
+        run: |
+          if [ "${{ job.status }}" != "success" ]; then
+            echo "--- últimas linhas do servidor ---"
+            tail -40 /tmp/webserver.log 2>/dev/null || true
+          fi
+
+          pkill -9 -f "next dev" || true
+          pkill -9 -f "next-server" || true
+          echo "servidor encerrado"
 
       - name: Publicar relatório do Playwright
         # `always()` e não `!cancelled()`: quando o job estoura o teto, o

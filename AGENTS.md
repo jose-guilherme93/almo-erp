@@ -401,10 +401,10 @@ agendados:
 Regras que valem para todos:
 
 - **Nenhum job passa de 5 minutos**, com **uma exceção documentada**: o `e2e` declara
-  `timeout-minutes: 25`. Medido no runner: o setup completo (instalar, migrar, gerar, semear,
-  instalar o Chromium) leva **48 s** com os caches quentes, e a suíte — **103 cenários, todos
-  passando** — soma ~33 min de trabalho, que com 4 workers dá ~8-10 min. O teto existe para o job
-  não pendurar meia hora (já houve E2E de 40 minutos), não como conclusão sobre a suíte.
+  `timeout-minutes: 12`. Medido no runner: setup **48 s**, warm-up das telas **26 s** e a suíte
+  inteira — **103 cenários, todos passando** — em **4,5 min**. O teto é mais que o dobro do medido,
+  e existe como freio: enquanto o encerramento do servidor estiver pendurando (ver §9.4), o
+  desperdício é de 12 min, não de 25.
 - **Custo é controlado por gatilho, não por economização.** O E2E dispara em `pull_request`
   (não em `push` livre: empurrar para branch várias vezes estoura a cota), ignora `docs/**` e
   `**.md`, e tem `concurrency` com `cancel-in-progress` — empurrar cinco vezes no mesmo PR
@@ -498,7 +498,16 @@ pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
 - **O relatório sobe com `always()`**, nunca `!cancelled()`: quando o job estoura o teto, o
   cancelamento é exatamente quando o relatório mais importa. Perder o diagnóstico foi o pior
   sintoma das primeiras execuções.
-- Cache dos navegadores no runner, `timeout-minutes: 25`, e `concurrency` com
+- **Quem sobe e quem mata o servidor é o workflow**, não o Playwright. O job não encerrava: depois
+  de a suíte terminar (4,5 min, 103 verdes) o passo ficava ~19 min em silêncio e só acabava no teto.
+  O log do runner mostrava a causa desde a primeira execução — `Terminate orphan process:
+  (next-server)` no fim do job: o servidor sobreviveu ao encerramento do Playwright, e o Playwright
+  esperava por ele. Agora o workflow sobe o servidor com `setsid` (sessão própria, para morrer
+  inteiro), espera ficar de pé, roda a suíte com `E2E_REUSE_SERVER=true` e mata o que sobrou num
+  passo `always()` — que também despeja o log do servidor quando a suíte falha.
+  Um job que não encerra é pior que um job lento: o sintoma ("não cabe no tempo") aponta para o
+  lugar errado, e eu passei três execuções culpando uma suíte que leva 4,5 min.
+- Cache dos navegadores no runner, `timeout-minutes: 12`, e `concurrency` com
   `cancel-in-progress` para que empurrar de novo não multiplique custo.
 
 ### 9.5 Erro é observável, e chega no celular
