@@ -81,9 +81,14 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["prisma/**/*.ts", "scripts/**/*.mts"],
+    files: ["prisma/**/*.ts", "scripts/**/*.mts", "e2e/**/*.ts"],
     rules: {
       // Script de CLI: a saída no terminal é a interface com o operador.
+      //
+      // O E2E entra junto pelo mesmo motivo: aqui não há logger estruturado, e a
+      // saída vai para o log do CI, que é onde quem está depurando olha. Medir o
+      // warm-up e vê-lo impresso é o que evita o problema que custou três
+      // execuções — um passo de setup que ninguém sabia quanto tempo levava.
       "no-console": "off",
     },
   },

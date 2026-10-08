@@ -86,6 +86,9 @@ problema por construção, em vez de administrá-lo.
 
 ### O erro que custou três execuções
 
+*(a primeira execução em que testes rodaram de verdade: **103 cenários, 103 passando, zero
+falhas** — obtida na quarta tentativa)*
+
 O `globalSetup` roda **fora** do contexto de teste e não herda o `use` da configuração.
 `browser.newPage()` sem `baseURL` não resolve URL relativa, então `page.goto("/login")` lançava
 `Cannot navigate to invalid URL` — e como o login estava **fora** do `try`, o `globalSetup` morria
@@ -103,6 +106,25 @@ Duas regras nasceram disso:
    diagnóstico impossível.
 2. **Teto de tempo não é medição.** O que está medido é o setup: **48 s**, com os caches quentes.
    O tempo da suíte continua sem número, e a documentação diz isso em vez de inventar.
+
+### Quarta tentativa: a suíte passa, e o warm-up era o gargalo
+
+Com o `baseURL` corrigido, os testes rodaram — e o resultado foi **103 passando, zero falhando**.
+A leitura do tempo veio junto e contradisse o que eu vinha supondo:
+
+| Medido | Valor |
+|---|---|
+| Testes | 103, todos passando |
+| Soma do trabalho dos testes | ~33 min → **~8-10 min** com 4 workers |
+| Tempo de parede do passo | **24,5 min** |
+
+A diferença de ~15 min tinha um único dono: o **warm-up que eu criei para economizar tempo**. Ele
+compilava 32 rotas **em série** e **renderizando cada tela no Chromium** — ~25 s por rota fria.
+Agora aquece por requisição HTTP, 4 em paralelo, e imprime o tempo gasto.
+
+A lição que fica: o gargalo era um passo que existia para resolver gargalo. Sem número medido, eu
+teria continuado a culpar a suíte e a considerar sharding — pagando 4× os minutos para resolver um
+problema que era um `await` dentro de um laço.
 - **Sharding.** Continua descartado enquanto o warm-up der conta: custa 3× os minutos, e cada
   shard paga o setup inteiro de novo.
 - **Diagnóstico preservado.** O relatório subia com `!cancelled()`, que é falso justamente no
@@ -114,10 +136,12 @@ Duas regras nasceram disso:
 - [x] PR aberto para `develop` dispara o workflow.
 - [x] Documentação-only não dispara (custa zero minuto).
 - [ ] Empurrar de novo cancela o run anterior em vez de enfileirar.
-- [ ] **A suíte roda de verdade** — nenhum teste executou no Actions até agora.
-- [ ] Run completa e passa, dentro do teto de 25 min.
+- [x] **A suíte roda de verdade** — 103 cenários, todos passando.
+- [ ] Run completa **dentro do teto**, com o resumo impresso (a última morreu no teto já com os
+      103 aprovados, mas antes de o reporter fechar a conta).
 - [x] Relatório disponível mesmo quando o job é cancelado.
 - [x] Lista de telas num lugar só, sem duplicar com `mobile.spec.ts`.
 - [x] Setup medido: 48 s com caches quentes.
-- [ ] Tempo real da suíte registrado, para decidir sharding com número.
+- [x] Tempo real dos testes registrado: ~8-10 min com 4 workers.
+- [ ] Tempo do warm-up registrado (o `console.log` já imprime; falta a próxima execução).
 - [x] `login-local.spec.ts` deixa de falhar por variável faltando no workflow.

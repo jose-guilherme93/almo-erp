@@ -401,11 +401,10 @@ agendados:
 Regras que valem para todos:
 
 - **Nenhum job passa de 5 minutos**, com **uma exceção documentada**: o `e2e` declara
-  `timeout-minutes: 25`. O que foi medido até agora: o setup completo (instalar, migrar, gerar,
-  semear, instalar o Chromium) leva **48 s** com os caches quentes — não é ele o gargalo. O tempo
-  da suíte em si **ainda não foi medido**: as primeiras execuções morreram no teto sem rodar um
-  único teste, por causa de um warm-up quebrado. O teto existe para o job não pendurar meia hora
-  (já houve E2E de 40 minutos), não como conclusão sobre a suíte.
+  `timeout-minutes: 25`. Medido no runner: o setup completo (instalar, migrar, gerar, semear,
+  instalar o Chromium) leva **48 s** com os caches quentes, e a suíte — **103 cenários, todos
+  passando** — soma ~33 min de trabalho, que com 4 workers dá ~8-10 min. O teto existe para o job
+  não pendurar meia hora (já houve E2E de 40 minutos), não como conclusão sobre a suíte.
 - **Custo é controlado por gatilho, não por economização.** O E2E dispara em `pull_request`
   (não em `push` livre: empurrar para branch várias vezes estoura a cota), ignora `docs/**` e
   `**.md`, e tem `concurrency` com `cancel-in-progress` — empurrar cinco vezes no mesmo PR
@@ -481,6 +480,14 @@ pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
   teste — lentidão que não é defeito de ninguém e que o `retries` então repete. A lista de telas
   mora em `e2e/helpers/routes.ts` e é a **fonte única**: `mobile.spec.ts` usa o perfil e o rótulo,
   o warm-up usa o caminho.
+- **O warm-up aquece por HTTP e em paralelo** (`context.request`, 4 por vez), não abrindo cada
+  tela no Chromium. O que compila a rota é a requisição; renderizar e executar o JavaScript dela
+  não compila nada a mais. A primeira versão era serial e renderizava — e virou ela mesma o
+  gargalo: ~25 s por rota fria, 32 rotas, mais de 10 minutos. Ele **imprime o tempo gasto**, para
+  que a próxima estimativa tenha número em vez de achismo.
+- **O warm-up depende do cookie da sessão** ser compartilhado entre a página e o `context.request`.
+  É o que faz o aquecimento valer: sem sessão, cada requisição é redirecionada para `/login` **sem
+  compilar a rota protegida** — o passo existiria, custaria tempo e não aqueceria nada.
 - **O warm-up não é fatal, mas não pode ser silencioso.** Ele é otimização: se falhar, os testes
   rodam assim mesmo — e o `console.warn` diz que falhou. Um warm-up quebrado derrubou a suíte
   inteira em três execuções, porque o `globalSetup` morria antes de qualquer teste e o sintoma
