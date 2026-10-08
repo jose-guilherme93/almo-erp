@@ -13,6 +13,27 @@
 - **O deploy da `v1.3.0` ainda não apareceu em produção** — `/api/health` responde `1.2.0`. Ver a
   pendência do Dokploy abaixo.
 
+## Entrega local — simplificação visual, menu e código automático
+
+Quatro frentes pedidas pelo dono do produto. Nenhuma muda regra de estoque, solicitação ou
+chamado — a de patrimônio ainda é **desenho, não código**.
+
+- **Escala +20%.** `html { font-size: 120% }` em `src/app/globals.css`. Como quase tudo no
+  Tailwind é `rem`, um ajuste na raiz escala junto texto, espaçamento e altura de campo/botão.
+  É o tamanho da interface resolvido num lugar só.
+- **Menu por tarefa, com Início no topo.** `src/lib/navigation.ts` ganhou o grupo **Início**,
+  sempre presente: a matriz vai para `/dashboard`, o admin de unidade para
+  `/dashboard/unidade/[sua filial]` e os demais para `/meu`. O antigo grupo **Avançado** foi
+  fundido em **Configurações** (no rodapé) e **Transferências** foi para **Insumo**.
+- **Código do material é sempre automático.** O campo de SKU saiu do formulário: `createItem`
+  gera pelo prefixo da categoria (`EPI-0007`) e `updateItem` não altera mais o código. Código de
+  identificação é do sistema, não escolha do operador (AGENTS §3.11).
+- **Patrimônio — FASE 23 (proposta).** `docs/fases/FASE-23-patrimonio.md` documenta as regras
+  confirmadas (dono = pessoa, com Almoxarifado como padrão; o bem nasce na entrada de item com
+  número de série; TI e almoxarifado enxergam o mesmo bem; histórico append-only). Restam três
+  **decisões abertas** antes de codar: o bem sai do saldo do estoque? etiqueta `PAT` global ou por
+  filial? controle por série sempre implica patrimônio? Ver o próprio arquivo.
+
 ## Entrega pronta, ainda não publicada — **CI/CD da imagem (GHCR)**
 
 Mergeada na `develop` (PR #12). **Não publicada de propósito:** o caminho de deploy depende de

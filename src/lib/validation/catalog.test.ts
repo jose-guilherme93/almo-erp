@@ -87,11 +87,12 @@ describe("itemSchema", () => {
     active: true,
   };
 
-  it("aceita item válido sem código (gerado depois)", () => {
+  it("aceita item válido — o código é gerado pelo servidor", () => {
     const result = itemSchema.safeParse(base);
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data.code).toBeUndefined();
+    // O schema nem expõe `code`: o identificador não é entrada do usuário.
+    if (result.success) expect("code" in result.data).toBe(false);
   });
 
   it("rejeita código de barras com dígito verificador errado", () => {

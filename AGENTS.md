@@ -301,16 +301,18 @@ Existem **três** dashboards, com audiência distinta. **Não misture.**
 | `/dashboard/unidade/[branchId]` | `ADMIN_FILIAL` (apenas a sua), `SUPER_ADMIN`, `ADMIN_MATRIZ` | fila de chamados da filial, pedidos aguardando aprovação, entregas pendentes, inventário em aberto, indicadores da filial |
 | `/meu` | qualquer usuário logado | minhas solicitações, status, histórico de entregas, perfil |
 
-O **menu lateral** é outra coisa e segue a ordem do trabalho, não o modelo de dados:
-**Ação** (aprovar, entregar, chamados abertos) → **Insumo** (entrada, ajuste, inventário) →
-**Consumo** (pedidos) → **Manutenção** (chamados) → **Monitoramento** (saldos, movimentações,
-relatórios) → **Configurações** (materiais, unidades, usuários) → **Avançado** (categorias,
-unidades de medida, transferências, papéis, políticas de e-mail, auditoria).
+O **menu lateral** segue a ordem do trabalho, não o modelo de dados:
+**Início** (o painel certo para quem entrou) → **Ação** (aprovar, entregar, chamados abertos) →
+**Insumo** (entrada, ajuste, transferências, inventário) → **Consumo** (pedidos) →
+**Manutenção** (abrir chamado) → **Monitoramento** (saldos, movimentações, relatórios) →
+**Configurações** (catálogo e administração, no rodapé).
 
-Regras do menu: item sem permissão **não aparece**; **transferência só aparece com 2+ unidades
-ativas** (numa instalação de uma só não há o que transferir); **nenhum endereço pode aparecer em
-dois grupos**; nada de roteiro de "primeiros passos" — a interface mostra o passo seguinte onde
-ele falta. Fonte: `src/lib/navigation.ts` e `docs/ARQUITETURA.md` §9.1.
+Regras do menu: item sem permissão **não aparece**; o **Início sempre existe** — a matriz vai para
+`/dashboard`, o admin da unidade para `/dashboard/unidade/[sua filial]` e os demais para `/meu`;
+**transferência só aparece com 2+ unidades ativas** (numa instalação de uma só não há o que
+transferir); **nenhum endereço pode aparecer em dois grupos**; nada de roteiro de "primeiros
+passos" — a interface mostra o passo seguinte onde ele falta. Fonte: `src/lib/navigation.ts` e
+`docs/ARQUITETURA.md` §9.1.
 
 Regras:
 

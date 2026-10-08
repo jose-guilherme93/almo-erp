@@ -126,6 +126,13 @@
   }
   html {
     @apply font-sans;
+    /*
+     * O almoxarife opera no balcão, muitas vezes no celular ou num monitor
+     * distante. A interface do shadcn nasce compacta; aqui a raiz sobe 20%
+     * (16px → 19,2px) e escala junto todo o `rem`: texto, espaçamento, altura
+     * de campo e botão. É o ajuste de tamanho num lugar só.
+     */
+    font-size: 120%;
   }
 }
 

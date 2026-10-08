@@ -202,7 +202,6 @@ describe.runIf(process.env["DATABASE_URL"])("geração de código", () => {
       requiresApproval: false,
       hasSerialControl: false,
       active: true,
-      code: undefined,
       barcode: undefined,
       description: undefined,
     });
@@ -232,7 +231,6 @@ describe.runIf(process.env["DATABASE_URL"])("criação", () => {
       ...base,
       categoryId: categoryWithApprovalId,
       unitId,
-      code: undefined,
     });
 
     const saved = await prisma.item.findUniqueOrThrow({ where: { id: item.id } });
@@ -245,7 +243,6 @@ describe.runIf(process.env["DATABASE_URL"])("criação", () => {
       ...base,
       categoryId,
       unitId,
-      code: undefined,
       barcode: TEST_BARCODES.a,
     });
 
@@ -255,7 +252,6 @@ describe.runIf(process.env["DATABASE_URL"])("criação", () => {
         name: "Outro material",
         categoryId,
         unitId,
-        code: undefined,
         barcode: TEST_BARCODES.a,
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -266,7 +262,6 @@ describe.runIf(process.env["DATABASE_URL"])("criação", () => {
       ...base,
       categoryId,
       unitId,
-      code: undefined,
       barcode: TEST_BARCODES.b,
     });
 
@@ -348,7 +343,6 @@ describe.runIf(process.env["DATABASE_URL"])("política de estoque", () => {
       requiresApproval: false,
       hasSerialControl: false,
       active: true,
-      code: undefined,
       barcode: undefined,
       description: undefined,
     });
@@ -380,7 +374,6 @@ describe.runIf(process.env["DATABASE_URL"])("política de estoque", () => {
       requiresApproval: false,
       hasSerialControl: false,
       active: true,
-      code: undefined,
       barcode: undefined,
       description: undefined,
     });
@@ -417,7 +410,6 @@ describe.runIf(process.env["DATABASE_URL"])("desativação", () => {
       requiresApproval: false,
       hasSerialControl: false,
       active: true,
-      code: undefined,
       barcode: undefined,
       description: undefined,
     });
@@ -452,7 +444,6 @@ describe.runIf(process.env["DATABASE_URL"])("desativação", () => {
       requiresApproval: false,
       hasSerialControl: false,
       active: true,
-      code: undefined,
       barcode: undefined,
       description: undefined,
     });
@@ -480,7 +471,6 @@ describe.runIf(process.env["DATABASE_URL"])("busca", () => {
       requiresApproval: false,
       hasSerialControl: false,
       active: true,
-      code: undefined,
       barcode: undefined,
       description: undefined,
     });
@@ -503,7 +493,6 @@ describe.runIf(process.env["DATABASE_URL"])("busca", () => {
       requiresApproval: false,
       hasSerialControl: false,
       active: true,
-      code: undefined,
       barcode: undefined,
       description: undefined,
     });

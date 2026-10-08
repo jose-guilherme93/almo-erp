@@ -103,14 +103,10 @@ export const updateCategorySchema = categorySchema.extend({
 
 export const itemSchema = z
   .object({
-    code: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .max(30)
-      .regex(/^[A-Z0-9][A-Z0-9.-]*$/, "Use apenas letras, números, ponto e hífen.")
-      .optional()
-      .transform((value) => (value === "" ? undefined : value)),
+    // Sem `code`: o identificador do material é sempre gerado pelo servidor a
+    // partir do prefixo da categoria (`EPI-0007`). Ninguém digita código de
+    // item — a única exceção são os códigos de categoria e unidade de medida,
+    // que são tabelas de referência curtas e controladas pelo administrador.
     barcode: barcodeField,
     name: nameField("Nome", 160),
     description: optionalText(600),
@@ -153,13 +149,7 @@ export type ItemQuickInput = z.infer<typeof itemQuickSchema>;
 export const itemUpdateSchema = z
   .object({
     itemId: z.string().trim().min(1),
-    code: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .min(1, "Código é obrigatório.")
-      .max(30)
-      .regex(/^[A-Z0-9][A-Z0-9.-]*$/, "Use apenas letras, números, ponto e hífen."),
+    // O `code` é gerado pelo servidor e imutável — não é campo de edição.
     barcode: barcodeField,
     name: nameField("Nome", 160),
     description: optionalText(600),
