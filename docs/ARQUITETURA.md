@@ -408,6 +408,10 @@ Regras (FASE 23):
   `MaintenanceRequest.assetId` e o bem entra em `IN_MAINTENANCE`; concluir, recusar ou cancelar o
   chamado o **devolve ao estado anterior** (em posse, se estava com alguém; senão, ao
   almoxarifado). Texto que não corresponde a bem nenhum continua sendo só anotação.
+- **O bem muda de unidade pelo almoxarifado.** A ficha do bem transfere para o almoxarifado de
+  outra unidade (`Asset.branchId` muda, o bem volta a `IN_STOCK` e o responsável é limpo): só um
+  bem **no almoxarifado** se transfere — um bem em posse de alguém precisa ser devolvido antes. O
+  evento `TRANSFERRED` guarda de onde para onde, e a unidade de destino é avisada.
 
 Telas: `/patrimonio` (lista com filtros, inclusive "sem responsável") e `/patrimonio/[id]`
 (ficha, responsável, local, estado e histórico). No chamado, a etiqueta vira link para a ficha do
@@ -495,6 +499,9 @@ Fonte única: `src/server/services/notificacao/rules.ts`. Cada tipo declara o re
 | `ACCESS_GRANTED` | o próprio usuário |
 | `DELEGATION_REQUESTED` | usuários do setor de destino **na filial da demanda** |
 | `DELEGATION_ACCEPTED` / `COMPLETED` / `RETURNED` | usuários do setor de origem **na filial da demanda** |
+| `ASSET_ASSIGNED` | o responsável que passa a deter o bem |
+| `ASSET_RETURNED` | o responsável anterior (quem devolveu) |
+| `ASSET_TRANSFERRED` | quem tem `patrimonio:manage` **na filial de destino** |
 
 Regras comuns:
 

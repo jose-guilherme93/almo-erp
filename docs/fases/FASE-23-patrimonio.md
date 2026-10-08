@@ -104,7 +104,7 @@ padrão continua gerando bem.
 | Permissão | Papéis | O quê |
 |---|---|---|
 | `patrimonio:read` | ALMOXARIFE, ADMIN_FILIAL, TI, GESTOR, matriz | ver os bens do escopo e o histórico |
-| `patrimonio:manage` | ALMOXARIFE, ADMIN_FILIAL, TI | cadastrar, atribuir responsável, devolver, baixar |
+| `patrimonio:manage` | ALMOXARIFE, ADMIN_FILIAL, TI | cadastrar, atribuir responsável, devolver, baixar e transferir de unidade |
 
 A T.I. entra com `manage` por ser quem repara e devolve equipamento; o almoxarifado, por ser o
 dono padrão.
@@ -123,6 +123,9 @@ dono padrão.
    O técnico vê a etiqueta como link para a ficha do bem.
 5. **Baixa.** `RETIRED` exige justificativa e gera evento; o bem sai das listas operacionais.
    Só aqui, se um dia a operação pedir, entra um `ISSUE` de verdade.
+6. **Transferência de unidade.** A ficha do bem o transfere para o almoxarifado de outra unidade:
+   `Asset.branchId` muda, o bem volta a `IN_STOCK` e o responsável é limpo (posse não viaja com o
+   bem). Só bem no almoxarifado se transfere; a unidade de destino é notificada.
 
 ## Telas
 
@@ -145,14 +148,16 @@ dono padrão.
       `AssetEvent` e notifica (atribuição e devolução).
 - [x] Abrir chamado com a etiqueta de um bem cadastrado põe o bem em `IN_MAINTENANCE`; concluir,
       recusar ou cancelar o devolve ao estado anterior (testado).
+- [x] Transferir o bem para outra unidade (só de `IN_STOCK`), com evento `TRANSFERRED` e
+      notificação ao destino (testado, inclusive destino fora do escopo).
 - [x] Toda query filtrada por filial (`branchFilter`, §3.2).
 - [x] Testes: criação na entrada, atribuição/devolução, transições válidas e inválidas, escopo,
       histórico imutável e não-alteração de saldo (`patrimonio.test.ts`, 21 casos).
 - [x] `docs/ARQUITETURA.md` (§5.6) e `AGENTS.md` (navegação) atualizados.
 
-## Fora do escopo desta entrega
+## Escopo fechado
 
-- **Transferência de bem entre unidades**: o bem é da filial; mover entre unidades exigirá
-  reconciliar o `Asset` com a transferência de estoque.
-
-O **vínculo do chamado ao bem** (`MaintenanceRequest.assetId`) já está implementado: ver o fluxo 4.
+O **vínculo do chamado ao bem** (fluxo 4) e a **transferência de unidade** (fluxo 6) já estão
+implementados. A transferência de um bem **não** movimenta o saldo do material: o estoque tem o
+seu próprio fluxo de transferência, e reconciliar os dois — a transferência carregar as séries dos
+bens — fica como evolução se a operação vier a precisar.
