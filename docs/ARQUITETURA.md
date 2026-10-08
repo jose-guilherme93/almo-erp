@@ -365,6 +365,11 @@ gerado pelo servidor a partir do prefixo da categoria (`GERAL-0001`). Tudo o que
 preenche (preço, descrição, lote, validade, série) fica no padrão e é editável depois na tela do
 material.
 
+O **código do material nunca é digitado**, em nenhum caminho: não é campo de formulário e o
+servidor ignora qualquer valor enviado. É sempre gerado a partir do prefixo da categoria
+(`EPI-0007`), e a tela o mostra como texto somente-leitura. Código de identificação é do sistema,
+não escolha do operador.
+
 Categoria "Geral" **não exige aprovação**: o pedido continua passando pela fila de quem responde
 (§3.5), só sem um clique extra de portão.
 
@@ -552,26 +557,30 @@ link.
 ### 9.1 Navegação por tarefa
 
 O menu lateral (`src/lib/navigation.ts`) não segue o modelo de dados nem ordem alfabética:
-segue a ordem em que o trabalho acontece. Grupos, na ordem em que aparecem:
+segue a ordem em que o trabalho acontece. O **Início** fica no topo e as Configurações no rodapé.
+Grupos, na ordem em que aparecem:
 
 | Grupo | Itens |
 |---|---|
+| **Início** | Dashboard (rede, unidade ou painel pessoal, conforme o escopo) |
 | **Ação** | Aprovar pedidos · Entregar · Chamados abertos |
-| **Insumo** | Registrar entrada · Ajustes · Inventário |
+| **Insumo** | Registrar entrada · Ajustes · Transferências · Inventário |
 | **Consumo** | Pedidos de material · Fazer um pedido |
-| **Manutenção** | Abrir chamado · Meus chamados |
-| **Monitoramento** | Saldos · Movimentações · Relatórios · Dashboard (só rede) |
-| **Configurações** | Materiais · Unidades · Usuários |
-| **Avançado** | Transferências · Categorias · Unidades de medida · Perfis · Políticas de e-mail · Auditoria |
+| **Manutenção** | Abrir chamado |
+| **Monitoramento** | Saldos · Movimentações · Relatórios |
+| **Configurações** | Materiais · Unidades · Categorias · Unidades de medida · Usuários · Perfis e permissões · Políticas de e-mail · Auditoria · Erros |
 
 Regras de exibição:
 
-- Todo item declara uma permissão mínima e **não aparece** sem ela (UX; a decisão real é do
-  servidor).
+- Todo item que exige permissão **não aparece** sem ela (UX; a decisão real é do servidor). O
+  painel pessoal (`/meu`) não exige permissão.
+- O **Início sempre existe**: a matriz vai para `/dashboard`, o admin da unidade para
+  `/dashboard/unidade/[sua filial]` (quando tem `solicitacao:approve`) e os demais para `/meu`.
 - **Transferências só aparece com 2+ unidades ativas.** Numa instalação de uma unidade só não há
   o que transferir, e o item vira ruído.
 - Nenhum `href` aparece em dois grupos — o mesmo endereço repetido é ruído.
-- Telas de ajuste raro (Avançado) continuam acessíveis por URL e pelos links das próprias telas.
+- As Configurações reúnem catálogo e administração; telas de ajuste raro continuam acessíveis por
+  URL e pelos links das próprias telas.
 
 ---
 
@@ -662,6 +671,10 @@ dispatchIncident ─────┼─ better-stack   SDK do Sentry apontado par
                       └─ otel           pronto, desligado: é o caminho do Grafana
 ```
 
+Quem chama `dispatchIncident`: `onRequestError`, `runAction`, os guards de processo, o relato de
+cliente e — desde a FASE 24 — a ponte de `logger.error`, que fecha a última porta por onde um erro
+só existia no stdout.
+
 | Peça | Papel |
 |---|---|
 | `observability/index.ts` | tipo `Incident`, contrato `IncidentSink`, `dispatchIncident` |
@@ -672,7 +685,7 @@ dispatchIncident ─────┼─ better-stack   SDK do Sentry apontado par
 | `observability/report.ts`, `process-guards.ts` | relato de requisição e de erro fatal de processo |
 | `sink-error-log.ts`, `sink-sentry.ts`, `sink-otel.ts` | um arquivo por destino |
 
-Cinco decisões que não são óbvias:
+Cinco decisões que não são óbvias (a FASE 24 acrescentou a ponte de `logger.error`):
 
 - **A captação não conhece os destinos.** Por isso trocar de fornecedor — inclusive para um Grafana
   na própria VPS — é mudar variável de ambiente. O destino OTLP já está escrito e desligado, com

@@ -29,7 +29,11 @@ env:
 jobs:
   quality:
     name: Qualidade (lint, tipos, testes, build)
-    runs-on: ubuntu-latest
+    # `ubuntu-24.04` explícito, não `ubuntu-latest`: o rótulo `latest` migra para
+    # Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de
+    # surpresa num workflow que publica produção. Trocar de imagem é decisão
+    # nossa, tomada aqui e testada — não um efeito colateral de data.
+    runs-on: ubuntu-24.04
     # REGRA: nenhum job de CI passa de 5 minutos. O teto é o próprio contrato:
     # se estourar, falha rápido em vez de pendurar por 30.
     timeout-minutes: 5
@@ -51,13 +55,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Configurar Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm

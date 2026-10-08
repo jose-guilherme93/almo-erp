@@ -1,7 +1,35 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { loginAs, TEST_USERS } from "./helpers/auth";
 import { APP_ROUTES } from "./helpers/routes";
+
+/**
+ * Espera a URL parar de mudar.
+ *
+ * Algumas rotas terminam num `redirect()` do servidor que o Next aplica no
+ * cliente **depois** do primeiro paint (ex.: `/dashboard/unidade/x` →
+ * `/forbidden`, porque a filial não está no escopo). Medir nesse intervalo
+ * derruba o `page.evaluate` com "Execution context was destroyed, most likely
+ * because of a navigation" — que foi a falha real do runner, não a do layout.
+ *
+ * A espera é por **condição** (a URL ficou estável), não `networkidle`: só o
+ * redirect pendente interessa, e ele se resolve em poucas centenas de ms.
+ */
+async function waitForUrlToSettle(page: Page): Promise<void> {
+  let previous = page.url();
+  let stable = 0;
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await page.waitForTimeout(100);
+    const current = page.url();
+
+    stable = current === previous ? stable + 1 : 0;
+    previous = current;
+
+    // 300 ms estável: se havia redirect pendente, ele já apareceu.
+    if (stable >= 3) return;
+  }
+}
 
 /**
  * Responsividade para uso no celular.
@@ -24,8 +52,30 @@ test.describe("mobile 390px", () => {
       await loginAs(page, screen.user);
       await page.goto(screen.path);
 
-      // Espera o conteúdo principal renderizar antes de medir.
-      await page.waitForLoadState("networkidle");
+      // O redirect pendente (quando há) precisa terminar antes de medirmos, ou o
+      // `page.evaluate` cai num contexto que a navegação já destruiu.
+      await waitForUrlToSettle(page);
+
+      // Espera **determinística**, não `networkidle`.
+      //
+      // `networkidle` significa "500 ms sem tráfego de rede". Num `next dev`, que
+      // mantém HMR, streaming de RSC e o SDK de erro, isso é uma condição que pode
+      // demorar ou simplesmente não chegar — e a medição acabava acontecendo num
+      // ponto indeterminado do layout. Era essa a causa dos testes flaky que
+      // apareciam em telas diferentes a cada execução: `stats.flaky` do relatório
+      // apontava um teste ora aqui, ora ali, sem padrão.
+      //
+      // O que a medição precisa é o conteúdo principal montado e as fontes
+      // carregadas (largura de texto depende delas). Duas animações de quadro
+      // depois disso assentam o layout.
+      await page.locator("main").first().waitFor({ state: "visible" });
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
 
       const overflow = await page.evaluate(() => {
         const root = document.documentElement;

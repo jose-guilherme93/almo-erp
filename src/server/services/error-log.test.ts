@@ -135,6 +135,8 @@ describe("isIgnorableError", () => {
 
   it("não confunde palavra abort dentro de frase de erro", () => {
     expect(isIgnorableError("O pedido foi abortado pelo usuário no meio")).toBe(false);
+    // Um erro que **começa** com "Aborted" não é cancelamento de navegação.
+    expect(isIgnorableError("Aborted: cannot save item 5")).toBe(false);
   });
 });
 
@@ -283,7 +285,7 @@ describe.runIf(process.env["DATABASE_URL"])("resolução", () => {
   it("marca como resolvido e tira da lista de abertos", async () => {
     const created = await recordServerError(report({ routePath: `${TEST_PREFIX}g` }));
 
-    if (created.outcome === "skipped") return;
+    if (created.outcome !== "created") return;
 
     await resolveErrorLog(created.id, actorId);
 
@@ -296,7 +298,7 @@ describe.runIf(process.env["DATABASE_URL"])("resolução", () => {
   it("reabre um erro resolvido", async () => {
     const created = await recordServerError(report({ routePath: `${TEST_PREFIX}h` }));
 
-    if (created.outcome === "skipped") return;
+    if (created.outcome !== "created") return;
 
     await resolveErrorLog(created.id, actorId);
     await reopenErrorLog(created.id);
@@ -309,7 +311,7 @@ describe.runIf(process.env["DATABASE_URL"])("resolução", () => {
   it("resolver duas vezes não muda o marcador original", async () => {
     const created = await recordServerError(report({ routePath: `${TEST_PREFIX}i` }));
 
-    if (created.outcome === "skipped") return;
+    if (created.outcome !== "created") return;
 
     await resolveErrorLog(created.id, actorId);
     const first = await prisma.errorLog.findUniqueOrThrow({ where: { id: created.id } });
@@ -331,6 +333,18 @@ describe.runIf(process.env["DATABASE_URL"])("listagem", () => {
     expect(result.items[0]?.digest).toBe("unic-digest-9");
   });
 
+  it("filtra pelo id, que é o que o link da notificação usa", async () => {
+    const created = await recordServerError(report({ routePath: `${TEST_PREFIX}id` }));
+
+    if (created.outcome !== "created") return;
+
+    const result = await listErrorLogs({ search: created.id });
+
+    // Sem isto, quem recebe a notificação e clica cai numa tela dizendo que não
+    // há erro nenhum — o sintoma que motivou o fix.
+    expect(result.items.map((item) => item.id)).toContain(created.id);
+  });
+
   it("filtra por rota", async () => {
     await recordServerError(report({ routePath: `${TEST_PREFIX}k` }));
 
@@ -342,7 +356,7 @@ describe.runIf(process.env["DATABASE_URL"])("listagem", () => {
   it("só devolve abertos quando pedido", async () => {
     const created = await recordServerError(report({ routePath: `${TEST_PREFIX}l` }));
 
-    if (created.outcome === "skipped") return;
+    if (created.outcome !== "created") return;
 
     await resolveErrorLog(created.id, actorId);
 

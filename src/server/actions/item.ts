@@ -43,7 +43,6 @@ function readItemForm(formData: FormData) {
   const values = formDataToValues(formData);
 
   return {
-    code: readText(values, "code"),
     barcode: readText(values, "barcode"),
     name: readText(values, "name"),
     description: readText(values, "description"),

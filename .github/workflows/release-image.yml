@@ -1,0 +1,242 @@
+name: Release da imagem (GHCR)
+
+# A imagem de produção é construída **aqui**, não na VPS.
+#
+# Antes, o Dokploy clonava o repositório e buildava no servidor: um `next build`
+# com `pnpm install` numa VPS de 2 vCPU que já está servindo o ERP. O build
+# competia com a aplicação, e a máquina pagava por ele em toda release.
+#
+# Agora a VPS só **puxa** a imagem pronta. O runner do GitHub tem 4 vCPU e é
+# descartável — e o cache do GHA evita reconstruir as camadas de dependência.
+#
+# ## Por que o deploy é disparado daqui
+#
+# O Dokploy desta instalação vive **atrás do Tailscale** (ver `docs/DEPLOY.md`).
+# Nada na internet consegue alcançá-lo, então nem o webhook do GitHub nem o do
+# Docker Hub funcionam. A saída é o runner entrar na tailnet como nó **efêmero**
+# e chamar a API por dentro — a ACL limita essa tag a alcançar só o Dokploy.
+on:
+  push:
+    tags:
+      - "v*"
+  # Manual, para publicar a imagem do preview (`edge`) a partir da `develop`.
+  # Não roda sozinho: preview é demonstração, e build automático a cada push na
+  # `develop` consumiria minutos sem ninguém pedir.
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag da imagem (padrão: versão da tag, ou `edge` fora de tag)"
+        required: false
+        default: ""
+
+# Um deploy nunca é cancelado no meio: a imagem já foi publicada e o container
+# pode estar trocando. `cancel-in-progress` aqui deixaria a produção num estado
+# que ninguém sabe qual é.
+concurrency:
+  group: release-image-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Necessário para publicar no GHCR com o `GITHUB_TOKEN` — sem segredo extra.
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    name: Construir e publicar
+    # `ubuntu-24.04` explícito, não `ubuntu-latest`: o rótulo `latest` migra para
+    # Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de
+    # surpresa num workflow que publica produção. Trocar de imagem é decisão
+    # nossa, tomada aqui e testada — não um efeito colateral de data.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      tags: ${{ steps.version.outputs.tags }}
+      is_release: ${{ steps.version.outputs.is_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Definir a versão
+        id: version
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            tag="${{ inputs.image_tag }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+          else
+            tag="edge"
+          fi
+
+          # `is_release` decide duas coisas: se `:latest` acompanha, e se o deploy
+          # é disparado. Só vale para a release de verdade — tag `v*` empurrada
+          # pelo `release:publish`, **sem** input manual. Publicação manual nunca
+          # move `latest` nem deploya sozinha: um `latest` que se move por engano
+          # é o que faz produção puxar o que não devia.
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]] && [ -z "${{ inputs.image_tag }}" ]; then
+            is_release=true
+          else
+            is_release=false
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "is_release=${is_release}" >> "$GITHUB_OUTPUT"
+
+          # A lista de tags é montada aqui, e não com um ternário no `with:` do
+          # build-push: o ternário produz linha **vazia** quando não é release, e
+          # uma tag vazia faz o build falhar.
+          {
+            echo "tags<<FIM"
+            echo "${IMAGE}:${tag}"
+            if [ "${is_release}" = "true" ]; then
+              echo "${IMAGE}:latest"
+            fi
+            echo "FIM"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "versão da imagem: ${tag} (release: ${is_release})"
+
+      - name: Conferir a configuração
+        # Duas checagens, e as duas são sobre falhar **antes** de gastar o build.
+        #
+        # 1. `NEXT_PUBLIC_APP_URL` é o alvo da conferência de health no job de
+        #    deploy. Sem ela, o deploy aconteceria e ninguém verificaria — o que é
+        #    pior que não deployar.
+        # 2. Um `NEXT_PUBLIC_*` vazio não falha o build: ele congela o padrão do
+        #    `Dockerfile` dentro da imagem. Foi assim que a produção passou a
+        #    responder `1.2.0+unknown`.
+        #
+        # O **único** `NEXT_PUBLIC_*` que o navegador lê direto é o
+        # `NEXT_PUBLIC_SENTRY_DSN` (em `sentry.client.config.ts`). O
+        # `GOOGLE_CLIENT_ID` é lido no servidor e passado como prop — é runtime,
+        # não build arg.
+        env:
+          APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
+        run: |
+          if [ -z "${APP_URL}" ]; then
+            echo "::error::A variável NEXT_PUBLIC_APP_URL não está definida no repositório."
+            echo "Settings → Secrets and variables → Actions → Variables."
+            echo "Ela é o alvo da conferência de health depois do deploy."
+            exit 1
+          fi
+
+          echo "alvo da conferência: ${APP_URL}"
+
+      - name: Configurar o Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Entrar no GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir e publicar
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          # Só amd64: é o que a VPS roda. Adicionar arm64 exigiria QEMU e
+          # multiplicaria o tempo de build sem servir a ninguém.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.version.outputs.tags }}
+          # Só o que o build realmente consome. `GOOGLE_CLIENT_ID` **não** entra:
+          # ele é lido no servidor e passado como prop, então é variável de
+          # runtime no Dokploy — mandá-lo como build arg daria a impressão de que
+          # é congelado.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+          # O cache de camadas é o que torna o build barato: sem ele, cada release
+          # reinstala as dependências e recompila tudo do zero.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
+
+  deploy:
+    name: Publicar no Dokploy e conferir
+    needs: build
+    # Só release de verdade publica: `edge` é preview e tem o deploy manual.
+    if: needs.build.outputs.is_release == 'true'
+    # `ubuntu-24.04` explícito, não `ubuntu-latest`: o rótulo `latest` migra para
+    # Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de
+    # surpresa num workflow que publica produção. Trocar de imagem é decisão
+    # nossa, tomada aqui e testada — não um efeito colateral de data.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Entrar na tailnet
+        # Nó **efêmero**: entra para esta chamada e sai. A tag `tag:ci` existe para
+        # a ACL conseguir dizer "este nó só alcança o Dokploy, nesta porta".
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Disparar o deploy
+        env:
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          APPLICATION_ID: ${{ vars.DOKPLOY_APPLICATION_ID }}
+        run: |
+          if [ -z "${DOKPLOY_URL}" ] || [ -z "${DOKPLOY_API_KEY}" ] || [ -z "${APPLICATION_ID}" ]; then
+            echo "::error::Faltam DOKPLOY_URL / DOKPLOY_API_KEY / DOKPLOY_APPLICATION_ID (ver docs/DEPLOY.md)."
+            exit 1
+          fi
+
+          echo "disparando deploy da versão ${{ needs.build.outputs.tag }}"
+
+          # `--retry` porque a tailnet acabou de subir e a primeira conexão pode
+          # perder a corrida com o roteamento.
+          curl -fsS --retry 5 --retry-all-errors --retry-delay 5 \
+            -X POST "${DOKPLOY_URL}/api/application.deploy" \
+            -H "accept: application/json" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"applicationId\":\"${APPLICATION_ID}\"}"
+
+      - name: Conferir que a versão nova está no ar
+        # O passo que faltava. Sem ele, um deploy que **não acontece** passa
+        # silenciosamente — foi o que deixou a produção servindo `1.2.0` depois da
+        # release da `1.3.0`, sem ninguém perceber até alguém perguntar.
+        #
+        # A verificação é pelo `/api/health`, que é público: a aplicação continua
+        # acessível pela internet mesmo com o painel do Dokploy só na tailnet.
+        env:
+          APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
+          VERSION: ${{ needs.build.outputs.tag }}
+        run: |
+          echo "esperando ${APP_URL} responder a versão ${VERSION}…"
+
+          for tentativa in $(seq 1 40); do
+            atual="$(curl -fsS -m 10 "${APP_URL}/api/health" 2>/dev/null | jq -r '.version // empty' || true)"
+
+            case "${atual}" in
+              "${VERSION}"*)
+                echo "no ar: ${atual}"
+                exit 0
+                ;;
+            esac
+
+            echo "  [${tentativa}/40] ainda em '${atual:-sem resposta}'"
+            sleep 15
+          done
+
+          echo "::error::O deploy não chegou na versão ${VERSION} em 10 minutos."
+          echo "Verifique em Dokploy → Application → Deployments se o deploy foi aceito,"
+          echo "e se a imagem ${IMAGE:-}:${VERSION} foi publicada."
+          exit 1

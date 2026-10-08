@@ -5,8 +5,10 @@ export default function AppLoading() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
       <div className="space-y-2">
-        <Skeleton className="h-8 w-56" />
-        <Skeleton className="h-4 w-80" />
+        {/* `max-w-full`: a largura fixa em `rem` não pode estourar a viewport
+            quando a raiz cresce (celular do balcão). */}
+        <Skeleton className="h-8 w-56 max-w-full" />
+        <Skeleton className="h-4 w-80 max-w-full" />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

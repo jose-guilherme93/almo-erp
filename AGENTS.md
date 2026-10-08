@@ -301,16 +301,18 @@ Existem **três** dashboards, com audiência distinta. **Não misture.**
 | `/dashboard/unidade/[branchId]` | `ADMIN_FILIAL` (apenas a sua), `SUPER_ADMIN`, `ADMIN_MATRIZ` | fila de chamados da filial, pedidos aguardando aprovação, entregas pendentes, inventário em aberto, indicadores da filial |
 | `/meu` | qualquer usuário logado | minhas solicitações, status, histórico de entregas, perfil |
 
-O **menu lateral** é outra coisa e segue a ordem do trabalho, não o modelo de dados:
-**Ação** (aprovar, entregar, chamados abertos) → **Insumo** (entrada, ajuste, inventário) →
-**Consumo** (pedidos) → **Manutenção** (chamados) → **Monitoramento** (saldos, movimentações,
-relatórios) → **Configurações** (materiais, unidades, usuários) → **Avançado** (categorias,
-unidades de medida, transferências, papéis, políticas de e-mail, auditoria).
+O **menu lateral** segue a ordem do trabalho, não o modelo de dados:
+**Início** (o painel certo para quem entrou) → **Ação** (aprovar, entregar, chamados abertos) →
+**Insumo** (entrada, ajuste, transferências, inventário) → **Consumo** (pedidos) →
+**Manutenção** (abrir chamado) → **Monitoramento** (saldos, movimentações, relatórios) →
+**Configurações** (catálogo e administração, no rodapé).
 
-Regras do menu: item sem permissão **não aparece**; **transferência só aparece com 2+ unidades
-ativas** (numa instalação de uma só não há o que transferir); **nenhum endereço pode aparecer em
-dois grupos**; nada de roteiro de "primeiros passos" — a interface mostra o passo seguinte onde
-ele falta. Fonte: `src/lib/navigation.ts` e `docs/ARQUITETURA.md` §9.1.
+Regras do menu: item sem permissão **não aparece**; o **Início sempre existe** — a matriz vai para
+`/dashboard`, o admin da unidade para `/dashboard/unidade/[sua filial]` e os demais para `/meu`;
+**transferência só aparece com 2+ unidades ativas** (numa instalação de uma só não há o que
+transferir); **nenhum endereço pode aparecer em dois grupos**; nada de roteiro de "primeiros
+passos" — a interface mostra o passo seguinte onde ele falta. Fonte: `src/lib/navigation.ts` e
+`docs/ARQUITETURA.md` §9.1.
 
 Regras:
 
@@ -395,20 +397,32 @@ agendados:
 | Workflow | Quando roda | Para quê |
 |---|---|---|
 | `e2e.yml` | **a cada PR** para `develop` e `main` | a prova de ponta a ponta pela interface |
+| `release-image.yml` | **a cada tag `v*`** (e à mão, para o preview) | constrói a imagem, publica no GHCR, dispara o deploy e confere que subiu |
 | `ci.yml` | à mão | segunda opinião de ambiente (ex.: antes de uma release, ou depois de mexer no Postgres) |
 | `backup.yml` | agendado | cópia cifrada do banco para fora da VPS |
 
 Regras que valem para todos:
 
-- **Nenhum job passa de 5 minutos**, com **uma exceção documentada**: o `e2e` declara
-  `timeout-minutes: 12`. Medido no runner: setup **48 s**, warm-up das telas **26 s** e a suíte
-  inteira — **103 cenários, todos passando** — em **4,5 min**. O teto é mais que o dobro do medido,
-  e existe como freio: enquanto o encerramento do servidor estiver pendurando (ver §9.4), o
-  desperdício é de 12 min, não de 25.
+- **Nenhum job passa de 5 minutos**, com **exceções documentadas**: o `e2e` declara
+  `timeout-minutes: 12`; o `release-image` declara 20 (build) e 15 (deploy + conferência), porque
+  construir a imagem e esperar a produção subir não cabem em 5 — e são passos que rodam uma vez
+  por versão, não a cada PR. Medido no runner: setup **48 s**, warm-up das telas **26 s** e a suíte
+  inteira — **103 cenários, todos passando** — em **4,5 min**. O teto do E2E é mais que o dobro do
+  medido: é freio, não estimativa.
 - **Custo é controlado por gatilho, não por economização.** O E2E dispara em `pull_request`
   (não em `push` livre: empurrar para branch várias vezes estoura a cota), ignora `docs/**` e
   `**.md`, e tem `concurrency` com `cancel-in-progress` — empurrar cinco vezes no mesmo PR
   custa **um** run, não cinco.
+- **O runner é fixado (`ubuntu-24.04`), não `ubuntu-latest`.** O rótulo `latest` migra para
+  Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de surpresa num workflow que
+  publica produção. Trocar de imagem é decisão nossa, testada — não efeito colateral de data.
+- **Actions sempre no major atual.** `actions/*` desatualizadas passam a rodar forçadas num Node
+  mais novo e emitem aviso de deprecação; o aviso vira quebra quando o runner muda. Conferir o
+  major antes de escrever um `uses:` novo (`gh api repos/<org>/<action>/git/matching-refs/tags/v`).
+- **O backup secundário se declara não configurado.** Sem os cinco secrets ele **pula com aviso**,
+  e o resumo do run diz, em texto, "nenhum backup foi tirado" — em vez de falhar todo dia às 07:00
+  e produzir ruído vermelho que ninguém lê. Configurado e quebrado continua falhando alto: a
+  distinção é entre *ausência de configuração* e *defeito*. O backup principal é o Dokploy → S3.
 - **Deploy não é action.** Publicar é o Dokploy, não o GitHub.
 - Antes de adicionar um workflow novo, responder: *isso precisa estar remoto?* Se a resposta é
   não, ele não vai.
@@ -488,6 +502,16 @@ pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
 - **O warm-up depende do cookie da sessão** ser compartilhado entre a página e o `context.request`.
   É o que faz o aquecimento valer: sem sessão, cada requisição é redirecionada para `/login` **sem
   compilar a rota protegida** — o passo existiria, custaria tempo e não aqueceria nada.
+- **O warm-up cobre as telas de erro e as de detalhe.** `/forbidden` era compilado frio dentro do
+  `expect.timeout` do primeiro teste que o visitava — uma das telas que apareciam como flaky. E as
+  telas de detalhe precisam de **id real, lido da listagem**: inventar um id faria a página lançar,
+  o funil gravaria a linha, e `erros.spec.ts` (que afirma "Nenhum erro registrado") quebraria por
+  causa do aquecimento.
+- **Espera por condição, nunca por `networkidle`.** `networkidle` é "500 ms sem tráfego", e num
+  `next dev` com HMR, streaming de RSC e SDK de erro isso pode demorar ou não chegar. Os testes
+  flaky apareciam em **telas diferentes** a cada execução — sinal de espera indeterminada, não de
+  teste defeituoso. O certo é esperar o que se vai medir: o conteúdo principal visível e as fontes
+  carregadas.
 - **O warm-up não é fatal, mas não pode ser silencioso.** Ele é otimização: se falhar, os testes
   rodam assim mesmo — e o `console.warn` diz que falhou. Um warm-up quebrado derrubou a suíte
   inteira em três execuções, porque o `globalSetup` morria antes de qualquer teste e o sintoma
@@ -524,6 +548,7 @@ instrumentation ─▶ dispatchIncident ─▶ error-log      (sempre; sem cota;
    onRequestError          │         ├▶ better-stack  (SDK do Sentry apontado para o DSN)
    runAction               │         └▶ otel          (pronto, desligado: é o caminho do Grafana)
    process-guards          │
+   logger.error            │
    global-error / error.tsx┘
 ```
 
@@ -556,12 +581,46 @@ Regras que valem para quem mexer nessa área:
   `ErrorLog` abriria a tela de observabilidade para injeção de dados falsos.
 - **`dispatchIncident` nunca lança.** Destino que falha (rede, cota, credencial) não pode derrubar
   a requisição que já estava falhando.
+- **`logger.error` também entra no funil** (`observability/logger-bridge.ts`), porque "quebrou" não
+  pode existir só no stdout. A ponte é registrada no boot (o logger é `lib/` e não importa
+  `server/`) e tem guarda de reentrância (`isDispatchingIncident`): os sinks usam `logger.error`
+  para relatar falha, e sem a guarda uma falha de destino viraria um laço de incidentes.
 - **`/admin/erros` avisa por Telegram**, com freio de 15 min por rota+mensagem: erro em laço não
   pode virar 500 mensagens no mesmo chat. O complemento é um monitor externo de uptime em
   `/api/health`, que não exige código.
 - **`ErrorLog` tem retenção** (`observability/retention.ts`), sem cron: roda junto com a gravação,
   no máximo uma vez por hora. Só leva o que é resolvido **e** não volta há 90 dias, e um teto
   absoluto corta do mais antigo para o mais novo.
+
+### 9.6 A imagem de produção é construída no CI
+
+**A VPS não builda.** O `release-image.yml` constrói a imagem no runner (4 vCPU, descartável),
+publica no GHCR e dispara o deploy; a VPS só **puxa**. Antes o Dokploy clonava o repositório e
+rodava `pnpm install && next build` no servidor, competindo com o ERP que já estava no ar.
+
+O deploy é disparado **pelo runner**, e não por webhook, porque o painel do Dokploy vive atrás do
+Tailscale: nada na internet o alcança — nem o webhook do GitHub, nem o do Docker Hub. O runner
+entra na tailnet como nó efêmero (`tag:ci`) e a ACL limita essa tag a alcançar só o Dokploy.
+
+Regras:
+
+- **Um `NEXT_PUBLIC_*` só é inlinado se o navegador o ler.** Não presuma pelo nome: confira o
+  código. Hoje só **`NEXT_PUBLIC_SENTRY_DSN`** é build arg; `NEXT_PUBLIC_GOOGLE_CLIENT_ID` é lido
+  num Server Component e passado como prop (runtime), e `NEXT_PUBLIC_APP_URL` / `APP_NAME` não são
+  lidos por ninguém. Mudar um build arg exige **imagem nova**, não restart do container.
+- **`--build-arg` não declarado é ignorado em silêncio.** O Docker avisa "not consumed", fácil de
+  não ver, e o `next build` congela o vazio. Não falha — mente. Todo build arg consumido precisa
+  de `ARG` no `Dockerfile`, com comentário dizendo por quê.
+- **DSN do Sentry não é segredo.** Ele vai embutido no JavaScript do navegador de qualquer forma,
+  então é *variable*, não *secret*. Tratá-lo como segredo dá falsa sensação de proteção.
+- **Toda release publica tag imutável** (`vX.Y.Z`) além de `:latest`. Sem a imutável, "voltar para
+  a versão de ontem" não tem para onde apontar — o rollback é trocar a tag e deployar (§8 do
+  `docs/DEPLOY.md`).
+- **O deploy é conferido, não presumido.** O workflow espera `/api/health` responder a versão nova
+  e **falha** se não responder. Um deploy que não acontece é o pior defeito possível: foi assim
+  que a produção ficou servindo `1.2.0` depois da release da `1.3.0`, sem ninguém perceber.
+- **Publicação manual nunca move `latest`** nem dispara deploy. É o caminho do preview (`:edge`).
+- **A imagem é `linux/amd64`.** Arm64 exigiria QEMU e multiplicaria o build sem servir a ninguém.
 
 ---
 
@@ -623,7 +682,7 @@ ambiente (cota, rede) e não da regra — a regra em si é testada.
 
 ### 10.3 Commits
 
-- Branch por fase: `feat/fase-06-estoque`.
+- Branch por fase: `feat/fase-06-estoque`. Correção: `fix/<slug>` — ver §10.4.
 - Conventional Commits: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `build`, `perf`.
   Escopo opcional: `feat(estoque): launch de ajuste com justificativa`.
 - **O tipo do commit define a versão** (§9.2): `feat` → minor, `fix`/`perf`/`refactor`/`revert`
@@ -631,6 +690,25 @@ ambiente (cota, rede) e não da regra — a regra em si é testada.
   release; não existe bump manual de versão.
 - PR por fase, com a lista de critérios de aceite da fase como checklist.
 - Migration Prisma sempre versionada e revisada — nunca edite migration já aplicada.
+
+### 10.4 Isolamento do trabalho — um worktree por agente
+
+Cada agente (ou pessoa) que vai **programar** trabalha num **git worktree próprio**, sempre a
+partir da `develop`. O worktree isola o diretório de trabalho sem duplicar o repositório: o que
+está sujo num não aparece no outro, e duas frentes não disputam o mesmo `git status`.
+
+```bash
+git worktree add <caminho> -b <branch> develop
+# ... trabalhar, rodar os gates (§9) ...
+git worktree remove <caminho>
+```
+
+- **Correção usa `fix/<slug>`; feature usa `feat/fase-NN-slug`.** A regra de release (§9.2) não
+  muda: `fix:` publica patch, `feat:` publica minor.
+- O worktree **não** herda arquivo não versionado nem `node_modules`: copie o `.env` e rode
+  `pnpm install` nele antes de rodar qualquer gate.
+- Ao mergear, remova o worktree. Worktree órfão é ruído do mesmo jeito que branch já mergeada
+  (§10.1, passo 6).
 
 ---
 

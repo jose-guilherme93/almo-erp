@@ -49,7 +49,11 @@ env:
 jobs:
   e2e:
     name: Playwright (chromium)
-    runs-on: ubuntu-latest
+    # `ubuntu-24.04` explícito, não `ubuntu-latest`: o rótulo `latest` migra para
+    # Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de
+    # surpresa num workflow que publica produção. Trocar de imagem é decisão
+    # nossa, tomada aqui e testada — não um efeito colateral de data.
+    runs-on: ubuntu-24.04
 
     # Exceção documentada ao teto de 5 min de AGENTS.md §9.1.
     #
@@ -78,19 +82,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Configurar Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
 
       - name: Cache dos navegadores do Playwright
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -188,7 +192,7 @@ jobs:
         # é falso nesse momento. Foi assim que duas execuções ficaram sem
         # diagnóstico nenhum, sem saber o que passou e o que falhou.
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/

@@ -20,7 +20,9 @@ const IGNORABLE_ERROR = [
   /destination stream closed early/i,
   /^the operation was aborted/i,
   /^request aborted/i,
-  /^aborted\b/i,
+  // Precisa ser **exato**: `aborted\b` casaria "Aborted: cannot save item 5", que
+  // é defeito de verdade, e o erro sumiria da tela por causa da palavra.
+  /^aborted[.!]?$/i,
   /ERR_ABORTED/i,
   /navigation.*aborted/i,
 ];

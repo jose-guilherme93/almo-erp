@@ -50,8 +50,9 @@ export type ItemFormValues = {
  * controles de lote/perecível/série — fica em "Opções avançadas" e continua
  * editável na tela do material.
  *
- * O SKU pode ficar em branco: o servidor gera a partir do prefixo da
- * categoria (`EPI-0001`), o que evita códigos inconsistentes digitados à mão.
+ * O código do material (SKU) não é campo de formulário: é gerado pelo servidor
+ * a partir do prefixo da categoria (`EPI-0001`). Código de identificação de
+ * material nunca é digitado — assim nenhum código nasce inconsistente.
  */
 export function ItemForm({
   mode,
@@ -185,20 +186,19 @@ export function ItemForm({
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField
               id="item-code"
-              label="Código (SKU)"
+              label="Código do material"
               hint={
                 mode === "create"
-                  ? "Deixe em branco para gerar automaticamente a partir da categoria."
-                  : "Código já usado em documentos. Evite alterar."
+                  ? "Gerado automaticamente a partir da categoria (ex.: EPI-0001)."
+                  : "Gerado pelo sistema. Não é editável."
               }
-              errors={fieldErrors["code"]}
             >
               <Input
                 id="item-code"
-                name="code"
-                defaultValue={defaultValues?.code ?? ""}
-                className="uppercase"
-                placeholder="EPI-0001"
+                value={defaultValues?.code ?? ""}
+                readOnly
+                placeholder={mode === "create" ? "Gerado ao salvar" : undefined}
+                aria-readonly="true"
               />
             </FormField>
 

@@ -1,25 +1,112 @@
 # Handoff — estado do trabalho
 
-> Última atualização: 2026-10-06. Leia isto antes de retomar; evita redescobrir o contexto.
+> Última atualização: 2026-10-08. Leia isto antes de retomar; evita redescobrir o contexto.
 
 ## Onde estamos
 
-- Branch de trabalho: **`feat/fase-21-observabilidade`**, nascida da `develop`.
-- `develop` e `main` estão **no mesmo commit** (`de5fa42`, tag `v1.2.0`).
-- **`main` intocada** — e agora por regra nova: ela só recebe PR de release (§10.1).
-- **O fluxo mudou:** feature abre PR para a `develop`, não para a `main`. A `develop` vai para a
-  `main` num PR de release, que também roda o E2E. Feature direto para `main` era incomum.
-- Não há PR aberto no momento desta escrita.
+- Última release: **`v1.3.0`** (`e4311cd`), na `main`.
+- A `develop` está **2 commits à frente** da `main`: o CI/CD da imagem (abaixo), ainda não
+  publicado — e ele **não deve** ser publicado antes dos passos manuais daquele bloco.
+- Nenhum PR aberto; nenhuma branch além de `develop` e `main`.
+- **O fluxo mudou** (§10.1): feature abre PR para a **`develop`**; a `main` recebe um PR de release
+  e só isso. Os dois rodam o E2E no Actions.
+- **O deploy da `v1.3.0` ainda não apareceu em produção** — `/api/health` responde `1.2.0`. Ver a
+  pendência do Dokploy abaixo.
+
+## Trabalho atual — **FASE 24: erros observáveis de ponta a ponta** (`fix/erros-nao-aparecem`)
+
+Correção de seis caminhos por onde um erro escapava da tela `/admin/erros`. O sintoma que abriu:
+o sino avisa de um erro, o clique em **Erros** cai no vazio.
+
+- **Busca por `id`** e link da notificação por `digest` (o `id` como fallback): o sino agora
+  leva à linha.
+- **`logger.error` entra no funil** (`observability/logger-bridge.ts`), com guarda de
+  reentrância (`AsyncLocalStorage`) — uma falha de destino não vira laço de incidentes.
+- **Route Handler** (`/api/anexos`) não engole falha real de I/O (só `ENOENT` é 404).
+- **`runAction` usa `after()`** em vez de `void`: o relato não é descartado com a requisição.
+- **Gravação no banco que falha** cai para o fornecedor externo + Telegram.
+- **Filtro de ruído** não confunde `"Aborted: …"` com cancelamento de navegação.
+
+Gates verdes: `lint`, `typecheck`, `test` (**528**), `build` (zero aviso de Edge), `db:seed`.
+Doc na FASE 24; `AGENTS.md` §10.4 ganhou a regra de trabalho isolado (worktree por agente, `fix/`).
+
+## Entrega local — simplificação visual, menu e código automático
+
+Quatro frentes pedidas pelo dono do produto. Nenhuma muda regra de estoque, solicitação ou
+chamado — a de patrimônio ainda é **desenho, não código**.
+
+- **Escala +20%.** `html { font-size: 120% }` em `src/app/globals.css`. Como quase tudo no
+  Tailwind é `rem`, um ajuste na raiz escala junto texto, espaçamento e altura de campo/botão.
+  É o tamanho da interface resolvido num lugar só.
+- **Menu por tarefa, com Início no topo.** `src/lib/navigation.ts` ganhou o grupo **Início**,
+  sempre presente: a matriz vai para `/dashboard`, o admin de unidade para
+  `/dashboard/unidade/[sua filial]` e os demais para `/meu`. O antigo grupo **Avançado** foi
+  fundido em **Configurações** (no rodapé) e **Transferências** foi para **Insumo**.
+- **Código do material é sempre automático.** O campo de SKU saiu do formulário: `createItem`
+  gera pelo prefixo da categoria (`EPI-0007`) e `updateItem` não altera mais o código. Código de
+  identificação é do sistema, não escolha do operador (AGENTS §3.11).
+- **Patrimônio — FASE 23 (desenho pronto).** `docs/fases/FASE-23-patrimonio.md` traz as regras
+  confirmadas: dono = pessoa (fallback **Almoxarifado**), o bem nasce na entrada de item com
+  número de série, TI e almoxarifado enxergam o mesmo bem, histórico append-only. As três
+  decisões que faltavam foram respondidas — **atribuir não gera saída de estoque** (posse ≠
+  propriedade), **etiqueta `PAT` global e legível** e **série implica patrimônio, com exceção
+  manual**. Falta implementar (branch própria).
+
+## Entrega pronta, ainda não publicada — **CI/CD da imagem (GHCR)**
+
+Mergeada na `develop` (PR #12). **Não publicada de propósito:** o caminho de deploy depende de
+configuração que só existe no painel, e publicar antes disso faria o workflow falhar.
+
+**O que muda:** a VPS **para de buildar**. Antes o Dokploy clonava o repo e rodava
+`pnpm install && next build` no servidor — competindo com o ERP a cada release. Agora o
+`release-image.yml` constrói no runner, publica no GHCR, dispara o deploy e **confere** que a
+versão nova subiu.
+
+```
+release:publish → tag vX.Y.Z
+  → Actions: build (linux/amd64, cache do GHA) → ghcr.io/<owner>/almo-erp:vX.Y.Z + :latest
+  → Actions entra na tailnet (nó efêmero) e chama POST /api/application.deploy
+  → Dokploy puxa a imagem e sobe
+  → Actions confere /api/health até a versão nova responder
+```
+
+**Por que o runner dispara, e não um webhook:** o painel do Dokploy vive atrás do Tailscale, então
+nem o webhook do GitHub nem o do Docker Hub o alcançam (verificado na doc do Dokploy: ele aceita
+origem Docker/registry e o fluxo oficial é `POST /api/application.deploy`; "Schedule Jobs" rodam
+comandos, não redeploys).
+
+**O passo que faltava:** conferir. Um deploy que não acontece é o pior defeito possível — foi o que
+deixou a produção servindo `1.2.0` depois da release da `1.3.0`.
+
+### Passos manuais antes de publicar (sem eles a release não sai)
+
+1. **Tailscale**: OAuth client com a tag `tag:ci` + ACL permitindo `tag:ci` → host do Dokploy, na
+   porta do painel.
+2. **GitHub → Secrets**: `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DOKPLOY_API_KEY`.
+3. **GitHub → Variables**: `DOKPLOY_URL`, `DOKPLOY_APPLICATION_ID`, `NEXT_PUBLIC_APP_URL`,
+   `NEXT_PUBLIC_SENTRY_DSN`.
+4. **Dokploy → Application**: origem **Docker** (`ghcr.io/<owner>/almo-erp:latest`) com PAT de
+   `read:packages`, e **Auto Deploy desligado**.
+5. **Preview**: Application apontando para `:edge` (publicada à mão pelo `workflow_dispatch`).
+
+### Dois achados no caminho
+
+- **Bug que ia ser enviado:** o `Dockerfile` não declarava `ARG` para `NEXT_PUBLIC_SENTRY_DSN`.
+  Build arg não declarado é **descartado em silêncio** e o `next build` congela o vazio — a
+  captura de erro do navegador ficaria morta em produção, sem aviso.
+- **Regra que estava documentada errada:** nem todo `NEXT_PUBLIC_*` é build arg. Só
+  `NEXT_PUBLIC_SENTRY_DSN` é lida pelo navegador; `GOOGLE_CLIENT_ID` é lida no servidor e passada
+  como prop (runtime); `APP_URL` e `APP_NAME` **não são lidas por ninguém** — configuração morta,
+  candidata a limpeza.
 
 ## O que está pronto e verde
 
-Gates locais: `pnpm lint`, `pnpm typecheck`, `pnpm test` (**508**), `pnpm build`, `pnpm db:seed`.
-**O E2E não roda mais aqui** — foi para o GitHub Actions (ver FASE 22 abaixo).
+Gates locais: `pnpm lint`, `pnpm typecheck`, `pnpm test` (**522**), `pnpm build`, `pnpm db:seed`.
+E2E: roda no GitHub Actions (ver FASE 22), **6,5 min** por run.
 
-## Entrega em andamento — **FASE 21 + 22, observabilidade e E2E remoto**
+## Entrega mais recente — **FASE 21 + 22, observabilidade e E2E remoto** (`v1.3.0`)
 
-Branch `feat/fase-21-observabilidade` (PR #9, para a `develop`). Código e documentação prontos,
-gates locais verdes (522 testes) e **E2E verde no Actions em 6,5 min**.
+Mergeado na `develop` (PR #9) e publicado na `main` (PR #10, tag `v1.3.0`).
 
 **FASE 21 — o funil de incidentes.** A pergunta da FASE 20 respondida de vez: não só dá para
 descobrir o que quebrou, o erro **chega** — e num formato que não prende o projeto num fornecedor.
@@ -76,7 +163,7 @@ sintomas que apontavam para o lugar errado:
 1. **Branch protection não existe** para repo privado no GitHub Free. Nada impede merge vermelho;
    o check aparece no PR, mas a imposição não. A saída gratuita é um script de merge que consulta
    `gh pr checks` — **não foi feito**, é a decisão em aberto.
-2. **Dokploy por tag** em vez de push na `main` (pendente desde a entrega anterior).
+2. **Os 5 passos manuais do bloco de CI/CD acima** — é o que destrava o deploy por imagem.
 3. **Variáveis no Dokploy**: `NEXT_PUBLIC_SENTRY_DSN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
    `OTEL_EXPORTER_OTLP_ENDPOINT` só se for ligar o Grafana.
 4. **UptimeRobot** em `/api/health` — é configuração no painel.
