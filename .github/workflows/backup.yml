@@ -22,10 +22,15 @@ concurrency:
 jobs:
   dump:
     name: Dump cifrado via SSH
-    runs-on: ubuntu-latest
+    # `ubuntu-24.04` explícito, não `ubuntu-latest`: o rótulo `latest` migra para
+    # Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de
+    # surpresa num workflow que publica produção. Trocar de imagem é decisão
+    # nossa, tomada aqui e testada — não um efeito colateral de data.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Validar secrets
+        id: secrets
         env:
           HOST: ${{ secrets.SSH_HOST }}
           SSHUSER: ${{ secrets.SSH_USER }}
@@ -38,12 +43,34 @@ jobs:
           for v in HOST SSHUSER KEY CONTAINER PASS; do
             [ -z "${!v:-}" ] && faltando="$faltando $v"
           done
+
           if [ -n "$faltando" ]; then
-            echo "::error::Faltam secrets:$faltando (Settings → Secrets and variables → Actions)."
-            exit 1
+            # Não configurado **não** é falha — é ausência de configuração, e
+            # falhar todo dia às 07:00 só produz ruído vermelho e a impressão de
+            # que existe um backup. O que este passo não pode fazer é fingir:
+            # o aviso diz, em texto, que nenhum dump foi tirado.
+            #
+            # A distinção importa: configurado e quebrado continua falhando alto.
+            {
+              echo "### ⚠️ Backup secundário NÃO configurado"
+              echo
+              echo "**Nenhum backup foi tirado por este workflow.**"
+              echo
+              echo "Faltam os secrets:$faltando"
+              echo
+              echo "Configure em Settings → Secrets and variables → Actions."
+              echo "O backup principal (Dokploy → S3) não depende disto."
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            echo "::warning::Backup secundário não configurado — faltam:$faltando. NENHUM backup foi tirado."
+            echo "configurado=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
+          echo "configurado=true" >> "$GITHUB_OUTPUT"
+
       - name: Preparar a chave SSH
+        if: steps.secrets.outputs.configurado == 'true'
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -55,6 +82,7 @@ jobs:
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Gerar e cifrar o dump
+        if: steps.secrets.outputs.configurado == 'true'
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -82,7 +110,8 @@ jobs:
           ls -lh backups
 
       - name: Publicar o artefato cifrado
-        uses: actions/upload-artifact@v4
+        if: steps.secrets.outputs.configurado == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: almo-erp-dump-${{ github.run_id }}
           path: backups/*.gpg
