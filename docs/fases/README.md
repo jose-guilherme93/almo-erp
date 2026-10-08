@@ -28,6 +28,8 @@ Não pule fase e não "adiante" parte de fase futura.
 | [18](FASE-18-duracao-e-relatorios.md) | Duração e observabilidade | demanda por setor e tempo por mês |
 | [19](FASE-19-simplificacao.md) | Simplificação | entrada pela câmera sem cadastro prév e menu por tarefa |
 | [20](FASE-20-observabilidade-erros.md) | Observabilidade | erro de servidor visível, com o digest que o usuário viu |
+| [21](FASE-21-observabilidade.md) | Observabilidade profissional | funil plugável, alerta no Telegram, erro de cliente e de action |
+| [22](FASE-22-e2e-remoto.md) | E2E remoto | suíte de interface no Actions, fora da VPS |
 
 ## Regras de execução das fases
 
@@ -61,6 +63,8 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 18 — Duração e relatórios
 - [x] FASE 19 — Simplificação
 - [x] FASE 20 — Observabilidade de erro
+- [x] FASE 21 — Observabilidade profissional
+- [x] FASE 22 — E2E remoto
 
 ## Dependências entre fases
 

@@ -3,7 +3,8 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 
-import { runAction, type ActionResult } from "@/lib/action-result";
+import { type ActionResult } from "@/lib/action-result";
+import { runAction } from "@/server/actions/run";
 import { ACTIVE_BRANCH_COOKIE } from "@/server/auth/context";
 import { requireBranch } from "@/server/auth/guards";
 

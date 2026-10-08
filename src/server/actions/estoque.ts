@@ -4,7 +4,8 @@ import { Prisma } from "@/generated/prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { actionSuccess, runAction, type ActionResult } from "@/lib/action-result";
+import { actionSuccess, type ActionResult } from "@/lib/action-result";
+import { runAction } from "@/server/actions/run";
 import { BusinessRuleError } from "@/lib/errors";
 import { requireAnyPermission, requirePermission } from "@/server/auth/guards";
 import { resolveWorkingBranch } from "@/server/auth/scope";

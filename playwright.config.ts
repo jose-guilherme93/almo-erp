@@ -7,10 +7,19 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  // Em CI, um retry só: o teto de 5 minutos não comporta duas reexecuções.
+  // Um retry só. No runner, um primeiro acesso perdido costuma ser a rota ainda
+  // compilando, e o segundo passe é o que separa "flake de infra" de defeito.
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
+
+  // Compila todas as telas antes do primeiro teste — ver `e2e/global-setup.ts`.
+  // Sem isso a compilação sob demanda acontece dentro do timeout de cada teste.
+  globalSetup: "./e2e/global-setup.ts",
+
+  // Workers: o workflow mede com `nproc` e exporta `E2E_WORKERS`, para não
+  // depender de suposição sobre o tamanho do runner. Localmente é 1, porque o uso
+  // local é depurar um spec de cada vez (§9.4).
+  workers: Number(process.env["E2E_WORKERS"] ?? 1),
+  reporter: process.env.CI ? [["github"], ["list"], ["html", { open: "never" }]] : [["list"]],
 
   // O primeiro acesso a cada rota em `next dev` compila o segmento sob demanda;
   // 15s evita flakiness sem afrouxar a verificação.
@@ -54,11 +63,27 @@ export default defineConfig({
   ],
 
   webServer: {
-    // Em CI usamos build + start (servidor de produção): muito mais rápido que
-    // o `next dev`, que compila cada rota sob demanda.
+    // Sempre `next dev`, no CI e local. O comentário que existia aqui prometia
+    // `build && start` no CI: isso nunca esteve ligado, e é proibido de qualquer
+    // forma — o bypass de autenticação de teste só existe fora de produção
+    // (`src/lib/env.ts`), e `next start` roda com `NODE_ENV=production`.
     command: process.env.E2E_WEB_SERVER_COMMAND ?? "pnpm dev",
+
+    // O padrão do Playwright já é `SIGKILL` no grupo de processos, e **não estava
+    // bastando**: depois de a suíte terminar (4,5 min, 103 verdes) o passo ficava
+    // 19 min em silêncio e só acabava no teto do job. O log do runner mostrou
+    // `Terminate orphan process: (next-server)` no encerramento — o servidor
+    // sobreviveu ao Playwright. Declarar o encerramento deixa sinal e prazo
+    // explícitos, com `SIGKILL` logo atrás para o que não morrer.
+    gracefulShutdown: {
+      signal: "SIGTERM",
+      timeout: 5_000,
+    },
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    // Quem sobe o servidor é o workflow (`e2e.yml`), e ele também é quem mata.
+    // Aqui só se reaproveita o que já está no ar — assinar o encerramento de um
+    // processo que não é nosso foi o que deixou o job 19 min pendurado.
+    reuseExistingServer: Boolean(process.env["E2E_REUSE_SERVER"]) || !process.env.CI,
     timeout: 120_000,
     stdout: "ignore",
     stderr: "pipe",

@@ -1,58 +1,91 @@
 import type { Instrumentation } from "next";
 
+import { logger } from "@/lib/logger";
+import { isIgnorableError } from "@/server/services/observability/ignorable";
+
+const log = logger.with({ service: "instrumentation" });
+
 /**
- * Captura de erro de servidor.
+ * Ponto único de captura de erro de servidor.
  *
- * Sem isto, um erro de render, de Route Handler ou de Server Action só existe
- * como linha no stdout do container: ninguém lê aquilo, e o usuário vê apenas
- * "Referência: abc123" sem que ninguém consiga saber o que aconteceu. Aqui o
- * erro vira consultável em `/admin/erros`, e o `digest` que o usuário relata
- * acha exatamente a linha.
+ * Tudo que quebra no servidor passa por aqui e sai para o funil, que distribui
+ * para os destinos configurados: o banco local (sempre), o fornecedor externo
+ * (Better Stack hoje) e o OTLP (Grafana na VPS, quando ligado). Como a captação
+ * não conhece os destinos, migrar de fornecedor é mudar variável de ambiente.
  *
- * Este arquivo roda em **dois runtimes**. O `proxy.ts` roda na edge, e a edge
- * não tem Prisma — por isso o serviço entra por `import()` dinâmico, só no
- * `nodejs`. Na edge o comportamento é só o log, que é o que já existe hoje.
+ * ## Por que quase nada é importado aqui
+ *
+ * Este arquivo roda em **dois runtimes**: o Node (servidor de página) e a edge
+ * (`proxy.ts`). A edge não tem Prisma nem `node:crypto`, então qualquer coisa
+ * que dependa disso precisa entrar por `import()` dinâmico **guardado por
+ * `NEXT_RUNTIME`**. O guard não é preciosismo: é ele que permite ao compilador
+ * eliminar o código na build da edge. Sem o guard, o bundle da edge carregaria o
+ * cliente de banco e a aplicação quebraria ao subir — não no relatório de erro.
+ *
+ * Por isso este arquivo só importa o que é puro.
  */
 export const onRequestError: Instrumentation.onRequestError = async (error, request, context) => {
-  // Nunca lançar. Se esta função falhar, o Next registra
+  // Nunca lançar: se esta função falhar, o Next registra
   // "Error in instrumentation.onRequestError" e o erro original se perde.
   try {
-    const digest = digestOf(error);
     const message = error instanceof Error ? error.message : String(error);
-    const stack = error instanceof Error ? (error.stack ?? null) : null;
 
-    if (process.env.NEXT_RUNTIME !== "nodejs") {
-      console.error("[erro:edge]", request.path, context.routeType, digest, message);
+    // Cancelamento de navegação não é defeito: o usuário saiu da página antes
+    // do stream terminar. Sem este filtro a tela viria parede de ruído.
+    if (isIgnorableError(message)) {
+      log.debug("erro ignorado (navegação abortada)", {
+        routePath: request.path,
+        kind: context.routeType,
+      });
+
       return;
     }
 
-    // Import dinâmico: puxar o Prisma no topo do arquivo quebraria a edge.
-    const { recordServerError } = await import("@/server/services/error-log");
+    const digest = digestOf(error);
 
-    const result = await recordServerError({
-      message,
-      digest,
-      stack,
-      routePath: request.path,
-      routeType: context.routeType,
-      method: request.method,
-    });
+    // A edge não tem onde gravar: o `ErrorLog` é Postgres. O SDK da edge, que
+    // já foi inicializado no `register()`, é quem recebe o evento lá.
+    if (context.routeType === "proxy" || process.env.NEXT_RUNTIME !== "nodejs") {
+      log.error("erro na edge", { routePath: request.path, digest, message });
 
-    // Só a primeira ocorrência é novel: incrementar em silêncio é o que impede
-    // o sino de virar fonte de ruído quando o erro se repete.
-    if (result.outcome === "created") {
-      const { reportNewError } = await import("@/server/services/error-log-alert");
-      await reportNewError(result.id);
+      return;
     }
+
+    const { reportRequestError } = await import("@/server/services/observability/report");
+
+    await reportRequestError({
+      kind: context.routeType,
+      routePath: request.path,
+      method: request.method,
+      message,
+      stack: error instanceof Error ? (error.stack ?? null) : null,
+      digest,
+      headers: request.headers,
+    });
   } catch {
     // Última linha: se nem o log funcionou, não há mais para onde olhar.
   }
 };
 
-/** O Next pode reusar o mesmo digest para erros diferentes; ainda é a melhor chave. */
+export async function register(): Promise<void> {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    await import("@/sentry.server.config");
+
+    const { installProcessGuards } = await import("@/server/services/observability/process-guards");
+
+    installProcessGuards();
+
+    return;
+  }
+
+  await import("@/sentry.edge.config");
+}
+
+/** O Next pode reusar o mesmo digest; ainda é a melhor chave de correlação. */
 function digestOf(error: unknown): string | null {
   if (typeof error === "object" && error !== null && "digest" in error) {
     const digest = (error as { digest?: unknown }).digest;
+
     if (typeof digest === "string") return digest;
   }
 

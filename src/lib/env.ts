@@ -76,6 +76,33 @@ const serverSchema = z.object({
   SMTP_USER: optionalString,
   SMTP_PASSWORD: optionalString,
   SMTP_FROM: optionalString,
+
+  /**
+   * Observabilidade (FASE 21).
+   *
+   * Nada aqui é obrigatório: sem nenhuma delas a aplicação sobe e funciona. São
+   * destinos de diagnóstico, e cada um é ligado por uma variável só — trocar de
+   * fornecedor não toca em código.
+   *
+   * `NEXT_PUBLIC_SENTRY_DSN` também vale para o navegador. Hoje aponta para o
+   * Better Stack, que aceita o payload do SDK do Sentry; amanhã pode apontar
+   * para outro qualquer sem re-instrumentar.
+   */
+  NEXT_PUBLIC_SENTRY_DSN: optionalString,
+  /** Ambiente do SDK: sem isso ele assume `production` e engole tudo em dev. */
+  SENTRY_ENVIRONMENT: optionalString,
+  SENTRY_TRACES_SAMPLE_RATE: optionalNumber,
+
+  /**
+   * OTLP/HTTP — o caminho para **self-hosted** (Grafana + Loki/Tempo no Dokploy).
+   * Definir o endpoint liga o destino; não definido, ele fica desligado.
+   */
+  OTEL_EXPORTER_OTLP_ENDPOINT: optionalString,
+  OTEL_EXPORTER_OTLP_HEADERS: optionalString,
+
+  /** Alerta no Telegram. Vazio = alerta desligado. */
+  TELEGRAM_BOT_TOKEN: optionalString,
+  TELEGRAM_CHAT_ID: optionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
@@ -125,6 +152,18 @@ let cached: ServerEnv | undefined;
 export function getEnv(): ServerEnv {
   cached ??= loadEnv();
   return cached;
+}
+
+/**
+ * Descarta o valor memoizado, forcing a releitura de `process.env`.
+ *
+ * Só existe para teste. Com memoização, um teste que liga uma variável opcional
+ * (um destino de observabilidade, o alerta de Telegram) não veria efeito — o
+ * primeiro `getEnv()` do processo fixa o ambiente para sempre, e o teste
+ * passaria a verificar uma configuração que ele acabou de montar.
+ */
+export function resetEnvCache(): void {
+  cached = undefined;
 }
 
 export const env = new Proxy({} as ServerEnv, {

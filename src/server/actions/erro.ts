@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { actionSuccess, runAction, type ActionResult } from "@/lib/action-result";
+import { actionSuccess, type ActionResult } from "@/lib/action-result";
+import { runAction } from "@/server/actions/run";
 import { requirePermission } from "@/server/auth/guards";
 import { formDataToValues, readText } from "@/server/actions/helpers";
 import { reopenErrorLog, resolveErrorLog } from "@/server/services/error-log";

@@ -1,21 +1,87 @@
 # Handoff — estado do trabalho
 
-> Última atualização: 2026-10-05. Leia isto antes de retomar; evita redescobrir o contexto.
+> Última atualização: 2026-10-06. Leia isto antes de retomar; evita redescobrir o contexto.
 
 ## Onde estamos
 
-- Branch de trabalho: **`develop`** (remota `origin/develop`).
-- **`main` intocada** (`88e099a`). Não fazemos push na `main`.
-- Não há PR aberto. O PR #1 foi fechado e a branch `feat/fases-14-18-setores-delegacao`
-  foi removida (os commits já estão todos na `develop`).
-- Só existem `develop` e `main` no remoto.
+- Branch de trabalho: **`feat/fase-21-observabilidade`**, nascida da `develop`.
+- `develop` e `main` estão **no mesmo commit** (`de5fa42`, tag `v1.2.0`).
+- **`main` intocada** — e agora por regra nova: ela só recebe PR de release (§10.1).
+- **O fluxo mudou:** feature abre PR para a `develop`, não para a `main`. A `develop` vai para a
+  `main` num PR de release, que também roda o E2E. Feature direto para `main` era incomum.
+- Não há PR aberto no momento desta escrita.
 
 ## O que está pronto e verde
 
-Gates rodados na `main`: `pnpm lint`, `pnpm typecheck`, `pnpm test` (434), `pnpm build`,
-`pnpm db:seed`. E2E local: **93/93**.
+Gates locais: `pnpm lint`, `pnpm typecheck`, `pnpm test` (**508**), `pnpm build`, `pnpm db:seed`.
+**O E2E não roda mais aqui** — foi para o GitHub Actions (ver FASE 22 abaixo).
 
-Entrega mais recente — **FASE 20, observabilidade de erro**:
+## Entrega em andamento — **FASE 21 + 22, observabilidade e E2E remoto**
+
+Branch `feat/fase-21-observabilidade` (PR #9, para a `develop`). Código e documentação prontos,
+gates locais verdes (522 testes) e **E2E verde no Actions em 6,5 min**.
+
+**FASE 21 — o funil de incidentes.** A pergunta da FASE 20 respondida de vez: não só dá para
+descobrir o que quebrou, o erro **chega** — e num formato que não prende o projeto num fornecedor.
+
+- **Um incidente, vários destinos**, por variável de ambiente: `ErrorLog` (sempre, sem cota),
+  Better Stack (SDK do Sentry apontado para o DSN deles) e **OTLP, já escrito e desligado** — que
+  é o caminho para o Grafana na VPS, caso você decida ir para lá depois. Trocar de destino não
+  toca em instrumentação.
+- **`reportNewError` nunca era chamado** desde a FASE 20. Tinham testes, e mesmo assim o sino nunca
+  apitou. A política de alerta agora mora no destino local, junto do agrupamento por fingerprint.
+- **Erro de Server Action era invisível** — action não propaga exceção, devolve `{ ok: false }`, e o
+  `onRequestError` só vê o que foi lançado na requisição. São ~105 call sites em 21 arquivos:
+  `runAction` foi para `src/server/actions/run.ts` (porque `lib` não pode importar `server/`) e
+  **nenhum call site mudou** — só a linha de import de cada arquivo.
+- **Erro fatal de processo** (`uncaughtException`/`unhandledRejection`) e **erro de cliente**
+  (`instrumentation-client.ts`, `global-error.tsx`, `error.tsx`) agora entram no funil.
+- **Porta LGPD unificada.** Havia duas regras de remoção de dado pessoal — e a da FASE 20 descartava
+  a linha inteira ao ver a palavra "CPF", matando o diagnóstico junto. Agora há uma só
+  (`observability/scrub.ts`), que também remove CPF/CNPJ/e-mail **em texto solto**, onde não há
+  nome de campo para filtrar.
+- **Dois bugs reais que só rodando aparecem:** `ErrorLog` não tem coluna `createdAt` (tem
+  `firstSeenAt`/`lastSeenAt`), e a poda que escrevi primeiro usava a coluna errada.
+- **Retenção sem cron**, `connect-src` da CSP com a origem do DSN, e **zero** aviso de Edge Runtime
+  no build — que é o teste de que o guard `NEXT_RUNTIME` está funcionando.
+
+**FASE 22 — o E2E foi para o GitHub Actions.** Rodar a suíte local **derrubou a VPS**: carga 78 em
+4 cores, `next dev` com 2,3 GB (39,8% da máquina) e um Chromium por worker. Teste de interface não
+tem relação com o hardware que serve o ERP.
+
+Referência medida do run completo: **6,5 min** — servidor 9 s, suíte 5 min, encerramento 0 s.
+
+Custou cinco execuções para chegar lá, e vale registrar por quê, porque os dois problemas tinham
+sintomas que apontavam para o lugar errado:
+
+1. O `globalSetup` do warm-up **morria na primeira linha** (`page.goto` com URL relativa — o
+   `globalSetup` não herda o `use` da config) e levava a suíte junto: zero testes rodaram em três
+   execuções. O sintoma era "o job estoura o tempo", e eu escrevi na documentação que "a suíte não
+   cabe" — **sem nenhum teste ter executado**.
+2. Consertado isso, a suíte rodou em **4,5 min** e passou inteira (103 cenários). O job ainda batia
+   o teto porque **travava ~19 min depois dos testes**: o `next dev` sobrevivia ao encerramento do
+   Playwright, e o Playwright esperava por ele (`Terminate orphan process: (next-server)` no log,
+   desde a primeira execução). Agora o servidor é do workflow: sobe com `setsid`, a suíte roda com
+   `E2E_REUSE_SERVER=true`, e um passo `always()` mata o que sobrou.
+- Agora roda **a cada PR para `develop` e `main`**, com `paths-ignore` para docs e
+  `cancel-in-progress` (empurrar 5 vezes custa 1 run). `timeout-minutes: 15`.
+- **Localmente, um spec por vez** (`--grep`). A suíte completa é do runner.
+- **Dois testes flaky**, passam no retry: `admin-usuarios` "acessa a lista de usuários" e `filiais`
+  "mostra os locais de estoque". Pendência de confiabilidade, não bloqueia.
+- O caminho que foi **descartado**: conter o consumo na VPS com cgroup v2 (dois escopos, 1,5 GB +
+  1 GB, `CPUQuota`, preflight). As peças foram verificadas em campo e funcionavam — mas a solução
+  certa era **mover o trabalho para fora, não fazê-lo caber**.
+
+**Pendências suas (painéis, não código):**
+1. **Branch protection não existe** para repo privado no GitHub Free. Nada impede merge vermelho;
+   o check aparece no PR, mas a imposição não. A saída gratuita é um script de merge que consulta
+   `gh pr checks` — **não foi feito**, é a decisão em aberto.
+2. **Dokploy por tag** em vez de push na `main` (pendente desde a entrega anterior).
+3. **Variáveis no Dokploy**: `NEXT_PUBLIC_SENTRY_DSN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
+   `OTEL_EXPORTER_OTLP_ENDPOINT` só se for ligar o Grafana.
+4. **UptimeRobot** em `/api/health` — é configuração no painel.
+
+Entrega anterior — **FASE 20, observabilidade de erro**:
 
 - **Erro de rota não some mais.** O gancho `onRequestError` do Next grava todo erro de render, route
   e action em `ErrorLog`, e a tela `/admin/erros` mostra. O `digest` que o usuário viu na tela
@@ -36,17 +102,15 @@ Entrega mais recente — **FASE 20, observabilidade de erro**:
 - Fora do escopo, por decisão: erro do **cliente** (tela branca) e log de uso. `/admin/erros` é
   reativa — o complemento seria um monitor externo de uptime em `/api/health`, sem código.
 
-Entrega anterior — **GitHub Actions fora do caminho do dia a dia**:
+Entrega anterior — **GitHub Actions fora do caminho do dia a dia** *(superada em parte pela
+FASE 22 — o `e2e.yml` voltou a rodar em PR)*:
 
-- **Nenhum workflow roda em push ou pull request.** O portão de qualidade já é local: o hook
-  `pre-push` roda `lint + typecheck + test + build`, e o E2E é local. Rodar o mesmo no runner
-  remoto só queimava os **2.000 min/mês** do plano gratuito sem acrescentar nada — o código já
-  passou local antes de subir.
+- Naquele momento, **nenhum workflow rodava em push ou pull request**. O portão era local: o hook
+  `pre-push` roda `lint + typecheck + test + build`, e o E2E também era local.
   - `tag-release.yml` **removido**: a versão passou a ser publicada por script local.
   - `ci.yml` e `e2e.yml` viraram `workflow_dispatch` (manuais, 0 minutos). `backup.yml` segue
     agendado — esse precisa estar remoto.
-- **Fluxo, todo local:** `develop` → `feat/slug` → gates locais → PR → `main` →
-  `pnpm release:publish` → tag → Dokploy faz o deploy. O operador só mergeia o PR.
+- **O motivo real da FASE 22 foi outro:** não foi a cota de minutos, foi a memória. Ver acima.
 - **Ação sobre o Dokploy (pendente, é no painel):** apontar o Auto Deploy **por tag** em vez de
   por push na `main`. Hoje ele dispara no push; a intenção é que a tag `vX.Y.Z` seja o sinal.
 

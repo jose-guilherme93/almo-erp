@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 
 import { Button } from "@/components/ui/button";
 
@@ -9,6 +10,10 @@ import { Button } from "@/components/ui/button";
  *
  * Mostra apenas uma mensagem genérica: detalhe técnico vai para o log, nunca
  * para a tela (AGENTS.md §6 e FASE 13).
+ *
+ * O relato sai daqui e não do servidor porque erro de render no cliente não
+ * passa por `onRequestError`. Sem esta linha, o erro existiria no `console` do
+ * navegador — que ninguém vê em produção — e o `ErrorLog` nunca souberia dele.
  */
 export default function AppError({
   error,
@@ -18,7 +23,10 @@ export default function AppError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[app] erro na rota:", error);
+    // `captureGlobalException` e não `captureException`: é o formato que o
+    // destino externo agrupa por sessão, então clicar em "tentar de novo"
+    // repetidas vezes não multiplica o mesmo incidente.
+    Sentry.captureException(error);
   }, [error]);
 
   return (
