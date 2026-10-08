@@ -36,6 +36,8 @@ type Line = {
   quantity: string;
   unitCost: string;
   lotId: string;
+  /** Séries informadas (texto livre), uma por unidade — material com patrimônio. */
+  serialNumbers: string;
 };
 
 /**
@@ -95,6 +97,7 @@ export function StockDocumentForm({
         quantity: mode === "inbound" ? "1" : "0",
         unitCost: "0",
         lotId: "",
+        serialNumbers: "",
       },
     ]);
 
@@ -311,6 +314,31 @@ export function StockDocumentForm({
                   </Select>
                 </FormField>
               </div>
+
+              {mode === "inbound" && line.item.hasSerialControl && line.item.trackAsAsset ? (
+                <FormField
+                  id={`serials-${line.key}`}
+                  label="Números de série"
+                  required
+                  hint="Uma série por unidade (separe por vírgula ou linha). Cada série vira um bem com etiqueta PAT."
+                  errors={fieldErrors[`lines.${lines.indexOf(line)}.serialNumbers`]}
+                >
+                  <Textarea
+                    id={`serials-${line.key}`}
+                    name="lineSerialNumbers"
+                    value={line.serialNumbers}
+                    onChange={(event) =>
+                      updateLine(line.key, { serialNumbers: event.target.value })
+                    }
+                    rows={2}
+                    placeholder="SN-0001, SN-0002"
+                  />
+                </FormField>
+              ) : (
+                // O campo existe em toda linha (mesmo vazio) para o índice do
+                // array de séries continuar alinhado ao da linha.
+                <input type="hidden" name="lineSerialNumbers" value={line.serialNumbers} />
+              )}
             </div>
           ))}
 

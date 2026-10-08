@@ -15,6 +15,7 @@ import { lockStockLevels, type StockLevelKey } from "@/server/services/stock/loc
 import { nextStockDocumentNumber } from "@/server/services/stock/numbering";
 import { writeAuditLog } from "@/server/services/audit";
 import { notify } from "@/server/services/notification";
+import { createAssetsFromStockLines } from "@/server/services/patrimonio";
 
 const log = logger.with({ service: "stock" });
 
@@ -44,6 +45,11 @@ export type StockLineInput = {
    * solicitação: a reserva vira saída real).
    */
   releaseReserved?: Prisma.Decimal;
+  /**
+   * Séries informadas na entrada de material com série (FASE 23): o patrimônio
+   * nasce daqui, um bem por série.
+   */
+  serialNumbers?: readonly string[];
 };
 
 export type PostDocumentInput = {
@@ -365,9 +371,24 @@ export async function postStockDocument(
       stockDocumentId: document.id,
       itemId: entry.line.itemId,
       itemLotId: entry.line.itemLotId ?? null,
+      serialNumbers: entry.line.serialNumbers ? [...entry.line.serialNumbers] : [],
       quantity: entry.line.quantity,
       unitCost: entry.unitCost,
       lineTotal: entry.lineTotal,
+    })),
+  });
+
+  // Material com número de série e marcado como patrimônio gera os bens na
+  // **mesma transação** do documento: ou entra o estoque e nasce o bem, ou nada.
+  await createAssetsFromStockLines(tx, {
+    branchId: input.branchId,
+    storageLocationId: input.storageLocationId,
+    actorId: input.createdById,
+    type: input.type,
+    lines: prepared.map((entry) => ({
+      itemId: entry.line.itemId,
+      quantity: entry.line.quantity,
+      serialNumbers: entry.line.serialNumbers,
     })),
   });
 

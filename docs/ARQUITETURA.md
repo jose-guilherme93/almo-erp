@@ -93,8 +93,8 @@ A sessão carrega o **contexto ativo** (filial + papel) e permite trocar por um 
 | `ADMIN_MATRIZ` | matriz (visão de rede) | filiais, mínimos, transferências, estoque consolidado, aprova Anything da rede |
 | `ADMIN_FILIAL` | filial | itens locais, usuários da filial, aprova/entrega, inventário |
 | `GESTOR` | filial | aprova/rejeita solicitações, aprova transferências recebidas, relatórios da filial |
-| `ALMOXARIFE` | filial | entradas, saídas, ajustes, **cadastra o material que chega lendo o código de barras**, cria/envia transferências, recebe, entrega, inventário |
-| `TI` | filial | atende os chamados de TI e as etapas encaminhadas ao setor; sem visão geral do almoxarifado |
+| `ALMOXARIFE` | filial | entradas, saídas, ajustes, **cadastra o material que chega lendo o código de barras**, cria/envia transferências, recebe, entrega, inventário e patrimônio |
+| `TI` | filial | atende os chamados de TI e as etapas encaminhadas ao setor; cuida do patrimônio de TI; sem visão geral do almoxarifado |
 | `SOLICITANTE` | filial | cria e acompanha **apenas** solicitações próprias; sem estoque, transferências nem catálogo |
 | `CONSULTA` | filial | leitura |
 
@@ -115,6 +115,7 @@ solicitacao:entregar
 manutencao:read        manutencao:overview   manutencao:create    manutencao:atender
 manutencao:delegar     manutencao:manage
 inventario:read        inventario:manage
+patrimonio:read        patrimonio:manage
 relatorio:read
 setor:read             setor:manage
 usuario:read           usuario:manage
@@ -376,6 +377,37 @@ Categoria "Geral" **não exige aprovação**: o pedido continua passando pela fi
 Toda unidade criada pela interface nasce com o local `ALMOX — Almoxarifado Central`, para que a
 primeira entrada não dependa de um cadastro de local escondido na aba do cadastro da unidade.
 
+### 5.6 Patrimônio (bens rastreáveis)
+
+O estoque controla **quantidade**; o patrimônio controla **identidade**. Dois notebooks do mesmo
+modelo são a mesma linha de `StockLevel`, mas dois bens distintos. `Asset` é o bem físico único
+(número de série) e `AssetEvent` é o histórico de rastreio — append-only, com trigger que recusa
+alteração e apagamento direto (igual a `report_snapshots`).
+
+Regras (FASE 23):
+
+- **O bem nasce na entrada.** Material com `hasSerialControl` carrega uma série por unidade na
+  entrada de estoque; cada série vira um `Asset` com etiqueta **global** `PAT-000123`, gerada pelo
+  servidor — ninguém digita número de patrimônio. `POSTED` recusa a entrada de material com série
+  sem as séries.
+- **Série implica patrimônio, com exceção.** O padrão é gerar bem; `Item.trackAsAsset = false`
+  diz, manualmente, que aquele material com série **não** é patrimônio.
+- **Todo bem tem dono.** `Asset.custodianUserId` é a pessoa responsável; sem responsável, o dono é
+  o **Almoxarifado** da filial (o campo fica nulo e a UI mostra "Almoxarifado").
+- **Posse não é propriedade, e não é saída de estoque.** Atribuir um responsável muda o
+  `AssetStatus` para `IN_USE` mas **não** gera `StockIssue`: o bem continua sendo da unidade e volta
+  quando a pessoa é desligada. Nenhuma transição de patrimônio mexe em `StockLevel`.
+- **Máquina de estados explícita** (`src/server/services/patrimonio/transitions.ts`):
+  `IN_STOCK ⇄ IN_USE`, `IN_STOCK|IN_USE ⇄ IN_MAINTENANCE`, qualquer estado ativo → `RETIRED`
+  (terminal). Toda transição grava `AssetEvent` na mesma transação e notifica quem passa a deter (ou
+  devolve) o bem.
+- **Escopo de filial** vale para tudo: `listAssets`/`getAsset` filtram por `branchFilter`, e um
+  responsável só pode ter vínculo ativo na unidade do bem.
+
+Telas: `/patrimonio` (lista com filtros, inclusive "sem responsável") e `/patrimonio/[id]`
+(ficha, responsável, local, estado e histórico). O link do chamado de TI ao bem
+(`MaintenanceRequest.assetId`) fica para a próxima etapa.
+
 ## 6. Solicitação de materiais
 
 `tela: /solicitacoes/nova` — **qualquer usuário logado** com membership ativa pode abrir.
@@ -539,6 +571,8 @@ link.
 | `/estoque/ajustes` | `estoque:ajuste` | ALMOXARIFE+ |
 | `/transferencias` | `transferencia:read` | todos com membership |
 | `/inventario` | `inventario:read` | ALMOXARIFE+ |
+| `/patrimonio` | `patrimonio:read` | ALMOXARIFE, ADMIN_FILIAL, TI, GESTOR, matriz |
+| `/patrimonio/[id]` | `patrimonio:read` | quem enxerga o bem na filial |
 | `/catalogo/itens` | `item:read` | todos com membership |
 | `/filiais` | `filial:read` | matriz (leitura), ADMIN_FILIAL (a sua) |
 | `/notificacoes` | `notificacao:read` | qualquer logado |
@@ -564,7 +598,7 @@ Grupos, na ordem em que aparecem:
 |---|---|
 | **Início** | Dashboard (rede, unidade ou painel pessoal, conforme o escopo) |
 | **Ação** | Aprovar pedidos · Entregar · Chamados abertos |
-| **Insumo** | Registrar entrada · Ajustes · Transferências · Inventário |
+| **Insumo** | Registrar entrada · Ajustes · Transferências · Inventário · Patrimônio |
 | **Consumo** | Pedidos de material · Fazer um pedido |
 | **Manutenção** | Abrir chamado |
 | **Monitoramento** | Saldos · Movimentações · Relatórios |

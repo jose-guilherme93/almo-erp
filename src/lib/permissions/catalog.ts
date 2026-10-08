@@ -16,6 +16,7 @@ export const PERMISSION_GROUPS = [
   "Transferências",
   "Inventário",
   "Manutenção",
+  "Patrimônio",
   "Relatórios",
   "Administração",
   "Notificações",
@@ -112,6 +113,15 @@ export const PERMISSIONS = [
   // --- Inventário ---
   define("inventario", "read", "Inventário", "Consultar sessões de inventário"),
   define("inventario", "manage", "Inventário", "Criar, contar e fechar inventários"),
+
+  // --- Patrimônio ---
+  define("patrimonio", "read", "Patrimônio", "Ver os bens e o histórico de rastreio"),
+  define(
+    "patrimonio",
+    "manage",
+    "Patrimônio",
+    "Cadastrar bens, atribuir responsável, devolver e dar baixa",
+  ),
 
   // --- Relatórios ---
   define("relatorio", "read", "Relatórios", "Acessar relatórios e indicadores"),

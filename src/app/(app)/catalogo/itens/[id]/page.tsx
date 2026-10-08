@@ -141,6 +141,7 @@ export default async function ItemDetalhePage({ params, searchParams }: ItemPage
                   perishable: item.perishable,
                   requiresApproval: item.requiresApproval,
                   hasSerialControl: item.hasSerialControl,
+                  trackAsAsset: item.trackAsAsset,
                   active: item.active,
                 }}
               />

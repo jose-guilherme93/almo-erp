@@ -208,6 +208,9 @@ enum NotificationType {
   /// Notifica **só na primeira ocorrência**: repetir a cada vez transformaria o
   /// alerta em ruído justamente quando o problema é mais grave.
   ERROR_REPORTED
+  /// O bem passou à posse de um responsável (ou voltou ao almoxarifado).
+  ASSET_ASSIGNED
+  ASSET_RETURNED
 }
 
 /// Papel do setor no fluxo: quem pede, quem atende, ou os dois.
@@ -235,6 +238,24 @@ enum DelegationEventType {
   RETURNED
   CANCELLED
   COMMENTED
+}
+
+/// Estado do bem no almoxarifado. `IN_USE` é **posse**, não propriedade:
+/// o bem continua sendo da unidade e volta quando o responsável sai.
+enum AssetStatus {
+  IN_STOCK
+  IN_USE
+  IN_MAINTENANCE
+  RETIRED
+}
+
+enum AssetEventType {
+  CREATED
+  ASSIGNED
+  RETURNED
+  MAINTENANCE_STARTED
+  MAINTENANCE_DONE
+  RETIRED
 }
 
 // -----------------------------------------------------------------------------
@@ -325,6 +346,7 @@ model Branch {
   errorLogs               ErrorLog[]
   emailPolicies           EmailPolicy[]
   maintenanceRequests     MaintenanceRequest[]
+  assets                  Asset[]
 
   @@index([type])
   @@index([active])
@@ -350,6 +372,7 @@ model StorageLocation {
   stockDocuments         StockDocument[] @relation("StockDocumentLocation")
   stockDocumentsAsTarget StockDocument[] @relation("StockDocumentDestination")
   inventoryLines         InventoryLine[]
+  assets                 Asset[]
 
   @@unique([branchId, code])
   @@index([branchId, active])
@@ -467,6 +490,12 @@ model User {
 
   reportSnapshotsGenerated ReportSnapshot[] @relation("ReportSnapshotGeneratedBy")
   reportExports            ReportExport[]     @relation("ReportExportActor")
+
+  assetsCustodian    Asset[]      @relation("AssetCustodian")
+  assetsCreated      Asset[]      @relation("AssetCreatedBy")
+  assetEventsAsFrom  AssetEvent[] @relation("AssetEventFromCustodian")
+  assetEventsAsTo    AssetEvent[] @relation("AssetEventToCustodian")
+  assetEventsAsActor AssetEvent[] @relation("AssetEventActor")
 
   @@index([status])
   @@index([active])
@@ -715,6 +744,9 @@ model Item {
   perishable       Boolean  @default(false)
   requiresApproval Boolean  @default(false) @map("requires_approval")
   hasSerialControl Boolean  @default(false) @map("has_serial_control")
+  /// Série implica patrimônio por padrão; o almoxarifado pode marcar "não é
+  /// patrimônio" manualmente (FASE 23). Só tem efeito com `hasSerialControl`.
+  trackAsAsset     Boolean  @default(true) @map("track_as_asset")
   active           Boolean  @default(true)
   createdById      String?  @map("created_by_id")
   createdAt        DateTime @default(now()) @map("created_at")
@@ -730,6 +762,7 @@ model Item {
   transferLines  TransferLine[]
   inventoryLines InventoryLine[]
   requestLines   RequestLine[]
+  assets         Asset[]
 
   @@index([categoryId])
   @@index([unitId])
@@ -775,6 +808,71 @@ model ItemStockPolicy {
   @@unique([itemId, branchId])
   @@index([branchId])
   @@map("item_stock_policies")
+}
+
+// -----------------------------------------------------------------------------
+// Patrimônio
+// -----------------------------------------------------------------------------
+
+/// Bem físico único (número de série), distinto do `Item` (o modelo).
+///
+/// `custodianUserId = null` significa **Almoxarifado**: o dono padrão. A posse
+/// nunca transfere a propriedade — o bem continua sendo da unidade. Atribuir um
+/// responsável **não** mexe em `StockLevel` (FASE 23, regra 4).
+model Asset {
+  id                String      @id @default(cuid())
+  /// Etiqueta gerada pelo servidor (`PAT-000123`), global e única.
+  tag               String      @unique
+  itemId            String      @map("item_id")
+  serialNumber      String?     @map("serial_number")
+  branchId          String      @map("branch_id")
+  storageLocationId String?     @map("storage_location_id")
+  custodianUserId   String?     @map("custodian_user_id")
+  status            AssetStatus @default(IN_STOCK)
+  acquiredAt        DateTime?   @map("acquired_at")
+  retiredAt         DateTime?   @map("retired_at")
+  notes             String?
+  createdById       String?     @map("created_by_id")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  item            Item            @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  branch          Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: SetNull)
+  custodian       User?           @relation("AssetCustodian", fields: [custodianUserId], references: [id], onDelete: SetNull)
+  createdBy       User?           @relation("AssetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  events          AssetEvent[]
+
+  @@index([branchId, status])
+  @@index([itemId])
+  @@index([custodianUserId])
+  @@index([serialNumber])
+  @@map("assets")
+}
+
+/// Histórico de rastreio do bem. Append-only: nunca recebe update nem delete
+/// (o banco reforça com trigger, igual a `report_snapshots`).
+model AssetEvent {
+  id              String         @id @default(cuid())
+  assetId         String         @map("asset_id")
+  type            AssetEventType
+  fromStatus      AssetStatus?   @map("from_status")
+  toStatus        AssetStatus?   @map("to_status")
+  fromCustodianId String?        @map("from_custodian_id")
+  toCustodianId   String?        @map("to_custodian_id")
+  referenceType   String?        @map("reference_type")
+  referenceId     String?        @map("reference_id")
+  actorId         String?        @map("actor_id")
+  notes           String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  asset         Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fromCustodian User? @relation("AssetEventFromCustodian", fields: [fromCustodianId], references: [id], onDelete: SetNull)
+  toCustodian   User? @relation("AssetEventToCustodian", fields: [toCustodianId], references: [id], onDelete: SetNull)
+  actor         User? @relation("AssetEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([assetId, createdAt])
+  @@map("asset_events")
 }
 
 // -----------------------------------------------------------------------------
@@ -847,6 +945,9 @@ model StockLine {
   stockDocumentId String   @map("stock_document_id")
   itemId          String   @map("item_id")
   itemLotId       String?  @map("item_lot_id")
+  /// Séries informadas na entrada de material com série (FASE 23): é daqui que
+  /// nascem os bens de patrimônio, um por série.
+  serialNumbers   String[] @default([]) @map("serial_numbers")
   quantity        Decimal  @db.Decimal(18, 4)
   unitCost        Decimal  @default(0) @map("unit_cost") @db.Decimal(14, 2)
   lineTotal       Decimal  @default(0) @map("line_total") @db.Decimal(14, 2)

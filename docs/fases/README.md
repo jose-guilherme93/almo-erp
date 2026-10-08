@@ -30,7 +30,7 @@ Não pule fase e não "adiante" parte de fase futura.
 | [20](FASE-20-observabilidade-erros.md) | Observabilidade | erro de servidor visível, com o digest que o usuário viu |
 | [21](FASE-21-observabilidade.md) | Observabilidade profissional | funil plugável, alerta no Telegram, erro de cliente e de action |
 | [22](FASE-22-e2e-remoto.md) | E2E remoto | suíte de interface no Actions, fora da VPS |
-| [23](FASE-23-patrimonio.md) | Patrimônio | bem rastreável com dono, etiqueta `PAT` e histórico *(proposta — aguardando revisão)* |
+| [23](FASE-23-patrimonio.md) | Patrimônio | bem rastreável com dono, etiqueta `PAT` e histórico |
 | [24](FASE-24-erros-observaveis-conectados.md) | Erros observáveis de ponta a ponta | `logger.error` no funil, busca por id/digest, action com `after()` |
 
 ## Regras de execução das fases
@@ -67,6 +67,7 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 20 — Observabilidade de erro
 - [x] FASE 21 — Observabilidade profissional
 - [x] FASE 22 — E2E remoto
+- [x] FASE 23 — Patrimônio
 - [x] FASE 24 — Erros observáveis de ponta a ponta
 
 ## Dependências entre fases

@@ -39,6 +39,8 @@ export type ItemFormValues = {
   perishable: boolean;
   requiresApproval: boolean;
   hasSerialControl: boolean;
+  /** Série implica patrimônio; desmarcar diz "este material não é um bem". */
+  trackAsAsset: boolean;
   active: boolean;
 };
 
@@ -83,6 +85,7 @@ export function ItemForm({
   const [hasSerialControl, setHasSerialControl] = useState(
     defaultValues?.hasSerialControl ?? false,
   );
+  const [trackAsAsset, setTrackAsAsset] = useState(defaultValues?.trackAsAsset ?? true);
   const [active, setActive] = useState(defaultValues?.active ?? true);
   const [barcode, setBarcode] = useState(defaultValues?.barcode ?? "");
   const [showScanner, setShowScanner] = useState(false);
@@ -109,6 +112,7 @@ export function ItemForm({
       <input type="hidden" name="perishable" value={perishable ? "on" : ""} />
       <input type="hidden" name="requiresApproval" value={requiresApproval ? "on" : ""} />
       <input type="hidden" name="hasSerialControl" value={hasSerialControl ? "on" : ""} />
+      <input type="hidden" name="trackAsAsset" value={trackAsAsset ? "on" : ""} />
       <input type="hidden" name="active" value={active ? "on" : ""} />
 
       {state && !state.ok ? <FormError message={state.error} /> : null}
@@ -327,13 +331,34 @@ export function ItemForm({
             <label className="flex cursor-pointer items-start gap-2 text-sm">
               <Checkbox
                 checked={hasSerialControl}
-                onCheckedChange={(value) => setHasSerialControl(value === true)}
+                onCheckedChange={(value) => {
+                  const next = value === true;
+                  setHasSerialControl(next);
+                  if (!next) setTrackAsAsset(false);
+                }}
                 className="mt-0.5"
               />
               <span>
                 Controle por número de série
                 <span className="text-muted-foreground block text-xs">
                   Para equipamentos rastreáveis individualmente, como ferramentas elétricas.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex cursor-pointer items-start gap-2 text-sm">
+              <Checkbox
+                checked={trackAsAsset}
+                disabled={!hasSerialControl}
+                onCheckedChange={(value) => setTrackAsAsset(value === true)}
+                className="mt-0.5"
+              />
+              <span>
+                É patrimônio (bem rastreável)
+                <span className="text-muted-foreground block text-xs">
+                  {hasSerialControl
+                    ? "Cada unidade recebida vira um bem com etiqueta PAT, dono e histórico."
+                    : "Disponível apenas para materiais com controle por número de série."}
                 </span>
               </span>
             </label>

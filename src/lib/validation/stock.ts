@@ -23,6 +23,8 @@ export const stockDocumentLineSchema = z.object({
     .trim()
     .optional()
     .transform((value) => (value === "" || value === undefined ? undefined : value)),
+  /** Séries informadas (uma por unidade) na entrada de material com série. */
+  serialNumbers: z.array(z.string().trim().min(1).max(120)).max(500).optional(),
 });
 
 export type StockDocumentLineInput = z.infer<typeof stockDocumentLineSchema>;

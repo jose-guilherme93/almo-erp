@@ -121,6 +121,9 @@ export const itemSchema = z
     perishable: z.boolean().default(false),
     requiresApproval: z.boolean().default(false),
     hasSerialControl: z.boolean().default(false),
+    // Só vale com `hasSerialControl`: o serviço zera quando o material não tem
+    // número de série (por isso não há refine aqui).
+    trackAsAsset: z.boolean().default(true),
     active: z.boolean().default(true),
   })
   .refine((data) => !data.perishable || data.controlledByLot, {
@@ -160,6 +163,7 @@ export const itemUpdateSchema = z
     perishable: z.boolean().default(false),
     requiresApproval: z.boolean().default(false),
     hasSerialControl: z.boolean().default(false),
+    trackAsAsset: z.boolean().default(true),
     active: z.boolean().default(true),
   })
   .refine((data) => !data.perishable || data.controlledByLot, {

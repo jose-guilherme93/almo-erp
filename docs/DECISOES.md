@@ -289,3 +289,30 @@ aconteceu".
 **Consequência.** Bumpar o `package.json` a cada release é disciplina humana; o resto é
 automático. Rodar o Docker sem `--build-arg GIT_SHA` deixa o commit como `unknown` (a versão
 semver e a data continuam corretas).
+
+---
+
+## ADR-17 — Patrimônio: posse não é propriedade, e série implica bem
+
+**Contexto.** O estoque controla quantidade, não identidade: dois notebooks do mesmo modelo são
+uma linha de `StockLevel`. Os itens tecnológicos precisam de número de patrimônio, dono e
+histórico, e a T.I. e o almoxarifado precisam olhar o **mesmo** bem — não dois cadastros.
+
+**Decisão.** Três regras de produto, confirmadas pelo dono:
+
+1. **Posse não é propriedade, nem saída de estoque.** Atribuir um bem a uma pessoa muda o
+   `AssetStatus` para `IN_USE` mas **não** gera `ISSUE`: o bem continua sendo da unidade e volta
+   quando o responsável é desligado. Nenhuma transição de patrimônio toca `StockLevel`.
+2. **Etiqueta global e legível.** O número é único no sistema (`PAT-000123`, gerado pelo
+   servidor) e a tela o mostra agrupado (`PAT 000 123`).
+3. **Série implica patrimônio, com exceção manual.** Material com `hasSerialControl` gera bem por
+   padrão; `Item.trackAsAsset = false` diz que aquele material **não** é bem.
+
+**Por quê.** Tratar a posse como saída faria o saldo parecer consumido por equipamento que apenas
+está na mesa de alguém; um número de patrimônio digitado à mão nasce inconsistente; e presumir que
+toda série é patrimônio evita uma decisão por item na doca, deixando o "não" para quando o
+almoxarifado realmente quiser.
+
+**Consequência.** Um bem em posse não aparece como disponível, mas segue no patrimônio da unidade;
+o histórico (`AssetEvent`) é append-only, com trigger que recusa alteração e apagamento direto. O
+vínculo do chamado de TI ao bem e a transferência de bem entre unidades ficaram para depois.

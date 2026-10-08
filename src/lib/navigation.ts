@@ -80,6 +80,12 @@ export const NAVIGATION: NavGroup[] = [
         description: "Mover material de uma unidade para outra",
       },
       { label: "Inventário", href: "/inventario", permission: "inventario:read" },
+      {
+        label: "Patrimônio",
+        href: "/patrimonio",
+        permission: "patrimonio:read",
+        description: "Bens com responsável e histórico",
+      },
     ],
   },
   {

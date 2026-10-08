@@ -53,6 +53,7 @@ function readItemForm(formData: FormData) {
     perishable: readBoolean(values, "perishable"),
     requiresApproval: readBoolean(values, "requiresApproval"),
     hasSerialControl: readBoolean(values, "hasSerialControl"),
+    trackAsAsset: readBoolean(values, "trackAsAsset"),
     active: readBoolean(values, "active"),
   };
 }
