@@ -47,6 +47,7 @@
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "^7.10.0",
+    "@sentry/nextjs": "^11.4.0",
     "@zxing/browser": "^0.2.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",

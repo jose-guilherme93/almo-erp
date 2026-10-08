@@ -1,11 +1,33 @@
-name: E2E (manual)
+name: E2E (pull request)
 
-# NÃO roda em push nem em pull request. É opcional e disparado à mão; assim o
-# CI automático (só `main`) fica dentro dos 5 minutos.
+# O E2E roda aqui, e não na máquina de desenvolvimento (AGENTS.md §9.4).
+#
+# Motivo: a máquina é uma VPS de 6 GB dividida com outros usuários, e Playwright
+# abre um Chromium por worker ao lado do `next dev`. Rodar a suíte completa de
+# lá chegou a derrubar a VPS inteira — e teste de interface não tem nada a ver
+# com o hardware que roda o ERP. Runner descartável é o lugar certo para carga
+# descartável.
+#
+# Consequência aceita: o feedback chega depois do push, em vez de antes. O
+# `pre-push` continua cobrindo lint, typecheck, test e build de forma síncrona e
+# imediata; só o E2E é remoto.
 on:
+  pull_request:
+    # `develop` é onde o trabalho acontece; `main` recebe o PR de release, e é
+    # lá que o E2E confirma exatamente o que vai virar tag.
+    branches:
+      - develop
+      - main
+    # Documentação não muda interface, então não pode gastar minuto de runner.
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
   workflow_dispatch:
 
 concurrency:
+  # Um push novo cancela o run anterior do mesmo PR: abrir PR e empurrar cinco
+  # vezes custa um run completo, não cinco. É o que segura a cota de 2.000
+  # min/mês do plano gratuito.
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
 
@@ -19,16 +41,25 @@ env:
   AUTH_TRUST_HOST: "true"
   # O bypass de autenticação de teste (`E2E_AUTH_BYPASS`) só existe fora de
   # produção (`src/lib/env.ts`), então o E2E roda com `pnpm dev` (comando padrão
-  # do playwright.config). Nunca com `pnpm build && pnpm start`.
+  # do playwright.config). Nunca com `pnpm build && pnpm start`, nem aqui.
   #
-  # E2E é local-first (AGENTS §9.1): este workflow é manual e opcional. Se um
-  # cenário não couber no teto de 5 minutos, rode local.
+  # O runner é descartável justamente porque a máquina de desenvolvimento não é:
+  # ver o cabeçalho deste arquivo.
 
 jobs:
   e2e:
     name: Playwright (chromium)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+
+    # Exceção documentada ao teto de 5 min de AGENTS.md §9.1.
+    #
+    # Medido no runner: setup 48 s, warm-up das telas 26 s, e a suíte inteira —
+    # 103 cenários — em **4,5 min**. O teto de 25 min existia quando eu supunha
+    # que a suíte não cabia; ela cabe com folga.
+    #
+    # Os 12 min são folga larga (mais que o dobro do medido) e servem de freio: se
+    # o encerramento voltar a pendurar, o desperdício é de 12 min, não de 25.
+    timeout-minutes: 12
 
     services:
       postgres:
@@ -71,22 +102,92 @@ jobs:
       - name: Aplicar migrations
         run: pnpm db:deploy
 
+      - name: Gerar o client do Prisma
+        # Explícito, mesmo com o `postinstall` fazendo isso. Já houve run que
+        # falhou com `count: 0` vindo de um client desatualizado: falha
+        # silenciosa, a suíte passa em parte e quebra em outra, e parece
+        # problema de teste. Um segundo `generate` custa segundos e elimina a
+        # hipótese.
+        run: pnpm db:generate
+
       - name: Seed
         run: pnpm db:seed
         env:
           SEED_ADMIN_EMAIL: admin@exemplo.com.br
+          # `login-local.spec.ts` entra com esta senha. Sem ela o seed cria o
+          # admin **sem** `passwordHash`, o provider de credenciais recusa, e o
+          # teste falha com `?error=CredentialsSignin` — que parece defeito de
+          # login e é só variável faltando no workflow.
+          SEED_ADMIN_PASSWORD: dev-senha-1234
 
       - name: Instalar Chromium
         # Sem `--with-deps`: o runner do GitHub já tem as bibliotecas do Chromium.
         run: pnpm exec playwright install chromium
 
+      - name: Dimensionar os workers
+        # Medido, não suposto: o tamanho do runner não é uma constante do projeto.
+        # O número fica impresso no log, então a próxima pessoa não precisa
+        # adivinhar de novo.
+        run: |
+          echo "runner: $(nproc) vCPU, $(awk '/MemTotal/{printf "%.1f GiB", $2/1048576}' /proc/meminfo)"
+          echo "E2E_WORKERS=$(nproc)" >> "$GITHUB_ENV"
+
+      - name: Subir o servidor de desenvolvimento
+        # O servidor é **nosso**, não do Playwright.
+        #
+        # Com o Playwright dono do processo, o job não encerrava: depois da suíte
+        # terminar (4,5 min, 103 verdes) o passo ficava ~19 min em silêncio e só
+        # acabava no teto. O log do runner já mostrava a causa desde a primeira
+        # execução — `Terminate orphan process: (next-server)` no fim do job: o
+        # servidor sobreviveu ao encerramento do Playwright.
+        #
+        # `setsid` põe o servidor na própria sessão, para que ele seja morto por
+        # inteiro depois, sem deixar órfão.
+        run: |
+          setsid nohup pnpm dev > /tmp/webserver.log 2>&1 < /dev/null &
+
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3001/login; then
+              echo "servidor de pé"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::o servidor não subiu em 120s"
+          tail -40 /tmp/webserver.log
+          exit 1
+        env:
+          E2E_AUTH_BYPASS: "true"
+
       - name: Rodar e2e
         run: pnpm e2e --project=chromium
         env:
           E2E_AUTH_BYPASS: "true"
+          # O servidor já está no ar (passo anterior): o Playwright usa o que
+          # existe e **não** assume o encerramento dele.
+          E2E_REUSE_SERVER: "true"
+
+      - name: Encerrar o servidor
+        # `always()`: roda mesmo com a suíte falhando, que é quando o servidor
+        # mais precisa morrer — e é quando o log dele mais importa.
+        if: ${{ always() }}
+        run: |
+          if [ "${{ job.status }}" != "success" ]; then
+            echo "--- últimas linhas do servidor ---"
+            tail -40 /tmp/webserver.log 2>/dev/null || true
+          fi
+
+          pkill -9 -f "next dev" || true
+          pkill -9 -f "next-server" || true
+          echo "servidor encerrado"
 
       - name: Publicar relatório do Playwright
-        if: ${{ !cancelled() }}
+        # `always()` e não `!cancelled()`: quando o job estoura o teto, o
+        # cancelamento é exatamente quando o relatório mais importa — e `!cancelled()`
+        # é falso nesse momento. Foi assim que duas execuções ficaram sem
+        # diagnóstico nenhum, sem saber o que passou e o que falhou.
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report

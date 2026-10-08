@@ -4,42 +4,22 @@ import type { Prisma } from "@/generated/prisma/client";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
 import { APP_VERSION } from "@/lib/version";
+import { isIgnorableError } from "@/server/services/observability/ignorable";
+import { scrubMessage } from "@/server/services/observability/scrub";
 
 const log = logger.with({ service: "error-log" });
+
+/**
+ * Reexportado para quem já importava daqui. A lista mora em
+ * `observability/ignorable` porque a instrumentação — que também roda na edge —
+ * precisa do mesmo filtro, e duas listas divergem.
+ */
+export { isIgnorableError };
 
 /** Stack ocupa espaço e ninguém lê além do topo. */
 const STACK_LIMIT = 8_000;
 const MESSAGE_LIMIT = 2_000;
 const PATH_LIMIT = 300;
-
-/** Chaves que nunca podem entrar num log de erro. */
-const REDACTED = /(password|senha|token|secret|authorization|cookie|cpf|cnpj)/i;
-
-/**
- * Ruído que o Next emite e **não** é defeito da aplicação.
- *
- * "The destination stream closed early." acontece quando uma navegação RSC é
- * abandonada — o usuário clica em outro link, ou a aba é fechada, antes do stream
- * terminar. É o comportamento normal de uma navegação cancelada, e chega em
- * volume alto. Sem este filtro a tela vira parede de ruído e o erro que importa
- * some no meio.
- *
- * A lista é curta e específica de propósito: um filtro largo esconderia erro de
- * verdade, que é o oposto do que esta tela existe para fazer.
- */
-const IGNORABLE_ERROR = [
-  /destination stream closed early/i,
-  /^the operation was aborted/i,
-  /^request aborted/i,
-  /^aborted\b/i,
-  /ERR_ABORTED/i,
-  /navigation.*aborted/i,
-];
-
-/** `true` quando o erro é cancelamento de navegação, e não defeito. */
-export function isIgnorableError(message: string): boolean {
-  return IGNORABLE_ERROR.some((pattern) => pattern.test(message));
-}
 
 /**
  * Rota sem query string.
@@ -74,14 +54,6 @@ function clip(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`;
 }
 
-/** Remove credencial de mensagem e stack antes de persistir. */
-function redact(value: string): string {
-  return value
-    .split("\n")
-    .map((line) => (REDACTED.test(line) ? "[linha omitida: pode conter credencial]" : line))
-    .join("\n");
-}
-
 /**
  * Identidade estável do erro.
  *
@@ -107,7 +79,10 @@ export function fingerprintOf(report: ServerErrorReport): string {
  * para que "Erro ao salvar item 1" e "Erro ao salvar item 2" dedupliquem juntos.
  */
 export function normalizeMessage(message: string): string {
-  return clip(redact(message), MESSAGE_LIMIT)
+  // A remoção de dado pessoal é a de `observability/scrub`, a mesma que roda
+  // antes de qualquer destino externo. Duas regras de remoção divergem, e a
+  // divergência aparece como vazamento — por isso há uma só.
+  return scrubMessage(message, MESSAGE_LIMIT)
     .replace(/\b\d{2,}\b/g, "#")
     .replace(/\/[0-9a-z]{6,}(?=\/|$)/gi, "/*");
 }
@@ -161,7 +136,7 @@ export async function recordServerError(report: ServerErrorReport): Promise<Reco
         routeType: report.routeType,
         method: report.method ?? null,
         message: normalizeMessage(report.message),
-        stack: report.stack ? clip(redact(report.stack), STACK_LIMIT) : null,
+        stack: report.stack ? scrubMessage(report.stack, STACK_LIMIT) : null,
         appVersion: APP_VERSION,
         actorId: report.actorId ?? null,
         branchId: report.branchId ?? null,
