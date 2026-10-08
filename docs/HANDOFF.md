@@ -1,25 +1,24 @@
 # Handoff — estado do trabalho
 
-> Última atualização: 2026-10-06. Leia isto antes de retomar; evita redescobrir o contexto.
+> Última atualização: 2026-10-07. Leia isto antes de retomar; evita redescobrir o contexto.
 
 ## Onde estamos
 
-- Branch de trabalho: **`feat/fase-21-observabilidade`**, nascida da `develop`.
-- `develop` e `main` estão **no mesmo commit** (`de5fa42`, tag `v1.2.0`).
-- **`main` intocada** — e agora por regra nova: ela só recebe PR de release (§10.1).
-- **O fluxo mudou:** feature abre PR para a `develop`, não para a `main`. A `develop` vai para a
-  `main` num PR de release, que também roda o E2E. Feature direto para `main` era incomum.
-- Não há PR aberto no momento desta escrita.
+- **`develop` e `main` no mesmo commit** (`e4311cd`, tag **`v1.3.0`**). Nada em andamento.
+- Nenhum PR aberto; nenhuma branch além de `develop` e `main`.
+- **O fluxo mudou** (§10.1): feature abre PR para a **`develop`**; a `main` recebe um PR de release
+  e só isso. Os dois rodam o E2E no Actions.
+- **O deploy da `v1.3.0` ainda não apareceu em produção** — `/api/health` responde `1.2.0`. Ver a
+  pendência do Dokploy abaixo.
 
 ## O que está pronto e verde
 
-Gates locais: `pnpm lint`, `pnpm typecheck`, `pnpm test` (**508**), `pnpm build`, `pnpm db:seed`.
-**O E2E não roda mais aqui** — foi para o GitHub Actions (ver FASE 22 abaixo).
+Gates locais: `pnpm lint`, `pnpm typecheck`, `pnpm test` (**522**), `pnpm build`, `pnpm db:seed`.
+E2E: roda no GitHub Actions (ver FASE 22), **6,5 min** por run.
 
-## Entrega em andamento — **FASE 21 + 22, observabilidade e E2E remoto**
+## Entrega mais recente — **FASE 21 + 22, observabilidade e E2E remoto** (`v1.3.0`)
 
-Branch `feat/fase-21-observabilidade` (PR #9, para a `develop`). Código e documentação prontos,
-gates locais verdes (522 testes) e **E2E verde no Actions em 6,5 min**.
+Mergeado na `develop` (PR #9) e publicado na `main` (PR #10, tag `v1.3.0`).
 
 **FASE 21 — o funil de incidentes.** A pergunta da FASE 20 respondida de vez: não só dá para
 descobrir o que quebrou, o erro **chega** — e num formato que não prende o projeto num fornecedor.
