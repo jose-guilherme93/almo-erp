@@ -1,15 +1,64 @@
 # Handoff — estado do trabalho
 
-> Última atualização: 2026-10-07. Leia isto antes de retomar; evita redescobrir o contexto.
+> Última atualização: 2026-10-08. Leia isto antes de retomar; evita redescobrir o contexto.
 
 ## Onde estamos
 
-- **`develop` e `main` no mesmo commit** (`e4311cd`, tag **`v1.3.0`**). Nada em andamento.
+- Última release: **`v1.3.0`** (`e4311cd`), na `main`.
+- A `develop` está **2 commits à frente** da `main`: o CI/CD da imagem (abaixo), ainda não
+  publicado — e ele **não deve** ser publicado antes dos passos manuais daquele bloco.
 - Nenhum PR aberto; nenhuma branch além de `develop` e `main`.
 - **O fluxo mudou** (§10.1): feature abre PR para a **`develop`**; a `main` recebe um PR de release
   e só isso. Os dois rodam o E2E no Actions.
 - **O deploy da `v1.3.0` ainda não apareceu em produção** — `/api/health` responde `1.2.0`. Ver a
   pendência do Dokploy abaixo.
+
+## Entrega pronta, ainda não publicada — **CI/CD da imagem (GHCR)**
+
+Mergeada na `develop` (PR #12). **Não publicada de propósito:** o caminho de deploy depende de
+configuração que só existe no painel, e publicar antes disso faria o workflow falhar.
+
+**O que muda:** a VPS **para de buildar**. Antes o Dokploy clonava o repo e rodava
+`pnpm install && next build` no servidor — competindo com o ERP a cada release. Agora o
+`release-image.yml` constrói no runner, publica no GHCR, dispara o deploy e **confere** que a
+versão nova subiu.
+
+```
+release:publish → tag vX.Y.Z
+  → Actions: build (linux/amd64, cache do GHA) → ghcr.io/<owner>/almo-erp:vX.Y.Z + :latest
+  → Actions entra na tailnet (nó efêmero) e chama POST /api/application.deploy
+  → Dokploy puxa a imagem e sobe
+  → Actions confere /api/health até a versão nova responder
+```
+
+**Por que o runner dispara, e não um webhook:** o painel do Dokploy vive atrás do Tailscale, então
+nem o webhook do GitHub nem o do Docker Hub o alcançam (verificado na doc do Dokploy: ele aceita
+origem Docker/registry e o fluxo oficial é `POST /api/application.deploy`; "Schedule Jobs" rodam
+comandos, não redeploys).
+
+**O passo que faltava:** conferir. Um deploy que não acontece é o pior defeito possível — foi o que
+deixou a produção servindo `1.2.0` depois da release da `1.3.0`.
+
+### Passos manuais antes de publicar (sem eles a release não sai)
+
+1. **Tailscale**: OAuth client com a tag `tag:ci` + ACL permitindo `tag:ci` → host do Dokploy, na
+   porta do painel.
+2. **GitHub → Secrets**: `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DOKPLOY_API_KEY`.
+3. **GitHub → Variables**: `DOKPLOY_URL`, `DOKPLOY_APPLICATION_ID`, `NEXT_PUBLIC_APP_URL`,
+   `NEXT_PUBLIC_SENTRY_DSN`.
+4. **Dokploy → Application**: origem **Docker** (`ghcr.io/<owner>/almo-erp:latest`) com PAT de
+   `read:packages`, e **Auto Deploy desligado**.
+5. **Preview**: Application apontando para `:edge` (publicada à mão pelo `workflow_dispatch`).
+
+### Dois achados no caminho
+
+- **Bug que ia ser enviado:** o `Dockerfile` não declarava `ARG` para `NEXT_PUBLIC_SENTRY_DSN`.
+  Build arg não declarado é **descartado em silêncio** e o `next build` congela o vazio — a
+  captura de erro do navegador ficaria morta em produção, sem aviso.
+- **Regra que estava documentada errada:** nem todo `NEXT_PUBLIC_*` é build arg. Só
+  `NEXT_PUBLIC_SENTRY_DSN` é lida pelo navegador; `GOOGLE_CLIENT_ID` é lida no servidor e passada
+  como prop (runtime); `APP_URL` e `APP_NAME` **não são lidas por ninguém** — configuração morta,
+  candidata a limpeza.
 
 ## O que está pronto e verde
 
@@ -75,7 +124,7 @@ sintomas que apontavam para o lugar errado:
 1. **Branch protection não existe** para repo privado no GitHub Free. Nada impede merge vermelho;
    o check aparece no PR, mas a imposição não. A saída gratuita é um script de merge que consulta
    `gh pr checks` — **não foi feito**, é a decisão em aberto.
-2. **Dokploy por tag** em vez de push na `main` (pendente desde a entrega anterior).
+2. **Os 5 passos manuais do bloco de CI/CD acima** — é o que destrava o deploy por imagem.
 3. **Variáveis no Dokploy**: `NEXT_PUBLIC_SENTRY_DSN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
    `OTEL_EXPORTER_OTLP_ENDPOINT` só se for ligar o Grafana.
 4. **UptimeRobot** em `/api/health` — é configuração no painel.
