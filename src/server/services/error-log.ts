@@ -48,7 +48,10 @@ export type ServerErrorReport = {
 export type RecordResult =
   | { outcome: "created"; id: string; count: number }
   | { outcome: "repeated"; id: string; count: number }
-  | { outcome: "skipped" };
+  | { outcome: "skipped" }
+  // A gravação falhou (banco fora, permissão, disco). Não pode ser confundido
+  // com "ruído ignorado": aqui havia um erro de verdade e ele não foi salvo.
+  | { outcome: "failed" };
 
 function clip(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`;
@@ -154,9 +157,10 @@ export async function recordServerError(report: ServerErrorReport): Promise<Reco
     return { outcome: "created", id: created.id, count: created.count };
   } catch (error) {
     // O log de erro nunca pode derrubar quem está sendo atendido: o destino
-    // final é o stdout, que não depende do banco.
+    // final é o stdout, que não depende do banco. Mas `failed` diz ao destino
+    // que a linha **não** foi salva, para ele tentar a rota externa.
     log.error("falha ao registrar erro", { error });
-    return { outcome: "skipped" };
+    return { outcome: "failed" };
   }
 }
 
@@ -185,6 +189,9 @@ export async function listErrorLogs(filters: ErrorLogFilters = {}) {
             { message: { contains: search, mode: "insensitive" } },
             { digest: { contains: search } },
             { routePath: { contains: search, mode: "insensitive" } },
+            // O link da notificação aponta para `?busca=<id>`: sem isto, quem
+            // clica no sino cai numa tela dizendo que não há erro nenhum.
+            { id: { equals: search } },
           ],
         }
       : {}),

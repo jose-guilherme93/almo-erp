@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { logger } from "@/lib/logger";
 import { scrubHeaders, scrubMessage, scrubPath } from "@/server/services/observability/scrub";
 import { errorLogSink } from "@/server/services/observability/sink-error-log";
@@ -76,6 +78,24 @@ export type IncidentSink = {
 let registry: IncidentSink[] | undefined;
 
 /**
+ * Marca o contexto de um `dispatchIncident` em andamento.
+ *
+ * Existe por causa da ponte `logger.error` → funil: os próprios sinks usam
+ * `logger.error` para relatar falha (destino indisponível, banco fora do ar). Sem
+ * esta guarda, relatar uma falha geraria outra falha, que geraria outra — uma
+ * tempestade de incidentes, justamente quando o sistema já está degradado.
+ *
+ * `AsyncLocalStorage` (e não uma flag booleana) porque o dispatch é assíncrono:
+ * uma flag global seria derrubada por qualquer requisição concorrente.
+ */
+const dispatchScope = new AsyncLocalStorage<true>();
+
+/** `true` quando o código roda dentro de um `dispatchIncident`. */
+export function isDispatchingIncident(): boolean {
+  return dispatchScope.getStore() === true;
+}
+
+/**
  * Os destinos configurados.
  *
  * A ordem importa: o banco primeiro (é a rede de segurança, não depende de
@@ -107,17 +127,19 @@ function buildSinks(): IncidentSink[] {
 export async function dispatchIncident(incident: Incident): Promise<void> {
   const scrubbed = scrubIncident(incident);
 
-  await Promise.allSettled(
-    sinks()
-      .filter((sink) => sink.enabled)
-      .map(async (sink) => {
-        try {
-          await sink.capture(scrubbed);
-        } catch (error) {
-          log.error("falha no destino de incidente", { sink: sink.name, error });
-        }
-      }),
-  );
+  await dispatchScope.run(true, async () => {
+    await Promise.allSettled(
+      sinks()
+        .filter((sink) => sink.enabled)
+        .map(async (sink) => {
+          try {
+            await sink.capture(scrubbed);
+          } catch (error) {
+            log.error("falha no destino de incidente", { sink: sink.name, error });
+          }
+        }),
+    );
+  });
 }
 
 /** Nomes dos destinos ativos — para a tela de observabilidade. */

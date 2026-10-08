@@ -13,6 +13,23 @@
 - **O deploy da `v1.3.0` ainda não apareceu em produção** — `/api/health` responde `1.2.0`. Ver a
   pendência do Dokploy abaixo.
 
+## Trabalho atual — **FASE 24: erros observáveis de ponta a ponta** (`fix/erros-nao-aparecem`)
+
+Correção de seis caminhos por onde um erro escapava da tela `/admin/erros`. O sintoma que abriu:
+o sino avisa de um erro, o clique em **Erros** cai no vazio.
+
+- **Busca por `id`** e link da notificação por `digest` (o `id` como fallback): o sino agora
+  leva à linha.
+- **`logger.error` entra no funil** (`observability/logger-bridge.ts`), com guarda de
+  reentrância (`AsyncLocalStorage`) — uma falha de destino não vira laço de incidentes.
+- **Route Handler** (`/api/anexos`) não engole falha real de I/O (só `ENOENT` é 404).
+- **`runAction` usa `after()`** em vez de `void`: o relato não é descartado com a requisição.
+- **Gravação no banco que falha** cai para o fornecedor externo + Telegram.
+- **Filtro de ruído** não confunde `"Aborted: …"` com cancelamento de navegação.
+
+Gates verdes: `lint`, `typecheck`, `test` (**528**), `build` (zero aviso de Edge), `db:seed`.
+Doc na FASE 24; `AGENTS.md` §10.4 ganhou a regra de trabalho isolado (worktree por agente, `fix/`).
+
 ## Entrega local — simplificação visual, menu e código automático
 
 Quatro frentes pedidas pelo dono do produto. Nenhuma muda regra de estoque, solicitação ou
@@ -28,11 +45,12 @@ chamado — a de patrimônio ainda é **desenho, não código**.
 - **Código do material é sempre automático.** O campo de SKU saiu do formulário: `createItem`
   gera pelo prefixo da categoria (`EPI-0007`) e `updateItem` não altera mais o código. Código de
   identificação é do sistema, não escolha do operador (AGENTS §3.11).
-- **Patrimônio — FASE 23 (proposta).** `docs/fases/FASE-23-patrimonio.md` documenta as regras
-  confirmadas (dono = pessoa, com Almoxarifado como padrão; o bem nasce na entrada de item com
-  número de série; TI e almoxarifado enxergam o mesmo bem; histórico append-only). Restam três
-  **decisões abertas** antes de codar: o bem sai do saldo do estoque? etiqueta `PAT` global ou por
-  filial? controle por série sempre implica patrimônio? Ver o próprio arquivo.
+- **Patrimônio — FASE 23 (desenho pronto).** `docs/fases/FASE-23-patrimonio.md` traz as regras
+  confirmadas: dono = pessoa (fallback **Almoxarifado**), o bem nasce na entrada de item com
+  número de série, TI e almoxarifado enxergam o mesmo bem, histórico append-only. As três
+  decisões que faltavam foram respondidas — **atribuir não gera saída de estoque** (posse ≠
+  propriedade), **etiqueta `PAT` global e legível** e **série implica patrimônio, com exceção
+  manual**. Falta implementar (branch própria).
 
 ## Entrega pronta, ainda não publicada — **CI/CD da imagem (GHCR)**
 

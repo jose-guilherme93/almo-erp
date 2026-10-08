@@ -1,7 +1,3 @@
-import { logger } from "@/lib/logger";
-
-const log = logger.with({ service: "process-guard" });
-
 /**
  * Erros fatais do processo Node.
  *
@@ -35,8 +31,9 @@ export function installProcessGuards(): void {
 
 async function reportProcessIncident(kind: string, error: Error): Promise<void> {
   try {
-    log.error("erro fatal de processo", { kind, error });
-
+    // Sem `log.error` aqui: o destino do banco já registra a linha (e loga o
+    // "erro de servidor" no stdout). Logar de novo criaria um incidente extra
+    // com a mensagem "erro fatal de processo", separado do erro real.
     const { dispatchIncident } = await import("@/server/services/observability");
 
     await dispatchIncident({

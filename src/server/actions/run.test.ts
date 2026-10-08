@@ -38,6 +38,14 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers(fakeHeaders),
 }));
 
+// `after` agenda trabalho para depois da resposta. No teste ele roda na hora,
+// para que a asserção veja o incidente sem depender do ciclo de request do Next.
+vi.mock("next/server", () => ({
+  after: (callback: () => unknown) => {
+    void callback();
+  },
+}));
+
 /** Dispara uma falha inesperada e devolve a rota que o funil recebeu. */
 async function reportedRoute(message = "falha inesperada"): Promise<string> {
   await runAction(async () => {
@@ -129,8 +137,9 @@ describe("runAction", () => {
     expect(dispatchIncident).not.toHaveBeenCalled();
   });
 
-  it("não espera o relato para responder: quem está no balcão não espera a rede", async () => {
-    // O relato sai sem `await`: um destino lento não pode virar lentidão na tela.
+  it("agenda o relato em vez de abandoná-lo solto", async () => {
+    // O relato sai por `after()`: um destino lento não vira lentidão na tela, e
+    // a promessa não é descartada junto com a requisição.
     await runAction(async () => {
       throw new Error("defeito");
     });

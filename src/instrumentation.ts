@@ -75,6 +75,12 @@ export async function register(): Promise<void> {
 
     installProcessGuards();
 
+    // Liga `logger.error` ao funil: sem isto, uma falha que um serviço captura e
+    // loga (auditoria, notificação) nunca chega a `/admin/erros`.
+    const { installLoggerBridge } = await import("@/server/services/observability/logger-bridge");
+
+    installLoggerBridge();
+
     return;
   }
 
