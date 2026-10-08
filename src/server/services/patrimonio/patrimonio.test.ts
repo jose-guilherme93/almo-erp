@@ -17,6 +17,7 @@ import {
   listAssets,
   retireAsset,
   returnAsset,
+  transferAsset,
 } from "./index";
 import {
   assignMaintenanceRequest,
@@ -416,6 +417,51 @@ describe.runIf(process.env["DATABASE_URL"])("escopo e histórico", () => {
     await prisma.asset.delete({ where: { id: asset.id } });
 
     expect(await prisma.assetEvent.count({ where: { assetId: asset.id } })).toBe(0);
+  });
+});
+
+describe.runIf(process.env["DATABASE_URL"])("transferência de unidade", () => {
+  it("move o bem para o almoxarifado de outra unidade e registra no histórico", async () => {
+    const item = await makeItem();
+    await createAssets(item.id, ["SN-9000"]);
+    const asset = await assetForItem(item.id);
+
+    const bothBranches = context([branchId, otherBranchId]);
+    await transferAsset(bothBranches, {
+      assetId: asset.id,
+      destinationBranchId: otherBranchId,
+    });
+
+    const moved = await getAsset(bothBranches, asset.id);
+    expect(moved.branch.id).toBe(otherBranchId);
+    expect(moved.status).toBe("IN_STOCK");
+    expect(moved.custodian).toBeNull();
+    expect(moved.events.map((event) => event.type)).toContain("TRANSFERRED");
+  });
+
+  it("não transfere bem em posse de alguém", async () => {
+    const item = await makeItem();
+    await createAssets(item.id, ["SN-9100"]);
+    const asset = await assetForItem(item.id);
+
+    await assignAsset(context(), { assetId: asset.id, custodianUserId: custodianId });
+
+    await expect(
+      transferAsset(context(), { assetId: asset.id, destinationBranchId: otherBranchId }),
+    ).rejects.toMatchObject({ code: "BUSINESS_RULE" });
+  });
+
+  it("recusa destino fora do escopo do usuário", async () => {
+    const item = await makeItem();
+    await createAssets(item.id, ["SN-9200"]);
+    const asset = await assetForItem(item.id);
+
+    await expect(
+      transferAsset(branchContext([branchId]), {
+        assetId: asset.id,
+        destinationBranchId: otherBranchId,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
 

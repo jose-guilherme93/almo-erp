@@ -19,6 +19,7 @@ import {
   atribuirPatrimonioAction,
   baixarPatrimonioAction,
   devolverPatrimonioAction,
+  transferirPatrimonioAction,
 } from "@/server/actions/patrimonio";
 
 /**
@@ -31,12 +32,16 @@ export function AssetActions({
   assetId,
   status,
   users,
+  branches,
 }: {
   assetId: string;
   status: AssetStatusKey;
   users: Array<{ id: string; name: string }>;
+  /** Unidades de destino possíveis (todas menos a atual, no escopo do usuário). */
+  branches: Array<{ id: string; name: string }>;
 }) {
   const [custodian, setCustodian] = useState("");
+  const [destination, setDestination] = useState("");
 
   const [assignState, assignAction, assignPending] = useActionState<
     ActionResult<unknown> | null,
@@ -50,6 +55,10 @@ export function AssetActions({
     ActionResult<unknown> | null,
     FormData
   >(baixarPatrimonioAction, null);
+  const [transferState, transferAction, transferPending] = useActionState<
+    ActionResult<unknown> | null,
+    FormData
+  >(transferirPatrimonioAction, null);
 
   useEffect(() => {
     if (assignState?.ok) toast.success("Responsável definido.");
@@ -65,6 +74,11 @@ export function AssetActions({
     if (retireState?.ok) toast.success("Bem baixado.");
     else if (retireState && !retireState.ok) toast.error(retireState.error);
   }, [retireState]);
+
+  useEffect(() => {
+    if (transferState?.ok) toast.success("Bem transferido.");
+    else if (transferState && !transferState.ok) toast.error(transferState.error);
+  }, [transferState]);
 
   if (status === "RETIRED") {
     return (
@@ -114,6 +128,38 @@ export function AssetActions({
           </Button>
         </form>
       )}
+
+      {status === "IN_STOCK" && branches.length > 0 ? (
+        <form action={transferAction} className="space-y-3">
+          <input type="hidden" name="assetId" value={assetId} />
+          <input type="hidden" name="destinationBranchId" value={destination} />
+
+          {transferState && !transferState.ok ? <FormError message={transferState.error} /> : null}
+
+          <FormField
+            id="asset-destination"
+            label="Transferir para outra unidade"
+            hint="O bem vai para o almoxarifado da unidade escolhida e continua sem responsável."
+          >
+            <Select value={destination} onValueChange={setDestination}>
+              <SelectTrigger id="asset-destination" className="w-full">
+                <SelectValue placeholder="Selecione a unidade de destino" />
+              </SelectTrigger>
+              <SelectContent>
+                {branches.map((branch) => (
+                  <SelectItem key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+
+          <Button type="submit" variant="outline" disabled={transferPending || destination === ""}>
+            {transferPending ? "Transferindo…" : "Transferir bem"}
+          </Button>
+        </form>
+      ) : null}
 
       <form action={retireAction} className="border-destructive/40 space-y-3 rounded-md border p-3">
         <input type="hidden" name="assetId" value={assetId} />

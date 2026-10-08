@@ -24,6 +24,14 @@ export const assetReturnSchema = z.object({
 
 export type AssetReturnInput = z.infer<typeof assetReturnSchema>;
 
+export const assetTransferSchema = z.object({
+  assetId: z.string().trim().min(1, "Patrimônio não informado."),
+  destinationBranchId: z.string().trim().min(1, "Escolha a unidade de destino."),
+  notes: optionalNote,
+});
+
+export type AssetTransferInput = z.infer<typeof assetTransferSchema>;
+
 export const assetRetireSchema = z.object({
   assetId: z.string().trim().min(1, "Patrimônio não informado."),
   reason: z.string().trim().min(10, "Explique o motivo da baixa (mínimo 10 caracteres).").max(600),

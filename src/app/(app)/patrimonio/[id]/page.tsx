@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { formatDateTime } from "@/lib/format";
 import { isAppError } from "@/lib/errors";
 import { requirePagePermission } from "@/server/auth/guards";
+import { listBranchOptions } from "@/server/services/branch";
 import { formatAssetTagLabel } from "@/server/services/patrimonio/tag";
 import { getAsset, listAssignableUsers } from "@/server/services/patrimonio";
 
@@ -23,6 +24,7 @@ const EVENT_LABEL: Record<string, string> = {
   CREATED: "Bem criado na entrada",
   ASSIGNED: "Entregue a um responsável",
   RETURNED: "Devolvido ao almoxarifado",
+  TRANSFERRED: "Transferido para outra unidade",
   MAINTENANCE_STARTED: "Enviado para manutenção",
   MAINTENANCE_DONE: "Retornou da manutenção",
   RETIRED: "Baixado",
@@ -59,6 +61,11 @@ export default async function PatrimonioDetalhePage({ params }: AssetPageProps) 
     canManage && asset.status !== "RETIRED"
       ? await listAssignableUsers(context, asset.branch.id)
       : [];
+  const branches = canManage
+    ? (await listBranchOptions(context))
+        .filter((branch) => branch.id !== asset.branch.id)
+        .map((branch) => ({ id: branch.id, name: branch.name }))
+    : [];
 
   return (
     <PageBody className="max-w-3xl">
@@ -123,7 +130,12 @@ export default async function PatrimonioDetalhePage({ params }: AssetPageProps) 
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <AssetActions assetId={asset.id} status={asset.status} users={users} />
+            <AssetActions
+              assetId={asset.id}
+              status={asset.status}
+              users={users}
+              branches={branches}
+            />
           </CardContent>
         </Card>
       ) : null}
@@ -145,6 +157,7 @@ export default async function PatrimonioDetalhePage({ params }: AssetPageProps) 
                   {formatDateTime(event.createdAt)}
                   {event.actor ? ` · por ${event.actor.name}` : ""}
                   {event.toCustodian ? ` · para ${event.toCustodian.name}` : ""}
+                  {event.toBranch ? ` · para ${event.toBranch.name}` : ""}
                 </p>
                 {event.notes ? <p className="mt-1 text-sm">{event.notes}</p> : null}
               </li>

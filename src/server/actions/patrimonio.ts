@@ -15,8 +15,9 @@ import {
   assetAssignSchema,
   assetRetireSchema,
   assetReturnSchema,
+  assetTransferSchema,
 } from "@/lib/validation/patrimonio";
-import { assignAsset, retireAsset, returnAsset } from "@/server/services/patrimonio";
+import { assignAsset, retireAsset, returnAsset, transferAsset } from "@/server/services/patrimonio";
 
 /** Ações do patrimônio: atribuir responsável, devolver e dar baixa. */
 
@@ -71,6 +72,32 @@ export async function devolverPatrimonioAction(
     revalidateAsset(parsed.data.assetId);
 
     return actionSuccess(undefined, "Bem devolvido ao almoxarifado.");
+  });
+}
+
+export async function transferirPatrimonioAction(
+  _previous: ActionResult<unknown> | null,
+  formData: FormData,
+): Promise<ActionResult<undefined>> {
+  return runAction(async () => {
+    const context = await requirePermission("patrimonio:manage");
+    const values = formDataToValues(formData);
+
+    const parsed = assetTransferSchema.safeParse({
+      assetId: readText(values, "assetId"),
+      destinationBranchId: readText(values, "destinationBranchId"),
+      notes: readText(values, "notes"),
+    });
+
+    if (!parsed.success) return validationFailure(parsed.error);
+
+    const metadata = await requestMetadata();
+    const result = await transferAsset(context, parsed.data, metadata);
+
+    revalidatePath("/patrimonio");
+    revalidatePath(`/patrimonio/${parsed.data.assetId}`);
+
+    return actionSuccess(undefined, `Bem transferido para ${result.destinationName}.`);
   });
 }
 

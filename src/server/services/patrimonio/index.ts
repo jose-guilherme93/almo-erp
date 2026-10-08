@@ -155,6 +155,8 @@ export async function getAsset(context: AuthContext, assetId: string) {
           actor: { select: { name: true } },
           fromCustodian: { select: { name: true } },
           toCustodian: { select: { name: true } },
+          fromBranch: { select: { name: true } },
+          toBranch: { select: { name: true } },
         },
       },
     },
@@ -401,6 +403,93 @@ export async function retireAsset(
     );
 
     return updated;
+  });
+}
+
+/**
+ * Transfere o bem para o almoxarifado de outra unidade.
+ *
+ * Só um bem **no almoxarifado** (`IN_STOCK`) se transfere — um bem em posse de
+ * alguém precisa ser devolvido antes. O dono continua sendo o almoxarifado (da
+ * unidade nova); a posse de pessoa não viaja com o bem.
+ */
+export async function transferAsset(
+  context: AuthContext,
+  input: { assetId: string; destinationBranchId: string; notes?: string },
+  metadata?: { ip?: string | null; userAgent?: string | null },
+) {
+  return prisma.$transaction(async (tx) => {
+    const asset = await lockedAsset(tx, context, input.assetId);
+
+    if (asset.status !== "IN_STOCK") {
+      throw new BusinessRuleError(
+        "Só um bem no almoxarifado pode ser transferido. Devolva-o antes de mudar de unidade.",
+      );
+    }
+
+    assertBranchAccess(context, input.destinationBranchId);
+
+    if (input.destinationBranchId === asset.branchId) {
+      throw new BusinessRuleError("O bem já está nesta unidade.");
+    }
+
+    const destination = await tx.branch.findFirst({
+      where: { id: input.destinationBranchId, active: true },
+      select: { id: true, name: true },
+    });
+
+    if (!destination) {
+      throw new BusinessRuleError("A unidade de destino está inativa ou não existe.");
+    }
+
+    await tx.asset.update({
+      where: { id: asset.id },
+      data: { branchId: destination.id, storageLocationId: null, custodianUserId: null },
+    });
+
+    await tx.assetEvent.create({
+      data: {
+        assetId: asset.id,
+        type: "TRANSFERRED",
+        fromStatus: "IN_STOCK",
+        toStatus: "IN_STOCK",
+        fromBranchId: asset.branchId,
+        toBranchId: destination.id,
+        actorId: context.user.id,
+        notes: input.notes,
+      },
+    });
+
+    await notify(tx, {
+      type: "ASSET_TRANSFERRED",
+      actorId: context.user.id,
+      branchId: destination.id,
+      entityType: "Asset",
+      entityId: asset.id,
+      data: {
+        assetId: asset.id,
+        tag: asset.tag,
+        itemName: asset.itemName,
+        serialNumber: asset.serialNumber,
+      },
+    });
+
+    await writeAuditLog(
+      {
+        actorId: context.user.id,
+        action: "asset.transferred",
+        entityType: "Asset",
+        entityId: asset.id,
+        branchId: destination.id,
+        before: { branchId: asset.branchId },
+        after: { branchId: destination.id },
+        ip: metadata?.ip,
+        userAgent: metadata?.userAgent,
+      },
+      tx,
+    );
+
+    return { tag: asset.tag, destinationName: destination.name };
   });
 }
 

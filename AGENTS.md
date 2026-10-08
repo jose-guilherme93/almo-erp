@@ -335,7 +335,8 @@ Regras:
   `TRANSFER_SENT`, `TRANSFER_RECEIVED`, `STOCK_BELOW_MIN`, `INVENTORY_DIVERGENCE`,
   `ACCESS_REQUESTED`, `ACCESS_GRANTED`, `MAINTENANCE_CREATED`, `MAINTENANCE_ASSIGNED`,
   `MAINTENANCE_PRIORITY_SET`, `MAINTENANCE_DONE`, `DELEGATION_REQUESTED`,
-  `DELEGATION_ACCEPTED`, `DELEGATION_COMPLETED`, `DELEGATION_RETURNED`.
+  `DELEGATION_ACCEPTED`, `DELEGATION_COMPLETED`, `DELEGATION_RETURNED`,
+  `ASSET_ASSIGNED`, `ASSET_RETURNED`, `ASSET_TRANSFERRED`.
 - Cada notificação guarda `actorId` (quem disparou), `entityType`, `entityId`, `branchId`,
   `title`, `body`, `link`, `readAt`, `createdAt`.
 - A caixa de entrada fica em `/notificacoes`; o sino na topbar mostra o total não lidas.

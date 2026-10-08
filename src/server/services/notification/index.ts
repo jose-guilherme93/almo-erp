@@ -181,6 +181,12 @@ const TEMPLATES: Record<
       `${data["itemName"] ?? "Bem"} voltou ao almoxarifado${data["actorName"] ? ` por ${data["actorName"]}` : ""}.`,
     link: (_e, entityId, data) => `/patrimonio/${data["assetId"] ?? entityId}`,
   },
+  ASSET_TRANSFERRED: {
+    title: (data) => `Patrimônio ${data["tag"] ?? ""} chegou à unidade`.trim(),
+    body: (data) =>
+      `${data["itemName"] ?? "Bem"} (série ${data["serialNumber"] ?? "—"}) foi transferido de outra unidade e está no almoxarifado.`,
+    link: (_e, entityId, data) => `/patrimonio/${data["assetId"] ?? entityId}`,
+  },
 };
 
 /** Rótulo de prioridade, para o texto da notificação. */
@@ -421,6 +427,13 @@ export async function resolveRecipients(
     case "ASSET_RETURNED": {
       const previousCustodianId = payload.data?.["previousCustodianId"];
       return previousCustodianId && !exclude.has(previousCustodianId) ? [previousCustodianId] : [];
+    }
+
+    // A unidade de destino é quem passa a guardar o bem.
+    case "ASSET_TRANSFERRED": {
+      if (!payload.branchId) return [];
+      const keepers = await usersWithPermission(payload.branchId, "patrimonio:manage");
+      return keepers.filter((id) => !exclude.has(id));
     }
 
     default:

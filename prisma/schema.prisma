@@ -211,6 +211,8 @@ enum NotificationType {
   /// O bem passou à posse de um responsável (ou voltou ao almoxarifado).
   ASSET_ASSIGNED
   ASSET_RETURNED
+  /// O bem mudou de unidade (foi para o almoxarifado de outra filial).
+  ASSET_TRANSFERRED
 }
 
 /// Papel do setor no fluxo: quem pede, quem atende, ou os dois.
@@ -253,6 +255,7 @@ enum AssetEventType {
   CREATED
   ASSIGNED
   RETURNED
+  TRANSFERRED
   MAINTENANCE_STARTED
   MAINTENANCE_DONE
   RETIRED
@@ -347,6 +350,8 @@ model Branch {
   emailPolicies           EmailPolicy[]
   maintenanceRequests     MaintenanceRequest[]
   assets                  Asset[]
+  assetEventsFrom         AssetEvent[] @relation("AssetEventFromBranch")
+  assetEventsTo           AssetEvent[] @relation("AssetEventToBranch")
 
   @@index([type])
   @@index([active])
@@ -861,16 +866,21 @@ model AssetEvent {
   toStatus        AssetStatus?   @map("to_status")
   fromCustodianId String?        @map("from_custodian_id")
   toCustodianId   String?        @map("to_custodian_id")
+  /// Mudança de unidade (transferência do bem): de onde para onde.
+  fromBranchId    String?        @map("from_branch_id")
+  toBranchId      String?        @map("to_branch_id")
   referenceType   String?        @map("reference_type")
   referenceId     String?        @map("reference_id")
   actorId         String?        @map("actor_id")
   notes           String?
   createdAt       DateTime       @default(now()) @map("created_at")
 
-  asset         Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  fromCustodian User? @relation("AssetEventFromCustodian", fields: [fromCustodianId], references: [id], onDelete: SetNull)
-  toCustodian   User? @relation("AssetEventToCustodian", fields: [toCustodianId], references: [id], onDelete: SetNull)
-  actor         User? @relation("AssetEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+  asset         Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fromCustodian User?   @relation("AssetEventFromCustodian", fields: [fromCustodianId], references: [id], onDelete: SetNull)
+  toCustodian   User?   @relation("AssetEventToCustodian", fields: [toCustodianId], references: [id], onDelete: SetNull)
+  fromBranch    Branch? @relation("AssetEventFromBranch", fields: [fromBranchId], references: [id], onDelete: SetNull)
+  toBranch      Branch? @relation("AssetEventToBranch", fields: [toBranchId], references: [id], onDelete: SetNull)
+  actor         User?   @relation("AssetEventActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([assetId, createdAt])
   @@map("asset_events")
