@@ -168,6 +168,6 @@ CPF.
 - [x] `ErrorLog` não cresce sem limite.
 - [x] Zero aviso de Edge Runtime no build.
 - [x] Sem DSN, sem Telegram e sem OTLP: a aplicação sobe e funciona igual.
-- [ ] **E2E verde** — roda no GitHub Actions, a cada PR para `develop`
-      (AGENTS.md §9.4). Não roda localmente: ver a justificativa do custo de
-      memória em `FASE-22-e2e-remoto.md`.
+- [x] **E2E verde** — roda no GitHub Actions a cada PR para `develop` (AGENTS.md §9.4):
+      101 passaram e 2 passaram no retry, em 5 min. Não roda localmente: ver a justificativa do
+      custo de memória em `FASE-22-e2e-remoto.md`.

@@ -64,7 +64,7 @@ Não pule fase e não "adiante" parte de fase futura.
 - [x] FASE 19 — Simplificação
 - [x] FASE 20 — Observabilidade de erro
 - [x] FASE 21 — Observabilidade profissional
-- [ ] FASE 22 — E2E remoto (aguardando o primeiro run no Actions)
+- [x] FASE 22 — E2E remoto
 
 ## Dependências entre fases
 

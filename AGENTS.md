@@ -507,6 +507,9 @@ pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
   passo `always()` — que também despeja o log do servidor quando a suíte falha.
   Um job que não encerra é pior que um job lento: o sintoma ("não cabe no tempo") aponta para o
   lugar errado, e eu passei três execuções culpando uma suíte que leva 4,5 min.
+- **Números de referência** (medidos, para não virarem lenda): run completo **6,5 min** — servidor
+  9 s, suíte **5 min**, encerramento 0 s. Dois testes são flaky e passam no retry; ficam como
+  pendência de confiabilidade.
 - Cache dos navegadores no runner, `timeout-minutes: 12`, e `concurrency` com
   `cancel-in-progress` para que empurrar de novo não multiplique custo.
 

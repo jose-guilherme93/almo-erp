@@ -134,8 +134,22 @@ espera ficar de pé, roda a suíte com `E2E_REUSE_SERVER=true` e mata o que sobr
 O `gracefulShutdown` fica declarado como segunda linha de defesa, para quando o Playwright **é**
 dono do servidor — o caso da execução local.
 
-O teto cai de 25 para **12 min**: mais que o dobro do medido, e um freio de tamanho honesto
-enquanto o encerramento não estiver confirmado no runner.
+**Confirmado no runner:**
+
+| Passo | Antes | Depois |
+|---|---|---|
+| Subir o servidor | — | 9 s |
+| Suíte (103 cenários) | 4,5 min | 5 min |
+| Encerrar o servidor | **travava ~19 min** | 0 s |
+| **Run completo** | **25 min**, morto no teto | **6,5 min**, `success` |
+
+O teto cai de 25 para **12 min**: mais que o dobro do medido, e um freio de tamanho honesto se o
+encerramento voltar a pendurar.
+
+**Dois testes são flaky** e passam no retry (`admin-usuarios` "acessa a lista de usuários" e
+`filiais` "mostra os locais de estoque"). Ficam registrados como pendência de confiabilidade — não
+bloqueiam, porque o retry existe para isso, mas um teste que só passa na segunda tentativa é sinal
+de espera frágil, não de sorte.
 
 ### Terceira tentativa: a suíte passa, e o warm-up era o gargalo
 
@@ -168,9 +182,9 @@ problema que era um `await` dentro de um laço.
 - [ ] Empurrar de novo cancela o run anterior em vez de enfileirar.
 - [x] **A suíte roda de verdade** — 103 cenários, todos passando.
 - [x] **A suíte inteira mede 4,5 min** — o teto nunca foi o problema.
-- [ ] O job **encerra sozinho**, com o resumo impresso (hoje trava ~19 min depois da suíte e só
-      acaba no teto). O servidor passou a ser do workflow; falta confirmar no runner.
+- [x] O job **encerra sozinho**, com o resumo impresso: 6,5 min, `success`.
 - [x] Teto reduzido de 25 para 12 min, para limitar o desperdício enquanto isso.
+- [ ] Investigar os 2 testes flaky (pendência de confiabilidade, não bloqueia).
 - [x] Relatório disponível mesmo quando o job é cancelado.
 - [x] Lista de telas num lugar só, sem duplicar com `mobile.spec.ts`.
 - [x] Setup medido: 48 s com caches quentes.

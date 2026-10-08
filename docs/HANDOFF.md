@@ -18,8 +18,8 @@ Gates locais: `pnpm lint`, `pnpm typecheck`, `pnpm test` (**508**), `pnpm build`
 
 ## Entrega em andamento — **FASE 21 + 22, observabilidade e E2E remoto**
 
-Branch `feat/fase-21-observabilidade`, ainda sem commit. O código está pronto e os gates locais
-passam; falta commitar, abrir o PR para a `develop` e ler o check do E2E.
+Branch `feat/fase-21-observabilidade` (PR #9, para a `develop`). Código e documentação prontos,
+gates locais verdes (522 testes) e **E2E verde no Actions em 6,5 min**.
 
 **FASE 21 — o funil de incidentes.** A pergunta da FASE 20 respondida de vez: não só dá para
 descobrir o que quebrou, o erro **chega** — e num formato que não prende o projeto num fornecedor.
@@ -48,9 +48,26 @@ descobrir o que quebrou, o erro **chega** — e num formato que não prende o pr
 **FASE 22 — o E2E foi para o GitHub Actions.** Rodar a suíte local **derrubou a VPS**: carga 78 em
 4 cores, `next dev` com 2,3 GB (39,8% da máquina) e um Chromium por worker. Teste de interface não
 tem relação com o hardware que serve o ERP.
+
+Referência medida do run completo: **6,5 min** — servidor 9 s, suíte 5 min, encerramento 0 s.
+
+Custou cinco execuções para chegar lá, e vale registrar por quê, porque os dois problemas tinham
+sintomas que apontavam para o lugar errado:
+
+1. O `globalSetup` do warm-up **morria na primeira linha** (`page.goto` com URL relativa — o
+   `globalSetup` não herda o `use` da config) e levava a suíte junto: zero testes rodaram em três
+   execuções. O sintoma era "o job estoura o tempo", e eu escrevi na documentação que "a suíte não
+   cabe" — **sem nenhum teste ter executado**.
+2. Consertado isso, a suíte rodou em **4,5 min** e passou inteira (103 cenários). O job ainda batia
+   o teto porque **travava ~19 min depois dos testes**: o `next dev` sobrevivia ao encerramento do
+   Playwright, e o Playwright esperava por ele (`Terminate orphan process: (next-server)` no log,
+   desde a primeira execução). Agora o servidor é do workflow: sobe com `setsid`, a suíte roda com
+   `E2E_REUSE_SERVER=true`, e um passo `always()` mata o que sobrou.
 - Agora roda **a cada PR para `develop` e `main`**, com `paths-ignore` para docs e
   `cancel-in-progress` (empurrar 5 vezes custa 1 run). `timeout-minutes: 15`.
 - **Localmente, um spec por vez** (`--grep`). A suíte completa é do runner.
+- **Dois testes flaky**, passam no retry: `admin-usuarios` "acessa a lista de usuários" e `filiais`
+  "mostra os locais de estoque". Pendência de confiabilidade, não bloqueia.
 - O caminho que foi **descartado**: conter o consumo na VPS com cgroup v2 (dois escopos, 1,5 GB +
   1 GB, `CPUQuota`, preflight). As peças foram verificadas em campo e funcionavam — mas a solução
   certa era **mover o trabalho para fora, não fazê-lo caber**.
