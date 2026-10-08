@@ -1,7 +1,35 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { loginAs, TEST_USERS } from "./helpers/auth";
 import { APP_ROUTES } from "./helpers/routes";
+
+/**
+ * Espera a URL parar de mudar.
+ *
+ * Algumas rotas terminam num `redirect()` do servidor que o Next aplica no
+ * cliente **depois** do primeiro paint (ex.: `/dashboard/unidade/x` →
+ * `/forbidden`, porque a filial não está no escopo). Medir nesse intervalo
+ * derruba o `page.evaluate` com "Execution context was destroyed, most likely
+ * because of a navigation" — que foi a falha real do runner, não a do layout.
+ *
+ * A espera é por **condição** (a URL ficou estável), não `networkidle`: só o
+ * redirect pendente interessa, e ele se resolve em poucas centenas de ms.
+ */
+async function waitForUrlToSettle(page: Page): Promise<void> {
+  let previous = page.url();
+  let stable = 0;
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await page.waitForTimeout(100);
+    const current = page.url();
+
+    stable = current === previous ? stable + 1 : 0;
+    previous = current;
+
+    // 300 ms estável: se havia redirect pendente, ele já apareceu.
+    if (stable >= 3) return;
+  }
+}
 
 /**
  * Responsividade para uso no celular.
@@ -23,6 +51,10 @@ test.describe("mobile 390px", () => {
     test(`${screen.label} (${screen.path}) não tem rolagem horizontal`, async ({ page }) => {
       await loginAs(page, screen.user);
       await page.goto(screen.path);
+
+      // O redirect pendente (quando há) precisa terminar antes de medirmos, ou o
+      // `page.evaluate` cai num contexto que a navegação já destruiu.
+      await waitForUrlToSettle(page);
 
       // Espera **determinística**, não `networkidle`.
       //
