@@ -303,7 +303,7 @@ Existem **três** dashboards, com audiência distinta. **Não misture.**
 
 O **menu lateral** segue a ordem do trabalho, não o modelo de dados:
 **Início** (o painel certo para quem entrou) → **Ação** (aprovar, entregar, chamados abertos) →
-**Insumo** (entrada, ajuste, transferências, inventário) → **Consumo** (pedidos) →
+**Insumo** (entrada, ajuste, transferências, inventário, patrimônio) → **Consumo** (pedidos) →
 **Manutenção** (abrir chamado) → **Monitoramento** (saldos, movimentações, relatórios) →
 **Configurações** (catálogo e administração, no rodapé).
 

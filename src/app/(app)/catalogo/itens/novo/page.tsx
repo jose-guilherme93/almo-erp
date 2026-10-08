@@ -67,6 +67,7 @@ export default async function NovoItemPage() {
               perishable: false,
               requiresApproval: false,
               hasSerialControl: false,
+              trackAsAsset: true,
               active: true,
             }}
           />

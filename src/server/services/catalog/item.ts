@@ -174,6 +174,7 @@ export async function getItemDetail(context: AuthContext, itemId: string) {
       perishable: true,
       requiresApproval: true,
       hasSerialControl: true,
+      trackAsAsset: true,
       active: true,
       createdAt: true,
       category: { select: { id: true, code: true, name: true, requiresApproval: true } },
@@ -233,6 +234,8 @@ const ITEM_PICK_SELECT = {
   barcode: true,
   name: true,
   controlledByLot: true,
+  hasSerialControl: true,
+  trackAsAsset: true,
   unit: { select: { id: true, code: true, name: true, allowsDecimals: true } },
   category: { select: { id: true, name: true } },
 } as const;
@@ -310,6 +313,7 @@ async function completeQuickInput(input: ItemQuickInput): Promise<ItemInput> {
     perishable: false,
     requiresApproval: category.requiresApproval,
     hasSerialControl: false,
+    trackAsAsset: true,
     active: true,
   };
 }
@@ -368,6 +372,8 @@ export async function createItem(
         // A categoria define o padrão; o item pode sobrescrever.
         requiresApproval: data.requiresApproval || category.requiresApproval,
         hasSerialControl: data.hasSerialControl,
+        // Só faz sentido com série: sem série, não há bem a rastrear.
+        trackAsAsset: data.hasSerialControl && data.trackAsAsset,
         active: data.active,
         createdById: context.user.id,
       },
@@ -428,6 +434,7 @@ export async function updateItem(
         perishable: input.perishable,
         requiresApproval: input.requiresApproval,
         hasSerialControl: input.hasSerialControl,
+        trackAsAsset: input.hasSerialControl && input.trackAsAsset,
         active: input.active,
       },
     });

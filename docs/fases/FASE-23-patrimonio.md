@@ -1,7 +1,9 @@
 # FASE 23 — Patrimônio: bem rastreável com dono e histórico
 
-> **Status: decidida, pronta para implementar.** As três decisões que faltavam foram
-> respondidas pelo dono do produto e estão registradas abaixo. O código ainda não existe.
+> **Status: implementada.** As três decisões foram respondidas pelo dono do produto e
+> estão registradas abaixo. O núcleo (schema, entrada por série, atribuição, devolução,
+> baixa, histórico e telas) está no ar. O vínculo do chamado de TI ao bem
+> (`MaintenanceRequest.assetId`) ficou para a próxima etapa.
 
 ## Contexto
 
@@ -127,19 +129,27 @@ dono padrão.
   **histórico** completo.
 - No menu: grupo **Insumo** (junto de entrada/ajuste/inventário) com `patrimonio:read`.
 
-## Critérios de aceite (ao implementar)
+## Critérios de aceite
 
-- [ ] Migration versionada; `Asset` e `AssetEvent` com trigger que recusa `UPDATE`/`DELETE` em
-      `asset_events` (mesmo padrão de `report_snapshots`).
-- [ ] Etiqueta gerada pelo servidor, nunca digitada; campo somente-leitura na tela, exibida de
-      forma legível.
-- [ ] Bem sem responsável exibe **Almoxarifado** e aparece no filtro "sem responsável".
-- [ ] Atribuir responsável **não** altera `StockLevel` (regra 4), com teste que prova isso.
-- [ ] Entrada de material com série cria os bens na transação do documento.
-- [ ] `Item.trackAsAsset = false` impede a geração do bem, com teste.
-- [ ] Toda transição de estado passa por `src/server/services/patrimonio/transitions.ts`, gera
-      `AssetEvent` e (quando de negócio) notificação (§3.6).
-- [ ] Toda query filtrada por filial (`scopeBranch`, §3.2).
-- [ ] Testes: criação na entrada, atribuição/devolução, transições válidas e inválidas, negação
-      fora do escopo, histórico imutável, e não-alteração de saldo.
-- [ ] `docs/ARQUITETURA.md` (nova §Patrimônio) e `AGENTS.md` (permissões e navegação) atualizados.
+- [x] Migration versionada; `Asset` e `AssetEvent` com trigger que recusa `UPDATE`/`DELETE` em
+      `asset_events` (mesmo padrão de `report_snapshots`). O `DELETE` por cascade do bem inteiro
+      continua permitido — a aplicação nunca apaga bem, e é o que permite limpar dado de teste.
+- [x] Etiqueta gerada pelo servidor, nunca digitada; exibida de forma legível (`PAT 000 123`).
+- [x] Bem sem responsável exibe **Almoxarifado** e aparece no filtro "sem responsável".
+- [x] Atribuir responsável **não** altera `StockLevel`, com teste que prova isso.
+- [x] Entrada de material com série cria os bens na transação do documento.
+- [x] `Item.trackAsAsset = false` impede a geração do bem, com teste.
+- [x] Toda transição de estado passa por `src/server/services/patrimonio/transitions.ts`, gera
+      `AssetEvent` e notifica (atribuição e devolução).
+- [x] Toda query filtrada por filial (`branchFilter`, §3.2).
+- [x] Testes: criação na entrada, atribuição/devolução, transições válidas e inválidas, escopo,
+      histórico imutável e não-alteração de saldo (`patrimonio.test.ts`, 21 casos).
+- [x] `docs/ARQUITETURA.md` (§5.6) e `AGENTS.md` (navegação) atualizados.
+
+## Fora do escopo desta entrega
+
+- **Vínculo do chamado ao bem** (`MaintenanceRequest.assetId`): abrir chamado mudaria o bem para
+  `IN_MAINTENANCE` e concluir voltaria. Fica para a próxima etapa; o estado e a transição já
+  existem no serviço.
+- **Transferência de bem entre unidades**: o bem é da filial; mover entre unidades exigirá
+  reconciliar o `Asset` com a transferência de estoque.

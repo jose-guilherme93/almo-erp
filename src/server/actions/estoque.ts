@@ -40,6 +40,7 @@ function readLines(values: Record<string, string | string[] | undefined>) {
   const quantities = readList(values, "lineQuantity");
   const unitCosts = readList(values, "lineUnitCost");
   const lotIds = readList(values, "lineLotId");
+  const serialLists = readList(values, "lineSerialNumbers");
 
   if (itemIds.length === 0) return [];
 
@@ -48,6 +49,12 @@ function readLines(values: Record<string, string | string[] | undefined>) {
     quantity: quantities[index] ?? "0",
     unitCost: unitCosts[index] ?? "0",
     itemLotId: lotIds[index] ?? "",
+    // Cada linha manda uma lista própria (separada por vírgula/linha), alinhada
+    // pelo índice com as demais.
+    serialNumbers: (serialLists[index] ?? "")
+      .split(/[\n,;]+/)
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
   }));
 }
 
@@ -103,6 +110,7 @@ export async function lancarEntradaAction(
           itemLotId: line.itemLotId,
           quantity: d(line.quantity).abs(),
           unitCost: d(line.unitCost),
+          serialNumbers: line.serialNumbers,
         })),
       },
       metadata,

@@ -33,6 +33,7 @@ export const APP_ROUTES: AppRoute[] = [
   { user: "superAdmin", path: "/filiais", label: "Unidades" },
   { user: "superAdmin", path: "/filiais/nova", label: "Nova unidade" },
   { user: "superAdmin", path: "/catalogo/itens", label: "Materiais" },
+  { user: "superAdmin", path: "/patrimonio", label: "Patrimônio" },
   { user: "superAdmin", path: "/relatorios", label: "Relatórios" },
   { user: "superAdmin", path: "/relatorios/consolidados", label: "Relatórios consolidados" },
   // `x` não é uma unidade real: esta linha mede a tela de **não encontrado**.
@@ -91,4 +92,5 @@ export const DETAIL_LISTS: Array<{ list: string; pattern: RegExp }> = [
   { list: "/relatorios/consolidados", pattern: /\/relatorios\/consolidados\/([A-Za-z0-9]{10,})/ },
   { list: "/admin/usuarios", pattern: /\/admin\/usuarios\/([A-Za-z0-9]{10,})/ },
   { list: "/catalogo/itens", pattern: /\/catalogo\/itens\/([A-Za-z0-9]{10,})/ },
+  { list: "/patrimonio", pattern: /\/patrimonio\/([A-Za-z0-9]{10,})/ },
 ];

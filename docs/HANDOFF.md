@@ -45,12 +45,13 @@ chamado — a de patrimônio ainda é **desenho, não código**.
 - **Código do material é sempre automático.** O campo de SKU saiu do formulário: `createItem`
   gera pelo prefixo da categoria (`EPI-0007`) e `updateItem` não altera mais o código. Código de
   identificação é do sistema, não escolha do operador (AGENTS §3.11).
-- **Patrimônio — FASE 23 (desenho pronto).** `docs/fases/FASE-23-patrimonio.md` traz as regras
-  confirmadas: dono = pessoa (fallback **Almoxarifado**), o bem nasce na entrada de item com
-  número de série, TI e almoxarifado enxergam o mesmo bem, histórico append-only. As três
-  decisões que faltavam foram respondidas — **atribuir não gera saída de estoque** (posse ≠
-  propriedade), **etiqueta `PAT` global e legível** e **série implica patrimônio, com exceção
-  manual**. Falta implementar (branch própria).
+- **Patrimônio — FASE 23 (implementada).** `Asset` + `AssetEvent` (histórico append-only com
+  trigger), etiqueta `PAT` global gerada pelo servidor, dono = pessoa com **Almoxarifado** como
+  padrão. O bem nasce na entrada de item com número de série; **atribuir não gera saída de
+  estoque** (posse ≠ propriedade); série implica patrimônio salvo `Item.trackAsAsset = false`.
+  Telas `/patrimonio` e `/patrimonio/[id]` (ficha + histórico), no grupo **Insumo**. Permissões
+  `patrimonio:read`/`patrimonio:manage`. Ficou para depois: vínculo do chamado ao bem e
+  transferência de bem entre unidades. Ver `docs/fases/FASE-23-patrimonio.md`.
 
 ## Entrega pronta, ainda não publicada — **CI/CD da imagem (GHCR)**
 

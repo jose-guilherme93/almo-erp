@@ -169,6 +169,18 @@ const TEMPLATES: Record<
     // Prefere a referência (digest) que o usuário vê na tela; o id é o fallback.
     link: (_e, entityId, data) => `/admin/erros?busca=${data["digest"] ?? entityId}`,
   },
+  ASSET_ASSIGNED: {
+    title: (data) => `Patrimônio ${data["tag"] ?? ""} sob sua responsabilidade`.trim(),
+    body: (data) =>
+      `${data["itemName"] ?? "Bem"} (série ${data["serialNumber"] ?? "—"}) passou para você. Devolva ao almoxarifado quando não usar mais.`,
+    link: (_e, entityId, data) => `/patrimonio/${data["assetId"] ?? entityId}`,
+  },
+  ASSET_RETURNED: {
+    title: (data) => `Patrimônio ${data["tag"] ?? ""} devolvido`.trim(),
+    body: (data) =>
+      `${data["itemName"] ?? "Bem"} voltou ao almoxarifado${data["actorName"] ? ` por ${data["actorName"]}` : ""}.`,
+    link: (_e, entityId, data) => `/patrimonio/${data["assetId"] ?? entityId}`,
+  },
 };
 
 /** Rótulo de prioridade, para o texto da notificação. */
@@ -399,6 +411,17 @@ export async function resolveRecipients(
     // `/admin/auditoria`, então quem já vê a auditoria vê os erros.
     case "ERROR_REPORTED":
       return usersWithNetworkPermission("papel:manage", client);
+
+    // A posse de um bem é entre duas pessoas: quem recebe e quem devolve.
+    case "ASSET_ASSIGNED": {
+      const custodianId = payload.data?.["custodianId"];
+      return custodianId && !exclude.has(custodianId) ? [custodianId] : [];
+    }
+
+    case "ASSET_RETURNED": {
+      const previousCustodianId = payload.data?.["previousCustodianId"];
+      return previousCustodianId && !exclude.has(previousCustodianId) ? [previousCustodianId] : [];
+    }
 
     default:
       return [];
