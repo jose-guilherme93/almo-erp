@@ -165,6 +165,8 @@ describe("dispatchIncident", () => {
     // cada vez transformaria o sino em ruído e esconderia o problema maior.
     expect(notifications).toHaveLength(1);
     expect(notifications[0]?.type).toBe("ERROR_REPORTED");
+    // O link leva à **referência** que o usuário vê na tela, não a um id opaco.
+    expect(notifications[0]?.link).toContain("digest-funil");
   });
 
   it("não grava cancelamento de navegação", async () => {

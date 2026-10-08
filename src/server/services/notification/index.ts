@@ -166,7 +166,8 @@ const TEMPLATES: Record<
 
       return `${data["message"] ?? "Erro desconhecido"}. Ocorreu ${vezes}x. Abra /admin/erros para ver o detalhe.`;
     },
-    link: (_e, entityId) => `/admin/erros?busca=${entityId}`,
+    // Prefere a referência (digest) que o usuário vê na tela; o id é o fallback.
+    link: (_e, entityId, data) => `/admin/erros?busca=${data["digest"] ?? entityId}`,
   },
 };
 

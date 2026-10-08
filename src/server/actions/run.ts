@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { after } from "next/server";
 
 import { isAppError } from "@/lib/errors";
 import {
@@ -51,15 +52,22 @@ export async function runAction<T>(fn: () => Promise<ActionResult<T>>): Promise<
     // clica precisa saber. Vira incidente, com a prioridade que merece.
     if (!isAppError(error) || error.code === "NOT_IMPLEMENTED") {
       // O relato não pode atrasar a resposta: quem está no balcão não espera a
-      // rede para ver a mensagem. `dispatchIncident` nunca lança, então o erro
-      // reportado não tem como virar um erro novo.
-      void dispatchIncident({
-        kind: "action",
-        routePath: await currentRoutePath(),
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? (error.stack ?? null) : null,
-        context: { error },
-      });
+      // rede para ver a mensagem. `after` garante que ele rode **depois** da
+      // resposta, sem `void` — uma promessa solta podia ser descartada quando a
+      // requisição termina, e o incidente sumia justamente onde ele importa.
+      const routePath = await currentRoutePath();
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? (error.stack ?? null) : null;
+
+      after(() =>
+        dispatchIncident({
+          kind: "action",
+          routePath,
+          message,
+          stack,
+          context: { error },
+        }),
+      );
     }
 
     return actionFailureFromError(error);
