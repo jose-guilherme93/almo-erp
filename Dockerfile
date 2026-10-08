@@ -24,14 +24,25 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # ---- Build ----------------------------------------------------------------
 FROM base AS build
-# `NEXT_PUBLIC_*` é inlinado no bundle: precisa existir em tempo de build.
+# `NEXT_PUBLIC_*` lido pelo **navegador** é inlinado no bundle e precisa existir
+# aqui, em tempo de build. Lido só no servidor, é runtime (ver abaixo).
 ARG NEXT_PUBLIC_APP_NAME=almo-erp
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 # SHA do commit, para a versão exibida (o `.git` não entra na imagem).
 ARG GIT_SHA=
+# Um `--build-arg` só chega ao build se o `ARG` for declarado aqui. Sem esta
+# linha o valor é **silenciosamente ignorado** (o Docker avisa "not consumed",
+# fácil de não ver) e o `next build` congela o vazio no bundle — era assim que a
+# captura de erro do navegador ficaria morta em produção.
+#
+# Este é o **único** `NEXT_PUBLIC_*` que o cliente lê direto. `GOOGLE_CLIENT_ID`
+# é lido no servidor e passado como prop (é runtime, não build), e `APP_URL` /
+# `APP_NAME` não são lidos por ninguém hoje — só existem no schema do `env.ts`.
+ARG NEXT_PUBLIC_SENTRY_DSN=
 ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV GIT_SHA=$GIT_SHA
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 # O env é validado ao importar o Prisma; no build não há banco, só um placeholder.
 ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
 

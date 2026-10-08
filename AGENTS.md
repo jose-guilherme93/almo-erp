@@ -395,16 +395,18 @@ agendados:
 | Workflow | Quando roda | Para quê |
 |---|---|---|
 | `e2e.yml` | **a cada PR** para `develop` e `main` | a prova de ponta a ponta pela interface |
+| `release-image.yml` | **a cada tag `v*`** (e à mão, para o preview) | constrói a imagem, publica no GHCR, dispara o deploy e confere que subiu |
 | `ci.yml` | à mão | segunda opinião de ambiente (ex.: antes de uma release, ou depois de mexer no Postgres) |
 | `backup.yml` | agendado | cópia cifrada do banco para fora da VPS |
 
 Regras que valem para todos:
 
-- **Nenhum job passa de 5 minutos**, com **uma exceção documentada**: o `e2e` declara
-  `timeout-minutes: 12`. Medido no runner: setup **48 s**, warm-up das telas **26 s** e a suíte
-  inteira — **103 cenários, todos passando** — em **4,5 min**. O teto é mais que o dobro do medido,
-  e existe como freio: enquanto o encerramento do servidor estiver pendurando (ver §9.4), o
-  desperdício é de 12 min, não de 25.
+- **Nenhum job passa de 5 minutos**, com **exceções documentadas**: o `e2e` declara
+  `timeout-minutes: 12`; o `release-image` declara 20 (build) e 15 (deploy + conferência), porque
+  construir a imagem e esperar a produção subir não cabem em 5 — e são passos que rodam uma vez
+  por versão, não a cada PR. Medido no runner: setup **48 s**, warm-up das telas **26 s** e a suíte
+  inteira — **103 cenários, todos passando** — em **4,5 min**. O teto do E2E é mais que o dobro do
+  medido: é freio, não estimativa.
 - **Custo é controlado por gatilho, não por economização.** O E2E dispara em `pull_request`
   (não em `push` livre: empurrar para branch várias vezes estoura a cota), ignora `docs/**` e
   `**.md`, e tem `concurrency` com `cancel-in-progress` — empurrar cinco vezes no mesmo PR
@@ -562,6 +564,36 @@ Regras que valem para quem mexer nessa área:
 - **`ErrorLog` tem retenção** (`observability/retention.ts`), sem cron: roda junto com a gravação,
   no máximo uma vez por hora. Só leva o que é resolvido **e** não volta há 90 dias, e um teto
   absoluto corta do mais antigo para o mais novo.
+
+### 9.6 A imagem de produção é construída no CI
+
+**A VPS não builda.** O `release-image.yml` constrói a imagem no runner (4 vCPU, descartável),
+publica no GHCR e dispara o deploy; a VPS só **puxa**. Antes o Dokploy clonava o repositório e
+rodava `pnpm install && next build` no servidor, competindo com o ERP que já estava no ar.
+
+O deploy é disparado **pelo runner**, e não por webhook, porque o painel do Dokploy vive atrás do
+Tailscale: nada na internet o alcança — nem o webhook do GitHub, nem o do Docker Hub. O runner
+entra na tailnet como nó efêmero (`tag:ci`) e a ACL limita essa tag a alcançar só o Dokploy.
+
+Regras:
+
+- **Um `NEXT_PUBLIC_*` só é inlinado se o navegador o ler.** Não presuma pelo nome: confira o
+  código. Hoje só **`NEXT_PUBLIC_SENTRY_DSN`** é build arg; `NEXT_PUBLIC_GOOGLE_CLIENT_ID` é lido
+  num Server Component e passado como prop (runtime), e `NEXT_PUBLIC_APP_URL` / `APP_NAME` não são
+  lidos por ninguém. Mudar um build arg exige **imagem nova**, não restart do container.
+- **`--build-arg` não declarado é ignorado em silêncio.** O Docker avisa "not consumed", fácil de
+  não ver, e o `next build` congela o vazio. Não falha — mente. Todo build arg consumido precisa
+  de `ARG` no `Dockerfile`, com comentário dizendo por quê.
+- **DSN do Sentry não é segredo.** Ele vai embutido no JavaScript do navegador de qualquer forma,
+  então é *variable*, não *secret*. Tratá-lo como segredo dá falsa sensação de proteção.
+- **Toda release publica tag imutável** (`vX.Y.Z`) além de `:latest`. Sem a imutável, "voltar para
+  a versão de ontem" não tem para onde apontar — o rollback é trocar a tag e deployar (§8 do
+  `docs/DEPLOY.md`).
+- **O deploy é conferido, não presumido.** O workflow espera `/api/health` responder a versão nova
+  e **falha** se não responder. Um deploy que não acontece é o pior defeito possível: foi assim
+  que a produção ficou servindo `1.2.0` depois da release da `1.3.0`, sem ninguém perceber.
+- **Publicação manual nunca move `latest`** nem dispara deploy. É o caminho do preview (`:edge`).
+- **A imagem é `linux/amd64`.** Arm64 exigiria QEMU e multiplicaria o build sem servir a ninguém.
 
 ---
 
