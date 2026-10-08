@@ -662,6 +662,10 @@ dispatchIncident ─────┼─ better-stack   SDK do Sentry apontado par
                       └─ otel           pronto, desligado: é o caminho do Grafana
 ```
 
+Quem chama `dispatchIncident`: `onRequestError`, `runAction`, os guards de processo, o relato de
+cliente e — desde a FASE 24 — a ponte de `logger.error`, que fecha a última porta por onde um erro
+só existia no stdout.
+
 | Peça | Papel |
 |---|---|
 | `observability/index.ts` | tipo `Incident`, contrato `IncidentSink`, `dispatchIncident` |
@@ -672,7 +676,7 @@ dispatchIncident ─────┼─ better-stack   SDK do Sentry apontado par
 | `observability/report.ts`, `process-guards.ts` | relato de requisição e de erro fatal de processo |
 | `sink-error-log.ts`, `sink-sentry.ts`, `sink-otel.ts` | um arquivo por destino |
 
-Cinco decisões que não são óbvias:
+Cinco decisões que não são óbvias (a FASE 24 acrescentou a ponte de `logger.error`):
 
 - **A captação não conhece os destinos.** Por isso trocar de fornecedor — inclusive para um Grafana
   na própria VPS — é mudar variável de ambiente. O destino OTLP já está escrito e desligado, com

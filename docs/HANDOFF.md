@@ -13,6 +13,23 @@
 - **O deploy da `v1.3.0` ainda não apareceu em produção** — `/api/health` responde `1.2.0`. Ver a
   pendência do Dokploy abaixo.
 
+## Trabalho atual — **FASE 24: erros observáveis de ponta a ponta** (`fix/erros-nao-aparecem`)
+
+Correção de seis caminhos por onde um erro escapava da tela `/admin/erros`. O sintoma que abriu:
+o sino avisa de um erro, o clique em **Erros** cai no vazio.
+
+- **Busca por `id`** e link da notificação por `digest` (o `id` como fallback): o sino agora
+  leva à linha.
+- **`logger.error` entra no funil** (`observability/logger-bridge.ts`), com guarda de
+  reentrância (`AsyncLocalStorage`) — uma falha de destino não vira laço de incidentes.
+- **Route Handler** (`/api/anexos`) não engole falha real de I/O (só `ENOENT` é 404).
+- **`runAction` usa `after()`** em vez de `void`: o relato não é descartado com a requisição.
+- **Gravação no banco que falha** cai para o fornecedor externo + Telegram.
+- **Filtro de ruído** não confunde `"Aborted: …"` com cancelamento de navegação.
+
+Gates verdes: `lint`, `typecheck`, `test` (**528**), `build` (zero aviso de Edge), `db:seed`.
+Doc na FASE 24; `AGENTS.md` §10.4 ganhou a regra de trabalho isolado (worktree por agente, `fix/`).
+
 ## Entrega pronta, ainda não publicada — **CI/CD da imagem (GHCR)**
 
 Mergeada na `develop` (PR #12). **Não publicada de propósito:** o caminho de deploy depende de

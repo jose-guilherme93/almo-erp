@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getAuthContext } from "@/server/auth/context";
+import { dispatchIncident } from "@/server/services/observability";
 import { absolutePathFor, getAttachmentMetadata } from "@/server/services/attachment";
 import { canViewMaintenance } from "@/server/services/maintenance";
 import { canViewRequest } from "@/server/services/request";
@@ -50,7 +51,30 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
         "X-Content-Type-Options": "nosniff",
       },
     });
-  } catch {
+  } catch (error) {
+    // Arquivo ausente é resposta prevista (404). Falha real de I/O — permissão,
+    // disco cheio — é defeito e precisa aparecer em `/admin/erros`.
+    if (!isMissingFile(error)) {
+      await dispatchIncident({
+        kind: "route",
+        routePath: "/api/anexos/[id]",
+        method: "GET",
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? (error.stack ?? null) : null,
+        context: { source: "api/anexos" },
+      });
+    }
+
     return NextResponse.json({ error: "Arquivo indisponível." }, { status: 404 });
   }
+}
+
+/** `ENOENT` é "o arquivo não existe" — não é defeito, é o 404 esperado. */
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ENOENT"
+  );
 }

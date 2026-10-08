@@ -2,6 +2,7 @@ import { recordServerError } from "@/server/services/error-log";
 import { reportNewError } from "@/server/services/error-log-alert";
 import { sendAlert, shortSummary } from "@/server/services/observability/alert";
 import { pruneErrorLogsIfDue } from "@/server/services/observability/retention";
+import { sentrySink } from "@/server/services/observability/sink-sentry";
 import type { IncidentSink, ScrubbedIncident } from "@/server/services/observability";
 
 /**
@@ -46,6 +47,23 @@ export const errorLogSink: IncidentSink = {
       actorId: incident.actorId ?? null,
       branchId: incident.branchId ?? null,
     });
+
+    // O banco é o destino que **não pode faltar**; quando ele falha, o erro não
+    // pode sumir junto. Sem `ErrorLog` não há fingerprint para agrupar, então o
+    // aviso é imediato — melhor um alerta repetido do que um erro invisível.
+    if (result.outcome === "failed") {
+      await Promise.allSettled([
+        sentrySink.enabled ? sentrySink.capture(incident) : Promise.resolve(),
+        sendAlert({
+          summary: shortSummary(incident.message),
+          routePath: incident.routePath,
+          digest: incident.digest,
+          count: null,
+        }),
+      ]);
+
+      return;
+    }
 
     // Só a primeira ocorrência é novel. Notificar a cada repetição transformaria
     // o sino em ruído e esconderia justamente o problema mais grave.

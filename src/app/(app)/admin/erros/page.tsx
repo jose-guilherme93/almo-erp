@@ -36,6 +36,8 @@ const ROUTE_TYPE_LABEL: Record<string, string> = {
   route: "rota",
   action: "action",
   proxy: "proxy",
+  log: "log",
+  process: "processo",
 };
 
 /**

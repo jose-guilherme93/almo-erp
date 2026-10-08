@@ -25,6 +25,10 @@ export async function reportNewError(errorLogId: string): Promise<void> {
 
     if (!errorLog) return;
 
+    // O link aponta pela **referência** que a tela documenta (o digest que o
+    // usuário viu). Sem digest, cai no id — que a busca também passou a aceitar.
+    const reference = errorLog.digest ?? errorLog.id;
+
     // `prisma` como "transação": o erro já está gravado, e não existe uma
     // transação de negócio a amarrar. O que importa é que uma falha aqui não
     // propague — o `catch` abaixo engole.
@@ -35,7 +39,7 @@ export async function reportNewError(errorLogId: string): Promise<void> {
       branchId: null,
       entityType: "ErrorLog",
       entityId: errorLog.id,
-      link: `/admin/erros?busca=${errorLog.id}`,
+      link: `/admin/erros?busca=${reference}`,
       data: {
         message: errorLog.message,
         routePath: errorLog.routePath,

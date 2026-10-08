@@ -546,6 +546,7 @@ instrumentation ─▶ dispatchIncident ─▶ error-log      (sempre; sem cota;
    onRequestError          │         ├▶ better-stack  (SDK do Sentry apontado para o DSN)
    runAction               │         └▶ otel          (pronto, desligado: é o caminho do Grafana)
    process-guards          │
+   logger.error            │
    global-error / error.tsx┘
 ```
 
@@ -578,6 +579,10 @@ Regras que valem para quem mexer nessa área:
   `ErrorLog` abriria a tela de observabilidade para injeção de dados falsos.
 - **`dispatchIncident` nunca lança.** Destino que falha (rede, cota, credencial) não pode derrubar
   a requisição que já estava falhando.
+- **`logger.error` também entra no funil** (`observability/logger-bridge.ts`), porque "quebrou" não
+  pode existir só no stdout. A ponte é registrada no boot (o logger é `lib/` e não importa
+  `server/`) e tem guarda de reentrância (`isDispatchingIncident`): os sinks usam `logger.error`
+  para relatar falha, e sem a guarda uma falha de destino viraria um laço de incidentes.
 - **`/admin/erros` avisa por Telegram**, com freio de 15 min por rota+mensagem: erro em laço não
   pode virar 500 mensagens no mesmo chat. O complemento é um monitor externo de uptime em
   `/api/health`, que não exige código.
@@ -675,7 +680,7 @@ ambiente (cota, rede) e não da regra — a regra em si é testada.
 
 ### 10.3 Commits
 
-- Branch por fase: `feat/fase-06-estoque`.
+- Branch por fase: `feat/fase-06-estoque`. Correção: `fix/<slug>` — ver §10.4.
 - Conventional Commits: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `build`, `perf`.
   Escopo opcional: `feat(estoque): launch de ajuste com justificativa`.
 - **O tipo do commit define a versão** (§9.2): `feat` → minor, `fix`/`perf`/`refactor`/`revert`
@@ -683,6 +688,25 @@ ambiente (cota, rede) e não da regra — a regra em si é testada.
   release; não existe bump manual de versão.
 - PR por fase, com a lista de critérios de aceite da fase como checklist.
 - Migration Prisma sempre versionada e revisada — nunca edite migration já aplicada.
+
+### 10.4 Isolamento do trabalho — um worktree por agente
+
+Cada agente (ou pessoa) que vai **programar** trabalha num **git worktree próprio**, sempre a
+partir da `develop`. O worktree isola o diretório de trabalho sem duplicar o repositório: o que
+está sujo num não aparece no outro, e duas frentes não disputam o mesmo `git status`.
+
+```bash
+git worktree add <caminho> -b <branch> develop
+# ... trabalhar, rodar os gates (§9) ...
+git worktree remove <caminho>
+```
+
+- **Correção usa `fix/<slug>`; feature usa `feat/fase-NN-slug`.** A regra de release (§9.2) não
+  muda: `fix:` publica patch, `feat:` publica minor.
+- O worktree **não** herda arquivo não versionado nem `node_modules`: copie o `.env` e rode
+  `pnpm install` nele antes de rodar qualquer gate.
+- Ao mergear, remova o worktree. Worktree órfão é ruído do mesmo jeito que branch já mergeada
+  (§10.1, passo 6).
 
 ---
 
