@@ -52,20 +52,31 @@ A ACL limita essa tag a alcançar **só** o host do Dokploy, na porta do painel.
 > Se um dia o Dokploy ganhar endereço público, o caminho mais simples é trocar o passo do
 > Tailscale por um `curl` direto — o resto do fluxo não muda.
 
-### O que é congelado no build (e por isso é build arg)
+### O que é congelado no build
 
-`NEXT_PUBLIC_*` é **inlinado no bundle em tempo de build**. Isso tem três consequências que já
-morderam este projeto:
+**Um `NEXT_PUBLIC_*` só é inlinado se o código do navegador o ler.** Foi conferindo isso que
+descobrimos que só **um** importa:
 
-| Variável | O que acontece se faltar no build |
-|---|---|
-| `GIT_SHA` | `/api/health` responde `unknown` no commit — foi o que aconteceu na `1.2.0` |
-| `NEXT_PUBLIC_APP_URL` | a imagem sobe com `http://localhost:3000` inlinado, quebrando links e OAuth |
-| `NEXT_PUBLIC_SENTRY_DSN` | **a captura de erro do navegador fica silenciosamente morta** |
-| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | o botão do Drive fica inerte |
+| Variável | Quando vale | Se faltar no build |
+|---|---|---|
+| `GIT_SHA` (build arg) | build | `/api/health` responde `unknown` — foi o que aconteceu na `1.2.0` |
+| `NEXT_PUBLIC_SENTRY_DSN` (build arg) | build | **a captura de erro do navegador fica silenciosamente morta** |
 
-O workflow **falha de propósito** se `NEXT_PUBLIC_APP_URL` estiver vazio: um build que congela o
-padrão do `Dockerfile` não falha sozinho, ele só mente.
+E as que **não** são build arg, apesar do nome:
+
+| Variável | Quando vale | Por quê |
+|---|---|---|
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | **runtime** | é lida num Server Component e passada como prop — o navegador nunca a lê direto |
+| `NEXT_PUBLIC_APP_URL` / `APP_NAME` | não é lida | só existem no schema de `src/lib/env.ts`; ninguém consome |
+| `DATABASE_URL`, `AUTH_SECRET`… | runtime | segredos de container, vão no Environment do Dokploy |
+
+> A armadilha é real e silenciosa: um `--build-arg` que o `Dockerfile` não declara é
+> **ignorado**, e o `next build` congela o vazio. Não falha — mente. Por isso o único
+> `NEXT_PUBLIC_*` que o cliente lê tem `ARG` declarado no `Dockerfile`, com comentário dizendo
+> por quê.
+>
+> `NEXT_PUBLIC_APP_URL` continua sendo usada — mas **pelo workflow**, como alvo da conferência de
+> health depois do deploy. Não é build arg.
 
 ## 2. Pré-requisitos (uma vez)
 
@@ -130,9 +141,8 @@ Settings → Secrets and variables → Actions.
 
 | Variable | Para que |
 |---|---|
-| `NEXT_PUBLIC_APP_URL` | build arg **e** alvo da conferência de health |
-| `NEXT_PUBLIC_SENTRY_DSN` | build arg — sem ele não há erro de cliente |
-| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | build arg do Drive |
+| `NEXT_PUBLIC_SENTRY_DSN` | **build arg** — sem ele não há captura de erro no navegador |
+| `NEXT_PUBLIC_APP_URL` | alvo da conferência de health depois do deploy (**não** é build arg) |
 | `DOKPLOY_URL` | endereço do painel na tailnet (ex.: `http://<host>:3000`) |
 | `DOKPLOY_APPLICATION_ID` | id da Application (Dokploy → Advanced) |
 

@@ -577,12 +577,13 @@ entra na tailnet como nó efêmero (`tag:ci`) e a ACL limita essa tag a alcança
 
 Regras:
 
-- **`NEXT_PUBLIC_*` é congelado no build.** Mudar qualquer uma delas exige **imagem nova**, não
-  restart do container. É a pegadinha mais cara desta arquitetura, e já mordeu três vezes:
-  `/api/health` respondendo `unknown` (falta de `GIT_SHA`), `NEXT_PUBLIC_APP_URL` congelado em
-  `localhost:3000`, e a captura de erro do navegador silenciosamente morta sem
-  `NEXT_PUBLIC_SENTRY_DSN`. O workflow **falha de propósito** quando `NEXT_PUBLIC_APP_URL` está
-  vazio: um build que congela o padrão do `Dockerfile` não falha sozinho, ele mente.
+- **Um `NEXT_PUBLIC_*` só é inlinado se o navegador o ler.** Não presuma pelo nome: confira o
+  código. Hoje só **`NEXT_PUBLIC_SENTRY_DSN`** é build arg; `NEXT_PUBLIC_GOOGLE_CLIENT_ID` é lido
+  num Server Component e passado como prop (runtime), e `NEXT_PUBLIC_APP_URL` / `APP_NAME` não são
+  lidos por ninguém. Mudar um build arg exige **imagem nova**, não restart do container.
+- **`--build-arg` não declarado é ignorado em silêncio.** O Docker avisa "not consumed", fácil de
+  não ver, e o `next build` congela o vazio. Não falha — mente. Todo build arg consumido precisa
+  de `ARG` no `Dockerfile`, com comentário dizendo por quê.
 - **DSN do Sentry não é segredo.** Ele vai embutido no JavaScript do navegador de qualquer forma,
   então é *variable*, não *secret*. Tratá-lo como segredo dá falsa sensação de proteção.
 - **Toda release publica tag imutável** (`vX.Y.Z`) além de `:latest`. Sem a imutável, "voltar para

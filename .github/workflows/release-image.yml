@@ -99,23 +99,31 @@ jobs:
 
           echo "versão da imagem: ${tag} (release: ${is_release})"
 
-      - name: Conferir os build args
-        # `NEXT_PUBLIC_*` é **inlinado no bundle em tempo de build** (AGENTS.md §9.6).
-        # Um valor vazio aqui não falha o build: ele congela o padrão do
-        # `Dockerfile` dentro da imagem. Foi assim que a produção passou a
-        # responder `1.2.0+unknown` e que a captura de erro do navegador ficaria
-        # silenciosamente morta sem DSN. Falhar alto é a única saída honesta.
+      - name: Conferir a configuração
+        # Duas checagens, e as duas são sobre falhar **antes** de gastar o build.
+        #
+        # 1. `NEXT_PUBLIC_APP_URL` é o alvo da conferência de health no job de
+        #    deploy. Sem ela, o deploy aconteceria e ninguém verificaria — o que é
+        #    pior que não deployar.
+        # 2. Um `NEXT_PUBLIC_*` vazio não falha o build: ele congela o padrão do
+        #    `Dockerfile` dentro da imagem. Foi assim que a produção passou a
+        #    responder `1.2.0+unknown`.
+        #
+        # O **único** `NEXT_PUBLIC_*` que o navegador lê direto é o
+        # `NEXT_PUBLIC_SENTRY_DSN` (em `sentry.client.config.ts`). O
+        # `GOOGLE_CLIENT_ID` é lido no servidor e passado como prop — é runtime,
+        # não build arg.
         env:
           APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
         run: |
           if [ -z "${APP_URL}" ]; then
             echo "::error::A variável NEXT_PUBLIC_APP_URL não está definida no repositório."
             echo "Settings → Secrets and variables → Actions → Variables."
-            echo "Sem ela a imagem sobe com 'http://localhost:3000' inlinado no bundle."
+            echo "Ela é o alvo da conferência de health depois do deploy."
             exit 1
           fi
 
-          echo "NEXT_PUBLIC_APP_URL=${APP_URL}"
+          echo "alvo da conferência: ${APP_URL}"
 
       - name: Configurar o Buildx
         uses: docker/setup-buildx-action@v4
@@ -137,12 +145,13 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.version.outputs.tags }}
+          # Só o que o build realmente consome. `GOOGLE_CLIENT_ID` **não** entra:
+          # ele é lido no servidor e passado como prop, então é variável de
+          # runtime no Dokploy — mandá-lo como build arg daria a impressão de que
+          # é congelado.
           build-args: |
             GIT_SHA=${{ github.sha }}
-            NEXT_PUBLIC_APP_NAME=almo-erp
-            NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL }}
             NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
-            NEXT_PUBLIC_GOOGLE_CLIENT_ID=${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
           # O cache de camadas é o que torna o build barato: sem ele, cada release
           # reinstala as dependências e recompila tudo do zero.
           cache-from: type=gha
