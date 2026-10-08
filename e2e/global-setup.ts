@@ -1,7 +1,7 @@
 import { chromium, type APIRequestContext, type FullConfig } from "@playwright/test";
 
 import { loginAs } from "./helpers/auth";
-import { APP_ROUTES } from "./helpers/routes";
+import { APP_ROUTES, DETAIL_LISTS, ERROR_ROUTES } from "./helpers/routes";
 
 const FALLBACK_BASE_URL = "http://localhost:3001";
 
@@ -43,7 +43,10 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   try {
     await warmRoutes(baseURL);
 
-    console.log(`[global-setup] ${APP_ROUTES.length} telas aquecidas em ${seconds(startedAt)}`);
+    console.log(
+      `[global-setup] ${APP_ROUTES.length + ERROR_ROUTES.length} telas e ` +
+        `${DETAIL_LISTS.length} detalhes aquecidos em ${seconds(startedAt)}`,
+    );
   } catch (error) {
     console.warn(
       `[global-setup] warm-up não completou em ${seconds(startedAt)}; ` +
@@ -66,17 +69,57 @@ async function warmRoutes(baseURL: string): Promise<void> {
     await loginAs(page, "superAdmin");
     await page.close();
 
-    await eachLimit(APP_ROUTES.length, WARM_CONCURRENCY, async (index) => {
-      const route = APP_ROUTES[index];
+    const estaticas = [...APP_ROUTES.map((route) => route.path), ...ERROR_ROUTES];
 
-      if (!route) return;
+    await eachLimit(estaticas.length, WARM_CONCURRENCY, async (index) => {
+      const path = estaticas[index];
+
+      if (!path) return;
 
       // URL absoluta de propósito: não depender de o `baseURL` do contexto ser
       // herdado pelo `APIRequestContext` é uma dúvida que já custou três runs.
-      await warmOne(context.request, new URL(route.path, baseURL).toString());
+      await warmOne(context.request, new URL(path, baseURL).toString());
+    });
+
+    // Telas de detalhe: o id sai da listagem real, nunca inventado.
+    await eachLimit(DETAIL_LISTS.length, WARM_CONCURRENCY, async (index) => {
+      const entry = DETAIL_LISTS[index];
+
+      if (!entry) return;
+
+      await warmDetail(context.request, baseURL, entry.list, entry.pattern);
     });
   } finally {
     await browser.close();
+  }
+}
+
+/**
+ * Aquece uma tela de detalhe usando um id **real**, lido da listagem.
+ *
+ * Um id inventado faria a página lançar, o funil de erro gravaria a linha, e
+ * `erros.spec.ts` (que afirma "Nenhum erro registrado") quebraria por causa do
+ * aquecimento. Sem id na listagem, a rota é pulada — aquecer é otimização.
+ */
+async function warmDetail(
+  request: APIRequestContext,
+  baseURL: string,
+  listPath: string,
+  pattern: RegExp,
+): Promise<void> {
+  try {
+    const listagem = await request.get(new URL(listPath, baseURL).toString(), {
+      timeout: 60_000,
+    });
+
+    const match = pattern.exec(await listagem.text());
+    const id = match?.[1];
+
+    if (!id) return;
+
+    await warmOne(request, new URL(`${listPath}/${id}`, baseURL).toString());
+  } catch {
+    // Listagem indisponível: segue sem aquecer o detalhe.
   }
 }
 

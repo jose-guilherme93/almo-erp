@@ -35,7 +35,11 @@ export const APP_ROUTES: AppRoute[] = [
   { user: "superAdmin", path: "/catalogo/itens", label: "Materiais" },
   { user: "superAdmin", path: "/relatorios", label: "Relatórios" },
   { user: "superAdmin", path: "/relatorios/consolidados", label: "Relatórios consolidados" },
-  { user: "adminFilial", path: "/dashboard/unidade/x", label: "Dashboard da unidade" },
+  // `x` não é uma unidade real: esta linha mede a tela de **não encontrado**.
+  // O nome antigo ("Dashboard da unidade") descrevia outra tela, e foi ela que
+  // apareceu como flaky — medir uma página que a pessoa quase nunca vê e chamá-la
+  // de dashboard é o tipo de teste que passa sem provar nada.
+  { user: "adminFilial", path: "/dashboard/unidade/x", label: "Unidade inexistente" },
   { user: "adminFilial", path: "/solicitacoes/fila", label: "Fila de aprovação" },
   { user: "adminFilial", path: "/entregas", label: "Entregas" },
   { user: "almoxarife", path: "/estoque/saldos", label: "Saldos" },
@@ -58,7 +62,33 @@ export const APP_ROUTES: AppRoute[] = [
 /**
  * Rotas que existem só para provar o caminho de erro.
  *
- * Ficam fora de `APP_ROUTES` porque não são telas: não têm perfil nem precisam
- * de warm-up (a página de erro é uma só e já é compilada pelos testes).
+ * Ficam fora de `APP_ROUTES` porque não são telas de trabalho: não têm perfil e
+ * não precisam do rótulo de responsividade. Mas **precisam** de warm-up — o
+ * `/forbidden` era compilado frio dentro do `expect.timeout` do primeiro teste
+ * que o visitava, e é uma das telas que apareciam como flaky.
  */
-export const ERROR_ROUTES = ["/rota-que-nao-existe", "/acesso-negado"] as const;
+export const ERROR_ROUTES = ["/forbidden", "/acesso-negado", "/rota-que-nao-existe"] as const;
+
+/**
+ * Rotas de **detalhe**, que só existem com um id.
+ *
+ * O warm-up não pode inventar um id: uma página que não encontra o registro
+ * lança, o funil de erro grava a linha, e `erros.spec.ts` — que afirma
+ * "Nenhum erro registrado" — quebraria por causa do aquecimento. Então o id é
+ * **extraído da listagem real** (uma requisição a mais, sem renderização) e o
+ * detalhe é aquecido com dado de verdade.
+ *
+ * Se a listagem vier vazia (banco recém-semeado), a rota é simplesmente pulada:
+ * aquecer é otimização, e pular não pode virar falha.
+ */
+export const DETAIL_LISTS: Array<{ list: string; pattern: RegExp }> = [
+  { list: "/filiais", pattern: /\/filiais\/([A-Za-z0-9]{10,})/ },
+  { list: "/solicitacoes", pattern: /\/solicitacoes\/([A-Za-z0-9]{10,})/ },
+  { list: "/reparos", pattern: /\/reparos\/([A-Za-z0-9]{10,})/ },
+  { list: "/inventario", pattern: /\/inventario\/([A-Za-z0-9]{10,})/ },
+  { list: "/transferencias", pattern: /\/transferencias\/([A-Za-z0-9]{10,})/ },
+  { list: "/estoque/movimentacoes", pattern: /\/estoque\/movimentacoes\/([A-Za-z0-9]{10,})/ },
+  { list: "/relatorios/consolidados", pattern: /\/relatorios\/consolidados\/([A-Za-z0-9]{10,})/ },
+  { list: "/admin/usuarios", pattern: /\/admin\/usuarios\/([A-Za-z0-9]{10,})/ },
+  { list: "/catalogo/itens", pattern: /\/catalogo\/itens\/([A-Za-z0-9]{10,})/ },
+];

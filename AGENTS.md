@@ -411,6 +411,16 @@ Regras que valem para todos:
   (não em `push` livre: empurrar para branch várias vezes estoura a cota), ignora `docs/**` e
   `**.md`, e tem `concurrency` com `cancel-in-progress` — empurrar cinco vezes no mesmo PR
   custa **um** run, não cinco.
+- **O runner é fixado (`ubuntu-24.04`), não `ubuntu-latest`.** O rótulo `latest` migra para
+  Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de surpresa num workflow que
+  publica produção. Trocar de imagem é decisão nossa, testada — não efeito colateral de data.
+- **Actions sempre no major atual.** `actions/*` desatualizadas passam a rodar forçadas num Node
+  mais novo e emitem aviso de deprecação; o aviso vira quebra quando o runner muda. Conferir o
+  major antes de escrever um `uses:` novo (`gh api repos/<org>/<action>/git/matching-refs/tags/v`).
+- **O backup secundário se declara não configurado.** Sem os cinco secrets ele **pula com aviso**,
+  e o resumo do run diz, em texto, "nenhum backup foi tirado" — em vez de falhar todo dia às 07:00
+  e produzir ruído vermelho que ninguém lê. Configurado e quebrado continua falhando alto: a
+  distinção é entre *ausência de configuração* e *defeito*. O backup principal é o Dokploy → S3.
 - **Deploy não é action.** Publicar é o Dokploy, não o GitHub.
 - Antes de adicionar um workflow novo, responder: *isso precisa estar remoto?* Se a resposta é
   não, ele não vai.
@@ -490,6 +500,16 @@ pnpm release:publish  # grava package.json, commita, tagueia e sobe main + tag
 - **O warm-up depende do cookie da sessão** ser compartilhado entre a página e o `context.request`.
   É o que faz o aquecimento valer: sem sessão, cada requisição é redirecionada para `/login` **sem
   compilar a rota protegida** — o passo existiria, custaria tempo e não aqueceria nada.
+- **O warm-up cobre as telas de erro e as de detalhe.** `/forbidden` era compilado frio dentro do
+  `expect.timeout` do primeiro teste que o visitava — uma das telas que apareciam como flaky. E as
+  telas de detalhe precisam de **id real, lido da listagem**: inventar um id faria a página lançar,
+  o funil gravaria a linha, e `erros.spec.ts` (que afirma "Nenhum erro registrado") quebraria por
+  causa do aquecimento.
+- **Espera por condição, nunca por `networkidle`.** `networkidle` é "500 ms sem tráfego", e num
+  `next dev` com HMR, streaming de RSC e SDK de erro isso pode demorar ou não chegar. Os testes
+  flaky apareciam em **telas diferentes** a cada execução — sinal de espera indeterminada, não de
+  teste defeituoso. O certo é esperar o que se vai medir: o conteúdo principal visível e as fontes
+  carregadas.
 - **O warm-up não é fatal, mas não pode ser silencioso.** Ele é otimização: se falhar, os testes
   rodam assim mesmo — e o `console.warn` diz que falhou. Um warm-up quebrado derrubou a suíte
   inteira em três execuções, porque o `globalSetup` morria antes de qualquer teste e o sintoma
