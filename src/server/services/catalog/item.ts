@@ -300,7 +300,6 @@ async function completeQuickInput(input: ItemQuickInput): Promise<ItemInput> {
   const category = await ensureGeneralCategory(prisma);
 
   return {
-    code: undefined,
     barcode: input.barcode,
     name: input.name,
     description: undefined,
@@ -336,7 +335,9 @@ export async function createItem(
 
   if (!category) throw new NotFoundError("Categoria");
 
-  const code = data.code ?? (await generateItemCode(data.categoryId));
+  // O código é sempre gerado pelo servidor: código de material é identificador
+  // do sistema, não campo que se digita. Ninguém "escolhe" o próprio código.
+  const code = await generateItemCode(data.categoryId);
 
   const taken = await prisma.item.findUnique({ where: { code }, select: { id: true } });
   if (taken) throw new ConflictError(`Já existe um material com o código ${code}.`);
@@ -402,17 +403,6 @@ export async function updateItem(
 
   if (!current) throw new NotFoundError("Material");
 
-  if (input.code !== current.code) {
-    const taken = await prisma.item.findUnique({
-      where: { code: input.code },
-      select: { id: true },
-    });
-
-    if (taken && taken.id !== input.itemId) {
-      throw new ConflictError(`Já existe um material com o código ${input.code}.`);
-    }
-  }
-
   if (input.barcode && input.barcode !== current.barcode) {
     const taken = await prisma.item.findUnique({
       where: { barcode: input.barcode },
@@ -428,7 +418,6 @@ export async function updateItem(
     await tx.item.update({
       where: { id: input.itemId },
       data: {
-        code: input.code,
         barcode: input.barcode,
         name: input.name,
         description: input.description,

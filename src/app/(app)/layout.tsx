@@ -48,6 +48,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     (permission) => context.hasPermission(permission),
     context.isNetworkScope,
     activeBranchCount,
+    context.activeBranchId,
   ).map((group) => ({
     label: group.label,
     items: group.items.map((item) => ({ label: item.label, href: item.href })),

@@ -30,6 +30,28 @@ o sino avisa de um erro, o clique em **Erros** cai no vazio.
 Gates verdes: `lint`, `typecheck`, `test` (**528**), `build` (zero aviso de Edge), `db:seed`.
 Doc na FASE 24; `AGENTS.md` §10.4 ganhou a regra de trabalho isolado (worktree por agente, `fix/`).
 
+## Entrega local — simplificação visual, menu e código automático
+
+Quatro frentes pedidas pelo dono do produto. Nenhuma muda regra de estoque, solicitação ou
+chamado — a de patrimônio ainda é **desenho, não código**.
+
+- **Escala +20%.** `html { font-size: 120% }` em `src/app/globals.css`. Como quase tudo no
+  Tailwind é `rem`, um ajuste na raiz escala junto texto, espaçamento e altura de campo/botão.
+  É o tamanho da interface resolvido num lugar só.
+- **Menu por tarefa, com Início no topo.** `src/lib/navigation.ts` ganhou o grupo **Início**,
+  sempre presente: a matriz vai para `/dashboard`, o admin de unidade para
+  `/dashboard/unidade/[sua filial]` e os demais para `/meu`. O antigo grupo **Avançado** foi
+  fundido em **Configurações** (no rodapé) e **Transferências** foi para **Insumo**.
+- **Código do material é sempre automático.** O campo de SKU saiu do formulário: `createItem`
+  gera pelo prefixo da categoria (`EPI-0007`) e `updateItem` não altera mais o código. Código de
+  identificação é do sistema, não escolha do operador (AGENTS §3.11).
+- **Patrimônio — FASE 23 (desenho pronto).** `docs/fases/FASE-23-patrimonio.md` traz as regras
+  confirmadas: dono = pessoa (fallback **Almoxarifado**), o bem nasce na entrada de item com
+  número de série, TI e almoxarifado enxergam o mesmo bem, histórico append-only. As três
+  decisões que faltavam foram respondidas — **atribuir não gera saída de estoque** (posse ≠
+  propriedade), **etiqueta `PAT` global e legível** e **série implica patrimônio, com exceção
+  manual**. Falta implementar (branch própria).
+
 ## Entrega pronta, ainda não publicada — **CI/CD da imagem (GHCR)**
 
 Mergeada na `develop` (PR #12). **Não publicada de propósito:** o caminho de deploy depende de
