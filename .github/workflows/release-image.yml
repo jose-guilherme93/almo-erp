@@ -40,14 +40,83 @@ permissions:
   contents: read
   # Necessário para publicar no GHCR com o `GITHUB_TOKEN` — sem segredo extra.
   packages: write
+  # cosign keyless (OIDC) e atestação de procedência.
+  id-token: write
+  attestations: write
+  # Upload do SARIF do Trivy para a aba Security do repositório.
+  security-events: write
 
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  verify:
+    name: Testes e tipos
+    # A imagem só é publicada com os testes verdes **naquele commit**. É o portão
+    # literal que faltava: o E2E cobre o PR, mas a versão pode ser tagueada a
+    # partir de um estado que ninguém rodou localmente.
+    #
+    # 5 min, sem exceção: é typecheck + suíte de serviço (sem navegador), medidos
+    # bem abaixo disso. O teto é freio, não estimativa.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: almo
+          POSTGRES_PASSWORD: almo_dev_password
+          POSTGRES_DB: almo_erp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U almo -d almo_erp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://almo:almo_dev_password@localhost:5432/almo_erp?schema=public
+      AUTH_SECRET: ci-secret-nao-usar-em-producao
+      AUTH_ALLOWED_DOMAINS: exemplo.com.br
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configurar pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Configurar Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 3
+
+      - name: Gerar o client do Prisma
+        run: pnpm db:generate
+
+      - name: Aplicar migrations
+        run: pnpm db:deploy
+
+      - name: Seed
+        run: pnpm db:seed
+
+      - name: Tipos
+        run: pnpm typecheck
+
+      - name: Testes
+        run: pnpm test
+
   build:
-    name: Construir e publicar
+    name: Construir, escanear e publicar
+    needs: verify
     # `ubuntu-24.04` explícito, não `ubuntu-latest`: o rótulo `latest` migra para
     # Ubuntu 26 em 19/out/2026, e uma mudança de ambiente não pode chegar de
     # surpresa num workflow que publica produção. Trocar de imagem é decisão
@@ -59,6 +128,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       tags: ${{ steps.version.outputs.tags }}
       is_release: ${{ steps.version.outputs.is_release }}
+      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - name: Checkout
@@ -140,6 +210,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Construir e publicar
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -165,6 +236,44 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.version.outputs.tag }}
 
+      - name: Escanear com o Trivy
+        # O deploy é um job separado que depende deste: a imagem já foi publicada,
+        # mas uma vulnerabilidade CRITICAL/HIGH impede que ela chegue a produção.
+        # `ignore-unfixed` porque travar release por CVE sem correção disponível
+        # não protege ninguém — só ensina a ignorar o vermelho.
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Publicar o relatório no Security
+        # `always()`: se o scan falha, é justamente quando o relatório importa.
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+
+      - name: Instalar o cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Assinar a imagem (keyless)
+        # Sem chave: o OIDC do GitHub assina, e a identidade (workflow+commit)
+        # fica verificável. `--yes` evita o prompt de confirmação no CI.
+        run: cosign sign --yes "${IMAGE}@${{ steps.build.outputs.digest }}"
+
+      - name: Atestar a procedência
+        # Atestação de build no formato do GitHub, também anexada ao registro.
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
   deploy:
     name: Publicar no Dokploy e conferir
     needs: build
@@ -186,6 +295,47 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
+
+      - name: Fixar a versão na Application
+        # A Application é origem **Docker** e produção usa a tag **imutável**
+        # `vX.Y.Z`: é aqui que ela passa a apontar para a versão nova antes do
+        # deploy. O Dokploy não adivinha a tag — sem este passo, um deploy
+        # automático continuaria puxando a tag antiga.
+        env:
+          DOKPLOY_URL: ${{ vars.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          APPLICATION_ID: ${{ vars.DOKPLOY_APPLICATION_ID }}
+          IMAGE: ${{ env.IMAGE }}
+          VERSION: ${{ needs.build.outputs.tag }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          if [ -z "${DOKPLOY_URL}" ] || [ -z "${DOKPLOY_API_KEY}" ] || [ -z "${APPLICATION_ID}" ]; then
+            echo "::error::Faltam DOKPLOY_URL / DOKPLOY_API_KEY / DOKPLOY_APPLICATION_ID (ver docs/DEPLOY.md)."
+            exit 1
+          fi
+
+          # Imagem privada: o Dokploy precisa da credencial de pull do GHCR.
+          if [ -z "${GHCR_USERNAME}" ] || [ -z "${GHCR_TOKEN}" ]; then
+            echo "::error::Faltam GHCR_USERNAME / GHCR_TOKEN (usuário do GitHub + PAT com read:packages)."
+            exit 1
+          fi
+
+          body="$(jq -n \
+            --arg applicationId "${APPLICATION_ID}" \
+            --arg dockerImage "${IMAGE}:${VERSION}" \
+            --arg username "${GHCR_USERNAME}" \
+            --arg password "${GHCR_TOKEN}" \
+            '{applicationId: $applicationId, dockerImage: $dockerImage, username: $username, password: $password, registryUrl: "ghcr.io"}')"
+
+          echo "apontando a Application para ${IMAGE}:${VERSION}"
+
+          curl -fsS --retry 5 --retry-all-errors --retry-delay 5 \
+            -X POST "${DOKPLOY_URL}/api/application.saveDockerProvider" \
+            -H "accept: application/json" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "${body}"
 
       - name: Disparar o deploy
         env:

@@ -63,7 +63,9 @@ jobs:
       - name: Configurar Node
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # Node 24 LTS, igual à imagem de produção (Dockerfile). O 22 virou
+          # maintenance; rodar o mesmo major em CI e runtime evita divergência.
+          node-version: 24
           cache: pnpm
 
       - name: Instalar dependências

@@ -9,7 +9,10 @@
 # para não depender do tracing do Prisma no bundle.
 # ---------------------------------------------------------------------------
 
-FROM node:22-bookworm-slim AS base
+# Base **pinada por digest** (Node 24 LTS, bookworm-slim): a tag `node:24-bookworm-slim`
+# é mutável, então o digest garante que a imagem de produção não muda por baixo. O
+# Dependabot (`.github/dependabot.yml`, ecossistema docker) propõe o bump.
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable

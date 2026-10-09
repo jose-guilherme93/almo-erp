@@ -1,0 +1,28 @@
+# Atualização de dependências — o mantenedor é único e o projeto tem que durar.
+#
+# A base da imagem é **pinada por digest** (Dockerfile), então sem atualização
+# automática ela apodrece: o Dependabot propõe o bump do digest. Actions e npm
+# pelo mesmo motivo. PRs agrupados (minor+patch) para não virar enxurrada.
+version: 2
+updates:
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"

@@ -67,11 +67,19 @@ versão nova subiu.
 
 ```
 release:publish → tag vX.Y.Z
-  → Actions: build (linux/amd64, cache do GHA) → ghcr.io/<owner>/almo-erp:vX.Y.Z + :latest
-  → Actions entra na tailnet (nó efêmero) e chama POST /api/application.deploy
+  → Actions: verify (typecheck + test) → build (linux/amd64, cache do GHA) → scan (Trivy)
+             → assinatura keyless (cosign) + atestação → ghcr.io/<owner>/almo-erp:vX.Y.Z + :latest
+  → Actions entra na tailnet, aponta a Application para vX.Y.Z (application.saveDockerProvider)
+    e chama POST /api/application.deploy
   → Dokploy puxa a imagem e sobe
   → Actions confere /api/health até a versão nova responder
 ```
+
+**Endurecimento (PR próprio):** Node 24 pinado por digest + Dependabot; job `verify` antes do
+build; Trivy (CRITICAL/HIGH impede o deploy); assinatura cosign keyless + atestação de procedência;
+e a Application passa a ser apontada para a **tag imutável** pelo próprio workflow. Como o Dokploy
+é Docker (não Kubernetes), **não há admissão de assinatura nativa** — a verificação vive no CI e no
+GHCR privado.
 
 **Por que o runner dispara, e não um webhook:** o painel do Dokploy vive atrás do Tailscale, então
 nem o webhook do GitHub nem o do Docker Hub o alcançam (verificado na doc do Dokploy: ele aceita
@@ -85,7 +93,8 @@ deixou a produção servindo `1.2.0` depois da release da `1.3.0`.
 
 1. **Tailscale**: OAuth client com a tag `tag:ci` + ACL permitindo `tag:ci` → host do Dokploy, na
    porta do painel.
-2. **GitHub → Secrets**: `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DOKPLOY_API_KEY`.
+2. **GitHub → Secrets**: `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DOKPLOY_API_KEY`,
+   `GHCR_USERNAME` (usuário do GitHub) e `GHCR_TOKEN` (PAT com `read:packages`).
 3. **GitHub → Variables**: `DOKPLOY_URL`, `DOKPLOY_APPLICATION_ID`, `NEXT_PUBLIC_APP_URL`,
    `NEXT_PUBLIC_SENTRY_DSN`.
 4. **Dokploy → Application**: origem **Docker** (`ghcr.io/<owner>/almo-erp:latest`) com PAT de

@@ -318,3 +318,32 @@ o histórico (`AssetEvent`) é append-only, com trigger que recusa alteração e
 chamado de TI se liga ao bem pelo número de patrimônio (abre em `IN_MAINTENANCE`, encerra
 devolvendo ao estado anterior). O bem muda de unidade pela ficha, indo para o almoxarifado de
 outra filial — sem tocar no saldo do material, que tem o seu próprio fluxo de transferência.
+
+---
+
+## ADR-18 — Imagem de produção: GHCR, tag imutável, scan e assinatura
+
+**Contexto.** O mantenedor é único e o projeto tem que durar. A dúvida inicial era usar o Docker
+Hub em vez do GHCR, por familiaridade. O registro, porém, **não** é o que torna uma imagem
+segura — e o repositório já havia decidido construir no CI e publicar no GHCR (`ADR` do CI/CD).
+
+**Decisão.**
+
+1. **Registro: GHCR.** Sem conta adicional, sem credencial extra, sem rate limit de pull de
+   terceiro; o push usa o `GITHUB_TOKEN` e o Dokploy puxa com um PAT `read:packages`.
+2. **Produção aponta para a tag imutável `vX.Y.Z`**, nunca `latest` (que existe só para preview).
+   O próprio workflow reescreve a imagem da Application (`application.saveDockerProvider`) antes
+   de deployar, porque o Dokploy não adivinha a tag.
+3. **Portão antes do deploy:** job `verify` (typecheck + `test`) precede o build; o `Trivy` falha
+   em `CRITICAL`/`HIGH` (`ignore-unfixed`) e o deploy depende dele.
+4. **Assinatura e procedência:** cosign **keyless** (OIDC) + `attest-build-provenance`.
+5. **Base pinada por digest** (`node:24-bookworm-slim@sha256:…`) com **Dependabot** para o bump.
+
+**Por quê.** O que protege é o que está **dentro** da imagem e como ela é verificável, não onde o
+artefato mora. E, para um mantenedor único, automatizar o disparo **e** a conferência do
+`/api/health` é mais seguro do que depender de lembrar de clicar.
+
+**Consequência.** O deploy automático exige dois secrets a mais no GitHub (`GHCR_USERNAME` e
+`GHCR_TOKEN`). O Dokploy, por ser Docker e não Kubernetes, **não** tem admissão de assinatura
+nativa: a verificação vive no CI e no GHCR privado — não se promete um portão de assinatura no
+servidor que ele não tem.
