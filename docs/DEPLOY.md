@@ -117,9 +117,29 @@ E as que **não** são build arg, apesar do nome:
 - O entrypoint **espera o banco** (até ~60s, por `DB_WAIT_ATTEMPTS` × `DB_WAIT_DELAY_SECONDS`)
   antes de migrar — evita crash-loop quando a VPS reinicia com o Postgres ainda subindo.
 
-> Por que 1 réplica e sem zero-downtime: as migrations rodam no entrypoint. Com mais de um
-> container subindo ao mesmo tempo, duas instâncias migrariam juntas. **Quando escalar para mais
-> de uma réplica, mova a migration para um serviço separado** e tire do entrypoint.
+> **Por que 1 réplica e sem zero-downtime — e por que o banco nunca atende dois containers.**
+>
+> As migrations rodam no **entrypoint**, não num passo separado. Com 1 réplica e zero-downtime
+> **desligado**, o Dokploy faz **para o container antigo → sobe o novo**: há uma janela de alguns
+> segundos de indisponibilidade, e **um único container fala com o Postgres por vez**.
+>
+> O banco **conseguiria** atender dois — Postgres é cliente/servidor e aceita centenas de conexões;
+> não é recurso de uso exclusivo. O que impede dois **não é capacidade do banco**, é a estratégia
+> de deploy: dois containers subindo juntos rodariam `prisma migrate deploy` ao mesmo tempo. O
+> Prisma usa *advisory lock*, então não corromperia — mas não vale depender disso.
+>
+> **A virada de Dockerfile para imagem não cria um segundo servidor.** É mudança de *fonte* na
+> **mesma** Application (Dockerfile → Docker image): o mesmo slot, com container novo.
+>
+> **O único jeito de dois servidores no mesmo banco** é apontar **duas Applications** para a mesma
+> `DATABASE_URL` — por exemplo, o preview com o banco de produção, o que ainda misturaria dados de
+> demonstração com dados reais. A regra: **uma `DATABASE_URL`, uma Application.**
+>
+> **Antes de ligar o zero-downtime**, mova a migration para um passo separado e tire do entrypoint.
+> Enquanto ela estiver aqui, o zero-downtime sobe o novo **antes** de matar o velho, e dois
+> containers migrariam juntos. Migration **aditiva** (nunca `DROP COLUMN` no mesmo deploy) é o que
+> torna até uma sobreposição breve inofensiva. E **tire um backup antes de qualquer virada** — é o
+> botão de pânico.
 
 > Sobre a tag: a Application fica na **imutável** (`v1.3.0`), não em `:latest`. É o workflow que
 > a atualiza para a versão nova a cada release — assim produção nunca "muda sozinha", e o
@@ -235,8 +255,9 @@ visibilidade da solicitação/chamado antes de entregar o arquivo.
 
 ## 11. Preview (ambiente de demonstração) × produção
 
-No Dokploy isso são **duas Applications** apontando para o mesmo repositório, cada
-uma com o seu banco. Uma nunca enxerga a outra.
+No Dokploy isso são **duas Applications** apontando para o mesmo repositório, cada uma com o seu
+banco — **nunca a mesma `DATABASE_URL`** (um banco, uma Application; ver §3). Uma nunca enxerga a
+outra.
 
 | | **Produção** | **Preview** |
 |---|---|---|
