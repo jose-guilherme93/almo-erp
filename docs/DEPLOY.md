@@ -316,3 +316,74 @@ Os e-mails de demonstração usam o primeiro domínio de `AUTH_ALLOWED_DOMAINS`
 > **Cuidado**: `SEED_DEMO_DATA=true` **jamais** vai na Application de produção — senão
 > a produção ganha empresa, filial e catálogo falsos. Em produção a variável fica
 > **ausente**.
+
+## 12. Roteiro: validar a imagem antes da virada de produção
+
+O objetivo é provar o **pipeline inteiro** (build → testes → scan → assinatura → atestação) e a
+**imagem** num ambiente descartável — o **preview** — antes de qualquer coisa tocar produção.
+
+### Pré-requisitos (uma vez)
+
+- **`NEXT_PUBLIC_APP_URL`** definida como *variable*. Mesmo para `:edge`, o build **confere que ela
+  existe** e falha antes de construir sem ela.
+- O **preview** já montado (§11), com **o próprio Postgres** e **o próprio volume**.
+- Opcional: `NEXT_PUBLIC_SENTRY_DSN` (build arg).
+
+> O job de **deploy** (Tailscale + Dokploy) **não roda** aqui: ele só executa em tag de release
+> (`v*`). Então validar o `:edge` **não** exige `TS_OAUTH_*` nem `DOKPLOY_*`.
+
+### Passo 1 — Publicar `:edge`
+
+```bash
+gh workflow run release-image.yml --ref develop
+gh run list --workflow=release-image.yml --limit 1
+gh run watch <run-id>          # acompanha até o fim
+```
+
+O run faz: **`verify`** (typecheck + `test`) → **build** (linux/amd64) → **Trivy** → **cosign** →
+**atestação**. O job `deploy` é **pulado** (não é release). Se o Trivy achar `CRITICAL`/`HIGH`, o
+run falha aqui — a imagem é publicada, mas nunca vai a lugar nenhum.
+
+### Passo 2 — Conferir a imagem e a assinatura
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <usuario-github> --password-stdin
+docker pull ghcr.io/<owner>/almo-erp:edge
+docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/<owner>/almo-erp:edge
+
+# procedência (troque <owner>)
+gh attestation verify oci://ghcr.io/<owner>/almo-erp:edge -R <owner>/almo-erp
+```
+
+- `<owner>` = dono do repositório; `<usuario-github>` = seu usuário; `GHCR_TOKEN` = PAT com
+  `read:packages`.
+- A `docker inspect` devolve o **digest** exato — é o que você compararia depois, se quisesse.
+
+### Passo 3 — Subir no preview
+
+1. Dokploy → Application do **preview** → **Docker Image** = `ghcr.io/<owner>/almo-erp:edge` → **Deploy**.
+2. `curl -fsS https://<dominio-preview>/api/health` → `"status":"ok"` e o `commit` igual ao que
+   você acabou de publicar.
+3. Fumaça manual: entrar (`admin.<local>@<dominio>`) e abrir `/solicitacoes`, `/estoque/saldos`,
+   `/patrimonio`.
+
+### Passo 4 — Só então a virada de produção
+
+1. Abra o **PR `develop → main`** (o E2E roda nele — é o portão).
+2. Merge na `main`.
+3. `pnpm release:publish` — decide a versão pelos commits, cria a tag `vX.Y.Z` e sobe `main` + tag.
+4. O `release-image.yml` (na tag) constrói, escaneia e assina; **aponta a Application de produção
+   para `vX.Y.Z`** e dispara o deploy; depois **confere o `/api/health`** até a versão nova responder.
+5. Acompanhe: `gh run watch <run-id>`.
+
+> **A primeira virada tem um passo manual:** trocar a origem da Application de produção de
+> **Dockerfile** para **Docker image** (§3), com a imagem `ghcr.io/<owner>/almo-erp:vX.Y.Z` da
+> versão que já está no ar, `Auto Deploy` desligado e as credenciais do GHCR. Depois disso é a
+> automação que mantém a tag.
+
+### Se algo der errado
+
+- **Scan falhou / imagem ruim:** o job falha e o **deploy não acontece**. Corrija e republique.
+- **Rollback de produção:** Dokploy → Application → **Docker Image** = `vX.Y.Z` anterior → Deploy →
+  confira `/api/health`. Nada é reconstruído (§8).
+- **Preview quebrado:** produção **não** é afetada — banco e volume são próprios (§11).
