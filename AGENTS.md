@@ -46,7 +46,7 @@ apenas o que ele mesmo pediu. Ver mais do que isso é uma permissão explícita
 |---|---|
 | Framework | Next.js 16 (App Router, Turbopack, Server Actions) |
 | Linguagem | TypeScript 5.x, `strict: true` |
-| Runtime | Node 22 LTS, pnpm |
+| Runtime | Node 24 LTS, pnpm (`.nvmrc`/`engines`); a imagem e o CI fixam o mesmo major |
 | Autenticação | Auth.js v5 (NextAuth) — provider **Google** |
 | Banco | PostgreSQL 17 |
 | ORM | Prisma 6 |
@@ -58,7 +58,7 @@ apenas o que ele mesmo pediu. Ver mais do que isso é uma permissão explícita
 | Testes | Vitest (regras de negócio) + Playwright (fluxos críticos) |
 | Qualidade | ESLint (flat) + Prettier + Husky + lint-staged |
 
-**Antes da FASE 00**, se `node -v` falhar, instale o Node 22 LTS (nvm ou tarball oficial).
+**Antes da FASE 00**, se `node -v` falhar, instale o Node 24 LTS (nvm ou tarball oficial).
 `docker` é usado apenas para o Postgres local — não use Docker para o app.
 
 ---
@@ -622,6 +622,20 @@ Regras:
   que a produção ficou servindo `1.2.0` depois da release da `1.3.0`, sem ninguém perceber.
 - **Publicação manual nunca move `latest`** nem dispara deploy. É o caminho do preview (`:edge`).
 - **A imagem é `linux/amd64`.** Arm64 exigiria QEMU e multiplicaria o build sem servir a ninguém.
+- **A Application aponta para a tag imutável, e o próprio workflow a atualiza.** O Dokploy não
+  adivinha a tag: antes do `application.deploy`, o runner chama `application.saveDockerProvider`
+  com `ghcr.io/<owner>/almo-erp:vX.Y.Z` (e as credenciais de pull do GHCR). Sem esse passo, um
+  deploy automático continuaria puxando a versão anterior.
+- **A imagem só é publicada com os testes verdes.** O job `verify` (typecheck + `test`, com
+  Postgres de serviço) precede o build no `release-image.yml`.
+- **A base é Node 24 pinada por digest.** `node:24-bookworm-slim` é tag mutável; o `Dockerfile`
+  fixa o digest e o **Dependabot** (`.github/dependabot.yml`) propõe o bump — sem isso, a base
+  apodrece.
+- **A imagem passa por scan e por assinatura antes de produção.** O `Trivy` roda no
+  `release-image.yml` e **CRITICAL/HIGH impede o deploy** (`ignore-unfixed`: CVE sem correção não
+  pode travar release). A imagem é **assinada keyless** (cosign) e ganha **atestação de
+  procedência**. O Dokploy (Docker) **não** tem admissão de assinatura nativa — a verificação vive
+  no CI e no GHCR privado; não finja que há portão no servidor.
 
 ---
 

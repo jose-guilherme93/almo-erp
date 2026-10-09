@@ -19,8 +19,10 @@
 ```
 pnpm release:publish
   → tag vX.Y.Z
-  → Actions: build da imagem (linux/amd64) → ghcr.io/<owner>/almo-erp:vX.Y.Z  (+ :latest)
-  → Actions entra na tailnet e chama POST /api/application.deploy
+  → Actions: verify (typecheck + test) → build (linux/amd64) → scan (Trivy)
+             → assinatura keyless (cosign) + atestação → ghcr.io/<owner>/almo-erp:vX.Y.Z (+ :latest)
+  → Actions entra na tailnet, aponta a Application para vX.Y.Z (application.saveDockerProvider)
+    e chama POST /api/application.deploy
   → Dokploy puxa a imagem e sobe
   → entrypoint: espera o banco → pnpm db:deploy → pnpm start
   → Actions confere /api/health até a versão nova responder
@@ -87,7 +89,9 @@ E as que **não** são build arg, apesar do nome:
    banco e o **nome do serviço** na rede interna.
 4. **S3 Destination** criada no Dokploy (para o backup principal).
 5. **Token do GHCR** para o Dokploy puxar a imagem: um PAT do GitHub com `read:packages`
-   (fine-grained ou classic). Guarde — ele vai na Application (§3).
+   (fine-grained ou classic). Guarde — ele vai na Application (§3) **e** nos secrets do GitHub
+   (`GHCR_USERNAME` + `GHCR_TOKEN`), porque o workflow reafirma essa credencial ao apontar a
+   Application para a versão nova.
 6. **Cliente OAuth do Tailscale** para o CI, com a tag `tag:ci`, e uma **ACL** que permita
    `tag:ci` alcançar o host do Dokploy na porta do painel. Gere em
    Tailscale → Settings → OAuth clients.
@@ -98,9 +102,11 @@ E as que **não** são build arg, apesar do nome:
 ### Application (o app)
 
 - **Source**: **Docker** (registry) — **não** Git. É isso que faz a VPS parar de buildar.
-- **Docker Image**: `ghcr.io/<owner>/almo-erp:latest`
+- **Docker Image**: `ghcr.io/<owner>/almo-erp:vX.Y.Z` — a **tag imutável** da versão em produção.
+  O `release-image.yml` reescreve este campo a cada release (`application.saveDockerProvider`)
+  antes de deployar, então você não precisa editar à mão. O Dokploy **não adivinha** a tag.
 - **Registry URL**: `ghcr.io` · **Username**: seu usuário do GitHub ·
-  **Password**: o PAT com `read+packages` do §2.5
+  **Password**: o PAT com `read:packages` do §2.5
 - **Auto Deploy**: **desligado**. Quem dispara é o `release-image.yml`, pela API.
 - **Domains**: `colegiobatista.josetilabs.com` (porta 3000).
 - **Environment**: preencha conforme `.env.production.example`. Aqui vão os **segredos de
@@ -115,8 +121,9 @@ E as que **não** são build arg, apesar do nome:
 > container subindo ao mesmo tempo, duas instâncias migrariam juntas. **Quando escalar para mais
 > de uma réplica, mova a migration para um serviço separado** e tire do entrypoint.
 
-> Sobre a tag `:latest`: o Dokploy fica apontado nela, então uma release nova passa a ser puxada
-> sem ninguém editar configuração. As tags **imutáveis** (`v1.3.0`) existem para rollback (§8).
+> Sobre a tag: a Application fica na **imutável** (`v1.3.0`), não em `:latest`. É o workflow que
+> a atualiza para a versão nova a cada release — assim produção nunca "muda sozinha", e o
+> rollback é trocar a tag para a anterior (§8). O `:latest` existe só para preview/conveniência.
 
 ### Database (o Postgres)
 
@@ -132,7 +139,8 @@ Settings → Secrets and variables → Actions.
 | Secret | Para que |
 |---|---|
 | `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | o runner entrar na tailnet |
-| `DOKPLOY_API_KEY` | chamar `application.deploy` |
+| `DOKPLOY_API_KEY` | `application.saveDockerProvider` + `application.deploy` |
+| `GHCR_USERNAME` / `GHCR_TOKEN` | credencial de pull do GHCR reafirmada na Application (usuário do GitHub + PAT `read:packages`) |
 | `SSH_HOST` / `SSH_USER` / `SSH_PRIVATE_KEY` | backup por SSH |
 | `POSTGRES_CONTAINER` | nome do container do Postgres (veja `docker ps` na VPS) |
 | `BACKUP_PASSPHRASE` | passphrase do `gpg` que cifra o dump |
